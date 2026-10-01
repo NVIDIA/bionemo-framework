@@ -42,6 +42,32 @@ components. GRPO trains on that weighted scalar mean. GDPO instead trains on the
 then normalize the combined advantage. Scalar `weight_*` values do not scale or disable
 GDPO objectives. Existing safety/EOD gating happens before normalization.
 
+PhiX GDPO retains its 15 individual objectives and adds three joint objectives:
+`aai_with_core`, `accessory_with_core`, and `aai_with_core_and_accessory`.
+They multiply the existing AAI novelty, core ordered conservation, and K/X accessory
+scores as their names indicate. Each is another independently normalized GDPO channel,
+not a scalar weight or a replacement for its components. No additional search is run.
+These products encourage novelty with conserved core functions; they do not guarantee
+joint biological success or agreement with Arc's separate filter-7 architecture diagnostic.
+GRPO and final acceptance gates are unchanged.
+GDPO aggregate logs/selection still use the configured reward vector: adding columns
+changes that aggregate's scale and ranking. Compare individual metrics across regimes,
+and select checkpoints within the new run rather than pooling old and new aggregates.
+
+Define a joint objective in the existing `gdpo_objectives` list using scored-column names:
+
+```yaml
+- name: aai_with_core
+  columns: [reward_external_average_protein_identity, reward_external_core_gene_ordered_conservation]
+  reducer: product
+  requires_safety_eligibility: true
+```
+
+Products use component scores in `[0, 1]`: any zero gives zero, all ones give one,
+and partial scores multiply. Missing columns are configuration errors; invalid/nonfinite
+component values zero the whole affected objective. Products retain safety and authentic-EOD
+gating. Inspect their component support and variance as well as their means.
+
 The default training batch has two groups of 384. Check `reward_prompt_group_count`,
 `reward_prompt_group_size_min`, and `reward_prompt_group_size_max` on training metrics;
 record IDs and generation shards do not define normalization groups.

@@ -466,6 +466,60 @@ def test_gdpo_objectives_reject_nonfinite_or_nonexact_values(invalid: object):
     pd.testing.assert_frame_equal(scored, original)
 
 
+def test_phix_joint_score_matrix():
+    """The shipped pair/triple reducers preserve partial credit, individual columns and gates."""
+    config = yaml.safe_load((Path(__file__).parents[3] / "configs/gdpo_phage_megatron.yaml").read_text())
+    env = config["env"]["phage_qc"]
+    objectives = nemo_rl_env._coerce_gdpo_objectives(env["gdpo_objectives"])
+    scored = pd.DataFrame({column: [1.0] * 6 for objective in objectives for column in objective.columns})
+    scored["reward_external_average_protein_identity"] = [0.8, 0.0, 1.0, 1.0, 1.0, float("nan")]
+    scored["reward_external_core_gene_ordered_conservation"] = [0.5, 1.0, 1.0, 1.0, 1.0, 0.5]
+    scored["reward_external_accessory_gene_diversification"] = [0.25, 1.0, 1.0, 1.0, 1.0, 0.5]
+    scored["safety_gate_state"] = ["PASS", "PASS", "PASS", "FAIL", "PASS", "PASS"]
+    scored["safety_gate_pass"] = [1.0, 1.0, 1.0, 0.0, 1.0, 1.0]
+    scored["generation_stopped_on_eod"] = [True, True, True, True, False, True]
+    scored["generation_capped_without_eod"] = [False, False, False, False, True, False]
+    for safety_class in ("amr", "toxin", "lysogeny"):
+        scored[f"safety_{safety_class}_state"] = "PASS"
+        scored[f"safety_{safety_class}_required"] = 1.0
+    original = scored.copy(deep=True)
+    scores = gdpo_objective_scores_from_scored(
+        scored, objectives, zero_reward_without_eod=env["zero_reward_without_eod"]
+    )
+    assert scores["aai_with_core"].tolist() == pytest.approx([0.4, 0.0, 1.0, 0.0, 0.0, 0.0])
+    assert scores["accessory_with_core"].tolist() == pytest.approx([0.125, 1.0, 1.0, 0.0, 0.0, 0.25])
+    assert scores["aai_with_core_and_accessory"].tolist() == pytest.approx([0.1, 0.0, 1.0, 0.0, 0.0, 0.0])
+    assert scores["average_protein_identity"].tolist() == pytest.approx([0.8, 0.0, 1.0, 0.0, 0.0, 0.0])
+    assert scores["core_gene_ordered_conservation"].tolist() == pytest.approx([0.5, 1.0, 1.0, 0.0, 0.0, 0.5])
+    assert scores.shape == (6, 18)
+    assert (scores.loc[4] == 0.0).all()  # No EOD also zeros the three safety columns.
+    assert scores.loc[3, "safety_amr"] == 1.0  # Overall failure doesn't mask class evidence.
+    pd.testing.assert_frame_equal(scored, original)
+    shuffled = gdpo_objective_scores_from_scored(
+        scored.iloc[::-1], objectives, zero_reward_without_eod=env["zero_reward_without_eod"]
+    )
+    pd.testing.assert_frame_equal(shuffled.sort_index(), scores)
+
+
+def test_joint_measurement_intersection():
+    """Joint measurement is the row-wise intersection, not the minimum marginal rate."""
+    config = yaml.safe_load((Path(__file__).parents[3] / "configs/gdpo_phage_megatron.yaml").read_text())
+    objectives = nemo_rl_env._coerce_gdpo_objectives(
+        [o for o in config["env"]["phage_qc"]["gdpo_objectives"] if o.get("reducer") == "product"]
+    )
+    scored = pd.DataFrame({column: [0.0] * 3 for objective in objectives for column in objective.columns})
+    scored["average_protein_identity_measurement_available"] = [1.0, 0.0, 1.0]
+    scored["core_gene_ordered_conservation_measurement_available"] = [0.0, 1.0, 1.0]
+    scored["accessory_gene_diversification_measurement_available"] = [1.0, 1.0, 0.0]
+    metrics = phage_qc_metrics_from_scored(scored, RewardWeights(), objectives=objectives)
+    assert metrics["gdpo/aai_with_core_measurement_available_rate"] == pytest.approx(1 / 3)
+    assert metrics["gdpo/accessory_with_core_measurement_available_rate"] == pytest.approx(1 / 3)
+    assert metrics["gdpo/aai_with_core_and_accessory_measurement_available_rate"] == 0.0
+    missing = scored.drop(columns="average_protein_identity_measurement_available")
+    metrics = phage_qc_metrics_from_scored(missing, RewardWeights(), objectives=objectives)
+    assert metrics["gdpo/aai_with_core_measurement_available_rate"] == 0.0
+
+
 def test_gdpo_safety_objective_requires_reconciled_class_state_reward_and_required_flag():
     """Safety credit requires matching class state, applicability, and numeric reward fields."""
     scored = pd.DataFrame(

@@ -25,6 +25,7 @@
         "It evaluates reference, random or baseline, desired, and counterexample genomes at component and aggregate levels.",
         "It keeps component values and denominators visible rather than validating only the weighted sum. Shared-goal diversity clusters pool eligible genomes across prompts within a scoring batch; duplicates across prefixes share credit, while different design goals use separate scoring calls or environments. Online and final clustering preserve supplied starts and strands at 99% identity and 95% reciprocal coverage; the default PhiX prompts share coordinate 1, and arbitrary-rotation invariance is not assumed.",
         "Tests cover gaming cases and confirm online rewards agree with final QC where promised.",
+        "For approved joint pressure it uses the existing gdpo_objectives columns/product reducer, retains individual terms and safety/EOD gates, and tests partial products, zero factors, invalid evidence and row mapping. It distinguishes joint deficits from marginal rarity and does not equate K/X novelty with Arc filter 7, which remains diagnostic-only in PhiX.",
         "A tiny deterministic RL smoke computes the real rewards, writes a checkpoint, and resumes."
       ],
       "expected_skill": "bionemo-phage-design-implement-rl-objectives",

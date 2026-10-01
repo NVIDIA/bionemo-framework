@@ -119,10 +119,11 @@ def test_gdpo_config_uses_registered_objectives_and_mmseqs_diversity(tmp_path):
     assert env["reward_output_mode"] == "gdpo"
     assert objectives
     assert len({objective["name"] for objective in objectives}) == len(objectives)
-    assert all(len(objective["columns"]) == 1 for objective in objectives)
-    columns = [objective["columns"][0] for objective in objectives]
+    individual = [objective for objective in objectives if len(objective["columns"]) == 1]
+    assert len(individual) == 15
+    columns = [objective["columns"][0] for objective in individual]
     assert len(set(columns)) == len(columns)
-    assert set(columns) <= registered_columns
+    assert {column for objective in objectives for column in objective["columns"]} <= registered_columns
     assert env["external_qc"]["fail_on_error"] is True
     assert config["checkpointing"]["save_optimizer"] is True
     assert config["policy"]["train_global_batch_size"] == (
@@ -172,6 +173,25 @@ def test_equal_scalar_credit(name):
     scored["safety_gate_pass"] = 1.0
     result = aggregate_rewards(scored, weights)
     assert result["reward"].tolist() == pytest.approx([1.0 / len(columns)] * len(columns))
+
+
+def test_phix_joint_objective_config():
+    """Joint pressure supplements the individual scores without new measurements or gates."""
+    config = yaml.safe_load((RECIPE_ROOT / "configs/gdpo_phage_megatron.yaml").read_text())
+    objectives = config["env"]["phage_qc"]["gdpo_objectives"]
+    products = {objective["name"]: objective for objective in objectives if objective.get("reducer") == "product"}
+    aai = "reward_external_average_protein_identity"
+    core = "reward_external_core_gene_ordered_conservation"
+    accessory = "reward_external_accessory_gene_diversification"
+    assert products == {
+        name: dict(name=name, columns=columns, reducer="product", requires_safety_eligibility=True)
+        for name, columns in {
+            "aai_with_core": [aai, core],
+            "accessory_with_core": [accessory, core],
+            "aai_with_core_and_accessory": [aai, core, accessory],
+        }.items()
+    }
+    assert len(objectives) == 18
 
 
 def test_phix_example_documents_every_gdpo_objective():

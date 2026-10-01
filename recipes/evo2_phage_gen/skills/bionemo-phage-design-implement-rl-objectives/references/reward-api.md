@@ -209,6 +209,13 @@ not a separate final acceptance gate or evidence of whole-genome viability.
 
 GDPO accepts explicitly configured scored-column names with mean, product, or minimum reduction. A target-specific scorer can therefore add its own bounded columns without extending a generic plugin system. Biological objectives must retain safety and EOD gating. Built-in `external_qc.enable_orf` and `enable_coding_density` enable Arc filters; their `reward_external_orf` and `reward_external_coding_density` columns may be selected explicitly as GDPO objectives. They describe the combined Arc ORF filter outcome, not independent graded density curves.
 
+For joint objectives use `gdpo_objectives: [{name: joint_name, columns: [reward_a, reward_b], reducer: product, requires_safety_eligibility: true}]`. Names in `columns` are scored columns,
+not other objective names. Components are validated then clipped to `[0, 1]` before reduction;
+an invalid component zeros the product, and a missing column raises. Original individual
+entries remain independent. PhiX adds `aai_with_core`, `accessory_with_core`, and
+`aai_with_core_and_accessory` on top of its 15 individual terms, without additional scorer calls.
+These are extra unit-coefficient GDPO channels after normalization, not GRPO scalar terms.
+
 `binary_cluster_deduplicated_pass_mask(scored, pass_mask)` selects one representative per existing cluster from an explicitly supplied acceptance mask. This utility defines no acceptance rules. Final-screening workflows should construct their mask from the actual configured filters and cluster the appropriate candidate pool.
 
 [`host_evidence.py`](../../../src/bionemo/evo2_phage_gen/host_evidence.py) supports collecting auditable host metadata. Use `resolve_ncbi_host_evidence` to acquire and cache accession evidence, then `HostEvidenceTable` and `write_host_evidence_table` to persist the collection. For an existing collection, call `load_host_evidence_table` and `validate_host_evidence_artifacts(table, table_path=path)`; a row's `to_task1_host_evidence()` converts it to the `HostEvidence` consumed by design-scope and safety configuration. The resolver currently handles bacterial host-domain evidence; it does not establish strain-specific host range. These utilities are optional preparation APIs, not automatically invoked by RL.

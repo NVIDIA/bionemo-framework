@@ -60,6 +60,8 @@ EXTERNAL_SUPPORT_PREFIX = {
     "average_protein_identity": "average_protein_identity",
 }
 
+PHIX_JOINT_OBJECTIVES = frozenset({"aai_with_core", "accessory_with_core", "aai_with_core_and_accessory"})
+
 
 def _finite_number(value: Any) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(float(value))
@@ -373,7 +375,13 @@ def extract_validation_history(
                 "max_score_rate": _scalar(points, f"{prefix}_max_score_rate", step),
             }
             support_prefix = EXTERNAL_SUPPORT_PREFIX.get(name)
-            if support_prefix:
+            joint_support = _scalar(points, f"{prefix}_measurement_available_rate", step)
+            if joint_support is not None or name in PHIX_JOINT_OBJECTIVES:
+                # Never substitute marginal support or assume full measurement for
+                # a joint objective whose intersection telemetry is absent.
+                support = joint_support
+                values["support_rate"] = support
+            elif support_prefix:
                 support = _phage_scalar(
                     points,
                     validation_prefix,

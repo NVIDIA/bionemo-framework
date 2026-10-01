@@ -490,7 +490,7 @@ Decode batches divisible by eight avoid regular FP8's alignment fallback.
 
 ## Current PhiX174 GDPO score definitions
 
-This is the human-readable contract for the 14 objectives in
+This is the human-readable contract for the 18 objectives (15 individual and three products) in
 `configs/gdpo_phage_megatron.yaml`. It is also the worked example for the run-specific
 `artifacts/RL_SCORE_DEFINITIONS.md` that an agent writes when designing or changing objectives;
 the E2E shell script does not generate that artifact. These thresholds reproduce the current
@@ -500,7 +500,7 @@ GDPO receives each objective row below as a separate `[0, 1]` objective. The sca
 settings use 1 for each enabled scalar component. They affect scalar GRPO rewards and
 scalar summaries, while GDPO independently standardizes each configured objective within
 its prompt group and sums them with coefficient 1. A zero scalar weight does not disable
-a GDPO objective; the `gdpo_objectives` list selects those columns. The first 11
+a GDPO objective; the `gdpo_objectives` list selects those columns. All 15 non-safety
 objectives are forced to zero unless the sequence has an exact sequence-safety `PASS`; the three
 safety objectives remain unmasked so failures still provide learning signal. Missing, invalid, non-finite,
 or unavailable measurements map to zero when scoring returns a row. Configured Arc, DUST, or
@@ -536,6 +536,26 @@ the exact-safety mask. The implementations for the individual terms are:
 | `safety_lysogeny`                | [`run_phrogs_batch`](../src/bionemo/evo2_phage_gen/sequence_safety_adapters.py) and [`sequence_safety_reward_fields`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                                |
 
 For module responsibilities and reusable scoring entry points, see the [reward API reference](../skills/bionemo-phage-design-implement-rl-objectives/references/reward-api.md).
+
+The three additional objectives reuse those measurements with `reducer: product`:
+
+| Joint objective               | Formula                                                                 |
+| ----------------------------- | ----------------------------------------------------------------------- |
+| `aai_with_core`               | AAI novelty × core ordered conservation                                 |
+| `accessory_with_core`         | K/X accessory diversification × core ordered conservation               |
+| `aai_with_core_and_accessory` | AAI novelty × core ordered conservation × K/X accessory diversification |
+
+Each product is zero if any factor is zero and one only if every factor is one;
+partial scores multiply without a root or extra floor. Invalid/nonfinite factors give zero,
+and safety/EOD gating still applies. Original individual objectives remain enabled. The
+products add separately normalized training channels, not new scalar `weight_*` terms or
+hard filters. They target simultaneous novelty and core preservation; the triple is an
+additional experimental preference, not proof of a distinct three-way incompatibility.
+Arc filter 7 remains diagnostic-only, and K/X full credit does not imply filter-7 acceptance.
+GDPO aggregate logs and aggregate-based checkpoint ranking now include all 18 channels;
+old and new aggregate values are not directly comparable. Scalar GRPO weights are unchanged.
+Joint `gdpo/{name}_measurement_available_rate` metrics intersect the component availability
+flags on each row, not their marginal rates; measured zero scores remain measured.
 
 The `core_gene_ordered_conservation` objective uses protein/function matching, circular order, and copy
 penalties. Arc also has a separate **start/stop-codon landmark score**, named

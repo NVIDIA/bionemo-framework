@@ -719,6 +719,17 @@ def phage_qc_metrics_from_scored(
         if prefix and f"{prefix}_measurement_available" in scored:
             available = pd.to_numeric(scored[f"{prefix}_measurement_available"], errors="coerce").fillna(0.0).gt(0.0)
             metrics[f"{prefix}_measurement_available_rate"] = float(available.mean())
+    for objective in objectives:
+        if len(objective.columns) < 2 or not all(column in support_prefixes for column in objective.columns):
+            continue
+        # Marginal availability rates do not establish joint measurement. Intersect
+        # actual row flags, independently of positive reward, safety or EOD eligibility.
+        available = pd.Series(True, index=scored.index)
+        for column in objective.columns:
+            flag = f"{support_prefixes[column]}_measurement_available"
+            values = scored.get(flag, pd.Series(0.0, index=scored.index))
+            available &= values.map(_is_exact_one)
+        metrics[f"{namespace}/{objective.name}_measurement_available_rate"] = float(available.mean())
     if "external_qc_tool_succeeded" in scored:
         values = pd.to_numeric(scored["external_qc_tool_succeeded"], errors="coerce").fillna(0.0)
         metrics["external_qc_tool_succeeded_rate"] = float(values.gt(0.0).mean())

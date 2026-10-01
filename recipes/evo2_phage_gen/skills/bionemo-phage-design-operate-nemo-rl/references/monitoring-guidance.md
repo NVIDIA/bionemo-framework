@@ -59,6 +59,12 @@ Preserve the latest resumable checkpoint, aggregate best, and the best positive 
 
 Raw measurement means are emitted only for completely measured finite columns, so their denominator remains the full sequence count. Inspect per-sequence artifacts and measurement availability when a raw mean is absent.
 
+PhiX joint products report `gdpo/{name}_measurement_available_rate` from the row-wise
+intersection of their protein-measurement flags. Do not infer it from marginal rates,
+or equate a measured zero with missing evidence. The monitor leaves absent joint telemetry
+unknown rather than assuming full support. Adding the three products changes the GDPO
+aggregate and its checkpoint ranking; compare components across regimes, not raw aggregates.
+
 Before new RL or final screening, the example regenerates its derived Arc pipeline,
 including direct stage-40/50 entry. This does not invalidate completed scientific
 outputs: use a new result root for changed scoring rules rather than mixing historical

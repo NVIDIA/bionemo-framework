@@ -244,6 +244,24 @@ def test_extract_validation_history_derives_only_emitted_gdpo_objectives(monkeyp
     assert objectives["gc_content"]["missing_rate"] == 0.0
 
 
+@pytest.mark.parametrize("support", [None, 0.0, 0.25, 1.0])
+def test_joint_support_is_not_assumed(monkeypatch, tmp_path, support):
+    points = {
+        "validation/phage_qc/mean_reward": {10: (1.0, 0.5)},
+        "validation/phage_qc/num_sequences": {10: (1.0, 96.0)},
+        "validation/phage_qc/gdpo/aai_with_core_mean": {10: (1.0, 0.1)},
+        # Marginal rates cannot identify their row-wise intersection.
+        "validation/phage_qc/average_protein_identity_measurement_available_rate": {10: (1.0, 0.5)},
+        "validation/phage_qc/core_gene_ordered_conservation_measurement_available_rate": {10: (1.0, 0.5)},
+    }
+    if support is not None:
+        points["validation/phage_qc/gdpo/aai_with_core_measurement_available_rate"] = {10: (1.0, support)}
+    monkeypatch.setattr(objective_monitor, "_load_scalar_points", lambda _root: points)
+    values = extract_validation_history(tmp_path)[0]["objectives"]["aai_with_core"]
+    assert values["support_rate"] == support
+    assert values["missing_rate"] == (None if support is None else 1.0 - support)
+
+
 def test_extract_validation_history_uses_newest_task_scoped_namespace(monkeypatch, tmp_path):
     points = {
         "validation/phage_qc/rl-validation/mean_reward": {1: (1.0, 0.1)},

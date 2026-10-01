@@ -15,6 +15,13 @@ Keep rewards bounded on `[0, 1]`, with the objective plan's meaningful baseline 
 
 Audit GDPO/GRPO per-objective normalization, not only raw reward scales: in a batch of 48, a 47-versus-1 near-constant split produces `|z| ≈ 6.8` whether the raw gap is `0.001` or `1.0`, versus about `2.1` for a well-spread column. The current estimator keeps this normalization unchanged, including small positive differences; do not automatically floor sigma or collapse saturated columns. Diagnose numerical noise separately from meaningful movement and change the estimator only under an approved objective plan. Scalar `weight_*` settings default to equal weights for the shipped enabled components, but do not reweight GDPO: every listed objective has coefficient 1 after within-prompt normalization. See the [configuration contract](../../configs/README.md#reward-weights-and-gdpo-groups).
 
+For approved joint objectives, reuse `gdpo_objectives` with `columns` and `reducer: product`;
+do not add another product registry or repeat expensive measurements. Keep the individual
+terms and safety/EOD gates. A product adds a separately normalized GDPO channel, not a scalar
+weight. Diagnose joint rarity against marginal rates and relevant measured strata before
+calling it a conflict; unmeasured filter outcomes are not failures. PhiX enables AAI×core,
+accessory×core, and AAI×core×accessory, while Arc filter 7 remains diagnostic-only.
+
 Preserve formulas, controls, record mapping, and verified scoring concurrency when refactoring or optimizing a scorer; compare the reference and optimized paths on the same cases.
 
 The recipe's genome-length reward uses four finite ordered points: lower zero, lower full credit, upper full credit, and upper zero. Keep these separate from `genome_length_min` / `genome_length_max`, which control hard nucleotide acceptance and valid-only clustering. There is no min/max reward fallback; use the [length configuration reference](../../configs/README.md#length-and-termination) for config fields and FASTA-scoring options.
