@@ -87,7 +87,7 @@ and native query/target coverage with a four-term geometric mean. Its keyword se
 `significance_zero_evalue` / `significance_full_evalue` endpoints (defaults 1 and 1e-5).
 Identity settings are fractions; the measured identity argument is in percent. There is no
 additional integrity cutoff, minimum-credit bonus, or adjustable exponent. All endpoints must
-be finite and ordered. The shared score feeds smooth synteny, tropism, and gene-A origin evidence;
+be finite and ordered. The shared score feeds smooth synteny, tropism, gene-A origin, and gene-B integrity evidence;
 retain their separate full-credit targets and final-QC rules. The 5% baseline is a shaping
 choice, not a homology acceptance threshold. The [worked definitions](../../../examples/README.md#protein-evidence-synteny-and-diversity)
 provide the exact factors and config values.
@@ -135,7 +135,7 @@ replay on viable and disrupted controls before interpreting a new run against ol
 | `summarize_core_gene_ordered_conservation` | Measures matched functions, order violations, and extra copies for hard synteny using curated families.                                     |
 | `measure_reference_cluster_synteny`        | Writes hard-synteny measurements from LoVis4u protein clusters for an unmapped profile.                                                     |
 | `core_gene_ordered_conservation_pass_mask` | Applies the configured completeness, order, and copy rules to hard-synteny measurements.                                                    |
-| `summarize_smooth_reference_evidence`      | Combines reference/family evidence for smooth synteny, tropism, and gene-A origin. Its broader name reflects these three outputs.           |
+| `summarize_smooth_reference_evidence`      | Combines reference/family evidence for smooth synteny and direct-reference evidence for tropism, gene-A origin, and gene-B integrity.       |
 
 In `reward.py`, `_add_core_gene_count_rewards` reads hard measurements, derives the
 count-based reward, and records the hard pass. `_add_smooth_reference_rewards`
@@ -171,7 +171,8 @@ IDs to distinct names in `required_gene_families`. Pass that mapping and measure
 the synteny denominator. A fully covered allowed-family match earns full
 slot credit without the direct route's 90% identity target. The PhiX profile maps
 A/B/C/D/E/F/G/H/J and excludes K/A\*. Order and excess-copy penalties still apply.
-Tropism and gene-A origin retain their original direct-reference evidence.
+Tropism, gene-A origin, and standalone gene-B integrity use direct-reference evidence;
+the family's core-slot credit cannot replace standalone A/B evidence.
 
 `summarize_core_gene_ordered_conservation` supplies the final hard-synteny measurements
 from full-coverage family matches and called-ORF coordinates. The current profile
@@ -205,6 +206,29 @@ zero. The 25% anchor is a uniform-DNA shaping baseline, not a significance test:
 over candidate offsets can give shuffled windows positive credit. This is an online objective,
 not a separate final acceptance gate or evidence of whole-genome viability.
 
+## Gene-B integrity
+
+`summarize_smooth_reference_evidence` also supplies `reward_gene_b_integrity`: the
+direct-reference `smooth_protein_match_integrity` for canonical B `NC_001422.1_ORF.14`
+and the candidate selected by the existing one-to-one direct-reference assignment, using
+circular-aware ORFs. It reuses the existing reference search and core
+protein-match settings: the geometric mean of significance, baseline-adjusted identity,
+and native query/target coverage reaches one at E ≤1e-5, identity ≥90%, and both coverages
+≥95%. Partial evidence follows the existing curves; a zero factor, missing/invalid evidence,
+or no admitted hit gives zero. Successful no-hit is measured; failed or unavailable
+measurement is not. This score does not use a motif or PHROG-family substitute and does
+not change core thresholds, order/copy scoring, or final filters.
+
+The GDPO profile sets `external_qc.enable_gene_b_integrity: true` and
+`external_qc.gene_b_reference_locus: NC_001422.1_ORF.14`, and selects the standalone
+objective. The optional scalar-summary weight is `weight_gene_b_integrity`; base GRPO
+does not enable B and remains unchanged.
+A continues to mean the complete `reward_gene_a_origin` protein-plus-origin score.
+Both A and B report smooth-reference measurement support, which must participate in
+row-wise product-support intersections. High direct-reference integrity does not establish
+protein function or whole-genome viability. Controls include full B, fragments, missing/no-hit
+and malformed evidence, family-only hits, and circular rotations/reverse complements.
+
 ## Optional adaptation utilities
 
 GDPO accepts explicitly configured scored-column names with mean, product, or minimum reduction. A target-specific scorer can therefore add its own bounded columns without extending a generic plugin system. Biological objectives must retain safety and EOD gating. Built-in `external_qc.enable_orf` and `enable_coding_density` enable Arc filters; their `reward_external_orf` and `reward_external_coding_density` columns may be selected explicitly as GDPO objectives. They describe the combined Arc ORF filter outcome, not independent graded density curves.
@@ -212,9 +236,23 @@ GDPO accepts explicitly configured scored-column names with mean, product, or mi
 For joint objectives use `gdpo_objectives: [{name: joint_name, columns: [reward_a, reward_b], reducer: product, requires_safety_eligibility: true}]`. Names in `columns` are scored columns,
 not other objective names. Components are validated then clipped to `[0, 1]` before reduction;
 an invalid component zeros the product, and a missing column raises. Original individual
-entries remain independent. PhiX adds `aai_with_core`, `accessory_with_core`, and
-`aai_with_core_and_accessory` on top of its 15 individual terms, without additional scorer calls.
-These are extra unit-coefficient GDPO channels after normalization, not GRPO scalar terms.
+entries remain independent. PhiX has 22 objectives: 16 individual and six products, with
+19 non-safety channels. The original 18 retain their behavior, including `aai_with_core`,
+`accessory_with_core`, and `aai_with_core_and_accessory`. Standalone `gene_b_integrity`
+and these three products extend that inventory:
+
+| Product name                           | Scored columns, in order                                                                                                                                                                          |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gene_a_and_b_with_accessory`          | `reward_gene_a_origin`, `reward_gene_b_integrity`, `reward_external_accessory_gene_diversification`                                                                                               |
+| `gene_a_and_b_with_core`               | `reward_gene_a_origin`, `reward_gene_b_integrity`, `reward_external_core_gene_ordered_conservation`                                                                                               |
+| `gene_a_and_b_with_core_aai_accessory` | `reward_gene_a_origin`, `reward_gene_b_integrity`, `reward_external_core_gene_ordered_conservation`, `reward_external_average_protein_identity`, `reward_external_accessory_gene_diversification` |
+
+These reuse the generic reducer and existing measurements, without a new registry or
+additional search. They are unit-coefficient GDPO channels after normalization, not GRPO
+scalar terms or hard filters. The exact safety-PASS mask applies to all 19 biological
+channels; the missing-EOD gate zeros all 22, including safety channels. Arc filter 7 remains
+diagnostic-only. Product availability intersects every factor's row-wise support, including
+smooth-reference availability for A and B; absent telemetry stays unknown.
 
 `binary_cluster_deduplicated_pass_mask(scored, pass_mask)` selects one representative per existing cluster from an explicitly supplied acceptance mask. This utility defines no acceptance rules. Final-screening workflows should construct their mask from the actual configured filters and cluster the appropriate candidate pool.
 

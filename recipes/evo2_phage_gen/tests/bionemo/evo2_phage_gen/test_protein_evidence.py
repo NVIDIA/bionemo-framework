@@ -273,10 +273,149 @@ def test_smooth_reference_summary_reuses_orf_hits_for_synteny_tropism_and_gene_a
     assert observed.loc["umi1", "reward_external_core_gene_ordered_conservation"] == 1.0
     assert observed.loc["umi1", "reward_external_tropism"] == 1.0
     assert observed.loc["umi1", "reward_gene_a_origin"] == 1.0
+    assert observed.loc["umi1", "reward_gene_b_integrity"] == 0.0
     assert observed.loc["umi1", "smooth_reference_matched_loci"] == 2
     assert observed.loc["umi2", "reward_external_core_gene_ordered_conservation"] == 0.0
     assert observed.loc["umi2", "reward_external_tropism"] == 0.0
     assert observed.loc["umi2", "reward_gene_a_origin"] == 0.0
+
+
+def _gene_b_summary(hits, **overrides):
+    settings = {
+        "genome_sequences": {"umi1": "ATG" * 200},
+        "candidate_orf_sequences": {"umi1_ORF.1": "ATG" * 100},
+        "candidate_orders": {"umi1": ("umi1_ORF.1",)},
+        "reference_order": ("A", "B", "G"),
+        "core_gene_match_parameters": SMOOTH_SYNTENY_MATCH,
+        "tropism_match_parameters": SMOOTH_TROPISM_MATCH,
+        "core_gene_order_weight": 0.75,
+        "core_gene_duplicate_penalty_weight": 0.75,
+        "gene_a_reference_locus": "A",
+        "gene_b_reference_locus": "B",
+        "tropism_reference_locus": "G",
+        "gene_a_origin_motif": "CAACTTGATATTAATAACACTATAGACCAC",
+        "gene_a_origin_offset_nt": 6,
+        "gene_a_origin_offset_tolerance_nt": 6,
+    }
+    settings.update(overrides)
+    return protein_evidence.summarize_smooth_reference_evidence(hits, **settings).iloc[0]
+
+
+@pytest.mark.parametrize(
+    ("evidence", "expected"),
+    [
+        pytest.param({}, 1.0, id="intact-without-origin-motif"),
+        pytest.param({"qcov": 0.475, "alnlen": 48, "tlen": 48}, 0.8408964153, id="truncated"),
+        pytest.param({"query": "G"}, 0.0, id="no-b-hit"),
+        pytest.param({"target": "umi1_ORF.2"}, 0.0, id="uncalled-orf"),
+        pytest.param({"pident": float("nan")}, 0.0, id="nonfinite-identity"),
+        pytest.param({"evalue": float("inf")}, 0.0, id="nonfinite-significance"),
+        pytest.param({"qcov": float("nan")}, 0.0, id="nonfinite-reference-coverage"),
+        pytest.param({"tcov": float("inf")}, 0.0, id="nonfinite-candidate-coverage"),
+    ],
+)
+def test_gene_b_direct_integrity(evidence, expected):
+    """B needs its called ORF's direct match, with graded reciprocal coverage."""
+    hit = {
+        "query": "B",
+        "target": "umi1_ORF.1",
+        "evalue": 1e-20,
+        "pident": 90.0,
+        "alnlen": 95,
+        "qlen": 100,
+        "tlen": 100,
+        "qcov": 0.95,
+        "tcov": 0.95,
+        **evidence,
+    }
+    observed = _gene_b_summary(pd.DataFrame([hit]))
+    assert observed.reward_gene_b_integrity == pytest.approx(expected)
+    assert observed.reward_gene_a_origin == 0.0
+
+
+def test_gene_b_empty_hits():
+    observed = _gene_b_summary(pd.DataFrame(columns=["query", "target"]))
+    assert observed.reward_gene_b_integrity == 0.0
+
+
+def test_gene_b_requires_reference_assignment():
+    """One ORF assigned to A cannot also supply B integrity through an ambiguous hit."""
+    hits = pd.DataFrame(
+        [
+            {
+                "query": reference,
+                "target": "umi1_ORF.1",
+                "evalue": 1e-20,
+                "pident": 90.0,
+                "alnlen": 95,
+                "qlen": 100,
+                "tlen": 100,
+                "qcov": coverage,
+                "tcov": 0.95,
+            }
+            for reference, coverage in (("A", 0.95), ("B", 0.475))
+        ]
+    )
+    observed = _gene_b_summary(hits)
+    assert observed.reward_gene_b_integrity == 0.0
+
+
+def test_gene_b_rejects_family_only_match():
+    """Curated family credit can fill a core slot without satisfying canonical B."""
+    matches, available = protein_evidence.score_function_matches(
+        _required_hits(("umi1_ORF.1", "", "phrog_123", 1.0)), {"B": ["phrog:123"]}
+    )
+    assert available
+    observed = _gene_b_summary(
+        pd.DataFrame(columns=["query", "target"]),
+        function_matches=matches,
+        reference_functions={"B": "B"},
+    )
+    assert observed.reward_external_core_gene_ordered_conservation == 1.0
+    assert observed.reward_gene_b_integrity == 0.0
+
+
+def test_gene_b_accepts_cross_origin_orf(tmp_path):
+    """The existing circular-ORF filter and context loader preserve an intact B hit."""
+    source = tmp_path / "source.fasta"
+    nucleotide_orfs = tmp_path / "orfs.fasta"
+    protein_orfs = tmp_path / "proteins.fasta"
+    source.write_text(">umi1\nATGTAAATGAAA\n")
+    nucleotide_orfs.write_text(
+        ">umi1_ORF.1 [0-6](+) type:complete length:6\nATGTAA\n"
+        ">umi1_ORF.2 [6-18](+) type:complete length:12\nATGAAAATGTAA\n"
+        ">umi1_ORF.3 [12-18](+) type:complete length:6\nATGTAA\n"
+    )
+    protein_orfs.write_text(
+        ">umi1_ORF.1 [0-6](+) type:complete length:6\nM\n"
+        ">umi1_ORF.2 [6-18](+) type:complete length:12\nMKM\n"
+        ">umi1_ORF.3 [12-18](+) type:complete length:6\nM\n"
+    )
+    protein_evidence.remove_pseudocircular_extension_orfs(source, nucleotide_orfs, protein_orfs)
+    sequences, orders = protein_evidence.load_candidate_orf_context(nucleotide_orfs)
+    assert orders == {"umi1": ("umi1_ORF.2",)}
+    hits = pd.DataFrame(
+        [
+            {
+                "query": "B",
+                "target": "umi1_ORF.2",
+                "evalue": 1e-20,
+                "pident": 100.0,
+                "alnlen": 3,
+                "qlen": 3,
+                "tlen": 3,
+                "qcov": 1.0,
+                "tcov": 1.0,
+            }
+        ]
+    )
+    observed = _gene_b_summary(
+        hits,
+        genome_sequences={"umi1": "ATGTAAATGAAA"},
+        candidate_orf_sequences=sequences,
+        candidate_orders=orders,
+    )
+    assert observed.reward_gene_b_integrity == 1.0
 
 
 @pytest.mark.parametrize(

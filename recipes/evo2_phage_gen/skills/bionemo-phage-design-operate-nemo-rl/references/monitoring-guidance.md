@@ -62,8 +62,19 @@ Raw measurement means are emitted only for completely measured finite columns, s
 PhiX joint products report `gdpo/{name}_measurement_available_rate` from the row-wise
 intersection of their protein-measurement flags. Do not infer it from marginal rates,
 or equate a measured zero with missing evidence. The monitor leaves absent joint telemetry
-unknown rather than assuming full support. Adding the three products changes the GDPO
-aggregate and its checkpoint ranking; compare components across regimes, not raw aggregates.
+unknown rather than assuming full support. For `gene_a_and_b_*` products, include the
+`smooth_reference_measurement_available` flag used by both gene-A origin and gene-B
+integrity as well as every external factor's support. A measured B zero is not missing
+evidence, and a PHROG-family core match cannot supply direct-reference B integrity.
+For A/B, smooth-reference support requires membership in the searched upstream cohort.
+An eligible row with no hit is a measured zero; an excluded row is unavailable even
+if another row was measured. Enabled A/B controls must supply finite scores and
+measured support before training.
+The current PhiX inventory has 22 channels (16 individual and six products), including
+standalone B and three A/B products added to the prior 18. The aggregate and checkpoint
+ranking change with this inventory; compare components across regimes, not raw aggregates.
+The original A score includes protein integrity and origin-motif evidence. B adds no
+motif term or final acceptance gate, and high A/B scores do not establish viability.
 
 Before new RL or final screening, the example regenerates its derived Arc pipeline,
 including direct stage-40/50 entry. This does not invalidate completed scientific

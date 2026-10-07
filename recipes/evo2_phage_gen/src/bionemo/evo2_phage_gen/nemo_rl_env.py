@@ -708,6 +708,8 @@ def phage_qc_metrics_from_scored(
                 metrics[f"{column}_mean"] = mean_value
 
     support_prefixes = {
+        "reward_gene_a_origin": "smooth_reference",
+        "reward_gene_b_integrity": "smooth_reference",
         "reward_external_tropism": "tropism",
         "reward_external_core_gene_ordered_conservation": "core_gene_ordered_conservation",
         "reward_external_average_protein_identity": "average_protein_identity",
@@ -876,6 +878,7 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 core_gene_ordered_conservation=float(cfg.get("weight_core_gene_ordered_conservation", 0.0)),
                 accessory_gene_diversification=float(cfg.get("weight_accessory_gene_diversification", 0.0)),
                 gene_a_origin=float(cfg.get("weight_gene_a_origin", 0.0)),
+                gene_b_integrity=float(cfg.get("weight_gene_b_integrity", 0.0)),
                 average_protein_identity=float(cfg.get("weight_average_protein_identity", 0.0)),
                 required_genes=float(cfg.get("weight_required_genes", 0.0)),
                 mmseqs_cluster_diversity=float(cfg.get("weight_mmseqs_cluster_diversity", 0.0)),
@@ -929,6 +932,7 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 ),
                 enable_smooth_reference_rewards=bool(external_qc_cfg.get("enable_smooth_reference_rewards", False)),
                 enable_gene_a_origin=bool(external_qc_cfg.get("enable_gene_a_origin", False)),
+                enable_gene_b_integrity=bool(external_qc_cfg.get("enable_gene_b_integrity", False)),
                 core_gene_identity_zero_credit=float(external_qc_cfg.get("core_gene_identity_zero_credit", 0.05)),
                 core_gene_identity_full_credit=float(external_qc_cfg.get("core_gene_identity_full_credit", 0.90)),
                 core_gene_reciprocal_coverage_full_credit=float(
@@ -946,6 +950,7 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 gene_a_reference_locus=str(external_qc_cfg.get("gene_a_reference_locus", "NC_001422.1_ORF.23")),
                 tropism_reference_locus=str(external_qc_cfg.get("tropism_reference_locus", "NC_001422.1_ORF.3")),
                 gene_a_origin_motif=str(external_qc_cfg.get("gene_a_origin_motif", "CAACTTGATATTAATAACACTATAGACCAC")),
+                gene_b_reference_locus=str(external_qc_cfg.get("gene_b_reference_locus", "NC_001422.1_ORF.14")),
                 gene_a_origin_offset_nt=int(external_qc_cfg.get("gene_a_origin_offset_nt", 345)),
                 gene_a_origin_offset_tolerance_nt=int(external_qc_cfg.get("gene_a_origin_offset_tolerance_nt", 30)),
                 lovis4u_parallel_jobs=external_qc_cfg.get("lovis4u_parallel_jobs", 12),

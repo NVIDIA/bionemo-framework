@@ -459,13 +459,16 @@ def summarize_smooth_reference_evidence(
     gene_a_origin_offset_tolerance_nt: int,
     function_matches: pd.DataFrame | None = None,
     reference_functions: dict[str, str] | None = None,
+    gene_b_reference_locus: str | None = None,
 ) -> pd.DataFrame:
     """Summarize reference hits, optionally admitting curated function matches for synteny.
 
     Mapped synteny slots use the stronger of reference integrity and family coverage
     credit; the reference identity target does not constrain the family route.
-    Only mapped loci enter that synteny's denominator. Tropism and
-    origin retain the original reference-protein evidence and their own criteria.
+    Only mapped loci enter that synteny's denominator. Tropism, A origin, and
+    B integrity retain direct reference-protein evidence. B uses the same smooth
+    protein-match criteria as A's protein factor, without an origin motif term;
+    an omitted B locus produces zero B integrity.
     """
     _validate_smooth_protein_match_config(**core_gene_match_parameters)
     _validate_smooth_protein_match_config(**tropism_match_parameters)
@@ -529,6 +532,7 @@ def summarize_smooth_reference_evidence(
         "smooth_reference_best_integrity",
         "reward_external_tropism",
         "reward_gene_a_origin",
+        "reward_gene_b_integrity",
         "gene_a_origin_motif_score",
         "gene_a_origin_position_score",
         "gene_a_origin_exact_functional_site",
@@ -547,7 +551,7 @@ def summarize_smooth_reference_evidence(
             order_weight=core_gene_order_weight,
             duplicate_penalty_weight=core_gene_duplicate_penalty_weight,
         )
-        # Family alternatives affect synteny, not the A-reference origin criterion.
+        # Family alternatives affect synteny, not the A- or B-reference criteria.
         if reference_functions is None:
             assignment = dict(synteny.assignment)
         else:
@@ -557,6 +561,8 @@ def summarize_smooth_reference_evidence(
             assignment = dict(reference_assignment)
         a_candidate = assignment.get(gene_a_reference_locus)
         a_integrity = reference_edges.get((gene_a_reference_locus, a_candidate), 0.0) if a_candidate else 0.0
+        b_candidate = assignment.get(gene_b_reference_locus)
+        b_integrity = reference_edges.get((gene_b_reference_locus, b_candidate), 0.0) if b_candidate else 0.0
         origin = score_gene_a_origin(
             candidate_a_orf_nt=candidate_orf_sequences.get(a_candidate, "") if a_candidate else "",
             candidate_genome_nt=genome_sequence,
@@ -576,6 +582,7 @@ def summarize_smooth_reference_evidence(
                 "smooth_reference_best_integrity": max(edges.values(), default=0.0),
                 "reward_external_tropism": max(tropism_edges.get(genome_id, {}).values(), default=0.0),
                 "reward_gene_a_origin": origin.reward,
+                "reward_gene_b_integrity": b_integrity,
                 "gene_a_origin_motif_score": origin.motif_score,
                 "gene_a_origin_position_score": origin.position_score,
                 "gene_a_origin_exact_functional_site": float(origin.exact_functional_site),

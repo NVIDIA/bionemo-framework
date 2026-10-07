@@ -224,6 +224,30 @@ def test_environment_control_runs_exact_step(tmp_path, monkeypatch, zero_reward_
     assert yaml.safe_load((tmp_path / "control" / "result.json").read_text()) == result
 
 
+@pytest.mark.parametrize("name", ["gene_a_origin", "gene_b_integrity"])
+@pytest.mark.parametrize("measured", [None, 0.0, 1.0])
+def test_ab_control_support(tmp_path, monkeypatch, name, measured):
+    """An enabled A/B scorer must actually measure the control, even when its score is zero."""
+    config_path = _write_control_config(tmp_path)
+    config = yaml.safe_load(config_path.read_text())
+    config["env"]["phage_qc"]["external_qc"][f"enable_{name}"] = True
+    config_path.write_text(yaml.safe_dump(config))
+    sequence = "ACGT" * 5
+    fasta = tmp_path / "phix.fna"
+    fasta.write_text(f">phix\n{sequence}\n")
+    scored = _control_scores(sequence)
+    scored[f"reward_{name}"] = 0.0
+    if measured is not None:
+        scored["smooth_reference_measurement_available"] = measured
+    monkeypatch.setattr(nemo_rl_env, "score_message_logs", lambda *_args, **_kwargs: scored)
+    if measured == 1.0:
+        result = rl_readiness.run_environment_control(config_path, fasta, tmp_path / "control")
+        assert result["support"][name] is True
+    else:
+        with pytest.raises(rl_readiness.RLEnvironmentControlError, match="not measured|smooth_reference"):
+            rl_readiness.run_environment_control(config_path, fasta, tmp_path / "control")
+
+
 def test_environment_control_rejects_skipped_metric(tmp_path, monkeypatch):
     config_path = _write_control_config(tmp_path)
     control_fasta = tmp_path / "phix.fna"

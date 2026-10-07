@@ -490,7 +490,7 @@ Decode batches divisible by eight avoid regular FP8's alignment fallback.
 
 ## Current PhiX174 GDPO score definitions
 
-This is the human-readable contract for the 18 objectives (15 individual and three products) in
+This is the human-readable contract for the 22 objectives (16 individual and six products) in
 `configs/gdpo_phage_megatron.yaml`. It is also the worked example for the run-specific
 `artifacts/RL_SCORE_DEFINITIONS.md` that an agent writes when designing or changing objectives;
 the E2E shell script does not generate that artifact. These thresholds reproduce the current
@@ -500,7 +500,7 @@ GDPO receives each objective row below as a separate `[0, 1]` objective. The sca
 settings use 1 for each enabled scalar component. They affect scalar GRPO rewards and
 scalar summaries, while GDPO independently standardizes each configured objective within
 its prompt group and sums them with coefficient 1. A zero scalar weight does not disable
-a GDPO objective; the `gdpo_objectives` list selects those columns. All 15 non-safety
+a GDPO objective; the `gdpo_objectives` list selects those columns. All 19 non-safety
 objectives are forced to zero unless the sequence has an exact sequence-safety `PASS`; the three
 safety objectives remain unmasked so failures still provide learning signal. Missing, invalid, non-finite,
 or unavailable measurements map to zero when scoring returns a row. Configured Arc, DUST, or
@@ -529,6 +529,7 @@ the exact-safety mask. The implementations for the individual terms are:
 | `core_gene_ordered_conservation` | [`score_function_matches` / `smooth_protein_match_integrity`](../src/bionemo/evo2_phage_gen/protein_evidence.py), [`score_core_gene_ordered_conservation`](../src/bionemo/evo2_phage_gen/protein_evidence.py), and [`_add_smooth_reference_rewards`](../src/bionemo/evo2_phage_gen/reward.py) |
 | `accessory_gene_diversification` | [`score_accessory_diversification` and `summarize_accessory_gene_evidence`](../src/bionemo/evo2_phage_gen/accessory_genes.py); [K/X definitions and copy penalties](../configs/accessory_genes.md).                                                                                           |
 | `gene_a_origin`                  | [`score_gene_a_origin`](../src/bionemo/evo2_phage_gen/protein_evidence.py) and [`_add_smooth_reference_rewards`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                                     |
+| `gene_b_integrity`               | [`smooth_protein_match_integrity` and `summarize_smooth_reference_evidence`](../src/bionemo/evo2_phage_gen/protein_evidence.py), then [`_add_smooth_reference_rewards`](../src/bionemo/evo2_phage_gen/reward.py). Direct canonical-B reference evidence only.                                 |
 | `average_protein_identity`       | [`summarize_best_hit_aai`](../src/bionemo/evo2_phage_gen/protein_evidence.py) and [`score_aai_novelty` / `score_aai_evidence`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                       |
 | `mmseqs_cluster_diversity`       | [`add_mmseqs_cluster_diversity_rewards`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                                                                                                             |
 | `safety_amr`                     | [`run_amrfinder_batch`](../src/bionemo/evo2_phage_gen/sequence_safety_adapters.py) and [`sequence_safety_reward_fields`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                             |
@@ -537,25 +538,35 @@ the exact-safety mask. The implementations for the individual terms are:
 
 For module responsibilities and reusable scoring entry points, see the [reward API reference](../skills/bionemo-phage-design-implement-rl-objectives/references/reward-api.md).
 
-The three additional objectives reuse those measurements with `reducer: product`:
+The six joint objectives reuse those measurements with `reducer: product`:
 
-| Joint objective               | Formula                                                                 |
-| ----------------------------- | ----------------------------------------------------------------------- |
-| `aai_with_core`               | AAI novelty × core ordered conservation                                 |
-| `accessory_with_core`         | K/X accessory diversification × core ordered conservation               |
-| `aai_with_core_and_accessory` | AAI novelty × core ordered conservation × K/X accessory diversification |
+| Joint objective                        | Formula                                                                                                    |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `aai_with_core`                        | AAI novelty × core ordered conservation                                                                    |
+| `accessory_with_core`                  | K/X accessory diversification × core ordered conservation                                                  |
+| `aai_with_core_and_accessory`          | AAI novelty × core ordered conservation × K/X accessory diversification                                    |
+| `gene_a_and_b_with_accessory`          | gene-A origin × gene-B integrity × K/X accessory diversification                                           |
+| `gene_a_and_b_with_core`               | gene-A origin × gene-B integrity × core ordered conservation                                               |
+| `gene_a_and_b_with_core_aai_accessory` | gene-A origin × gene-B integrity × core ordered conservation × AAI novelty × K/X accessory diversification |
 
 Each product is zero if any factor is zero and one only if every factor is one;
 partial scores multiply without a root or extra floor. Invalid/nonfinite factors give zero,
-and safety/EOD gating still applies. Original individual objectives remain enabled. The
+and safety/EOD gating still applies. The original 18 channels retain their formulas; the
+extension adds standalone `gene_b_integrity` and the three `gene_a_and_b_*` products. The
 products add separately normalized training channels, not new scalar `weight_*` terms or
-hard filters. They target simultaneous novelty and core preservation; the triple is an
-additional experimental preference, not proof of a distinct three-way incompatibility.
+hard filters. The A/B products consume `reward_gene_a_origin` and `reward_gene_b_integrity`
+alongside the existing `reward_external_*` columns named by their remaining factors. Gene-A
+origin already includes A-protein integrity as well as its motif and position factors;
+it is not a motif-only substitute. The products express joint training preferences and
+do not establish functional viability or a biological incompatibility between factors.
 Arc filter 7 remains diagnostic-only, and K/X full credit does not imply filter-7 acceptance.
-GDPO aggregate logs and aggregate-based checkpoint ranking now include all 18 channels;
-old and new aggregate values are not directly comparable. Scalar GRPO weights are unchanged.
+GDPO aggregate logs and aggregate-based checkpoint ranking now include all 22 channels;
+old and new aggregate values are not directly comparable. B is enabled in the GDPO profile
+only; base GRPO and its scalar weights are unchanged. No extra biological search or product
+registry is needed: B reuses the shared reference search and products use the existing reducer.
 Joint `gdpo/{name}_measurement_available_rate` metrics intersect the component availability
-flags on each row, not their marginal rates; measured zero scores remain measured.
+flags on each row, not their marginal rates; both A and B use their smooth-reference
+measurement support. Measured zero scores remain measured.
 
 The `core_gene_ordered_conservation` objective uses protein/function matching, circular order, and copy
 penalties. Arc also has a separate **start/stop-codon landmark score**, named
@@ -643,7 +654,7 @@ without changing the aligned pair. While the alignment stays fixed, increasing t
 residues approximately multiplies E by the same factor. Strong hits retain full significance
 credit while E remains ≤1e-5; weak hits can cross the E=1 search cutoff and disappear.
 Synteny can move in either direction because weaker extra matches also reduce its copy penalty.
-This applies to the shared reference rewards (synteny, tropism, and A evidence); the PHROGs
+This applies to the shared reference rewards (synteny, tropism, and A/B evidence); the PHROGs
 function search instead uses a fixed target database.
 
 A September 14 offline replay of the same 96 generated genomes with reference-only
@@ -674,9 +685,9 @@ uses `w = (S * I * Q * T)**0.25`. Each factor is bounded on `[0, 1]`:
 - `S` is significance: zero for E ≥ 1, one for E ≤ 1e-5 (including E = 0),
   and `-log10(E)/5` between those endpoints.
 - `I = clip((p - 0.05)/(p_full - 0.05), 0, 1)`, where `p` is protein identity
-  as a fraction and `p_full` is 0.90 for synteny/gene-A evidence or 0.95 for tropism.
+  as a fraction and `p_full` is 0.90 for synteny/gene-A/gene-B evidence or 0.95 for tropism.
 - `Q` and `T` are native MMseqs query and target coverage, each divided by its
-  full-credit target and capped at one: 0.95 for synteny or 0.99 for tropism.
+  full-credit target and capped at one: 0.95 for synteny/gene-A/gene-B or 0.99 for tropism.
 
 Any zero factor gives zero match credit; positive factors receive continuous credit.
 The four-term geometric mean has no additional raw-integrity cutoff, minimum-credit
@@ -724,6 +735,21 @@ Changing the database changes the measurement and belongs in a new experiment.
 | `gene_a_origin` (`reward_gene_a_origin`)                                            | No A match evidence, or no complete in-frame site in the accepted window with recognition, binding, and nicking match fractions all above 25%.                            | Full A integrity and one exact functional 28-nt site within ±30 nt of offset 345, in the same frame, with no extra strong sites.                                               | Score `(A × M × P × U)**0.25`, where P is position/frame eligibility and U is `1/max(1,strong_site_count)`, with baseline-adjusted motif score M defined below. The position/frame window is an acceptance gate within this reward; eligible offsets have no distance penalty. This is online shaping and a diagnostic, not a final hard gate.                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `average_protein_identity` (`reward_external_average_protein_identity`)             | No hit-bearing ORFs, missing AAI measurement, or missing output from an otherwise completed Arc run.                                                                      | Mean identity ≤95% with at least 10 hit-bearing ORFs.                                                                                                                          | Average the lowest-E-value individual PHROGs protein hit per called ORF, without a family-level reduction or consensus coverage gate. Score `novelty × min(hit_ORF_count/10,1)`: novelty is 1 through 95% and `max(0.25, (100-AAI)/5)` above 95%. Final Arc QC requires AAI ≤95% after its upstream gene-content gates; it does not require the reward's 10-ORF full-credit state. This optional divergence objective is separate from gene completeness and biological viability.                                                                                                                                                                                                                                                                              |
 | `mmseqs_cluster_diversity` (`reward_mmseqs_cluster_diversity`)                      | The genome fails the valid-character, hard-length, GC, or homopolymer prefilter, or is missing from MMseqs output. No finite cluster size otherwise reaches exactly zero. | A singleton across eligible prompts sharing the design goal in this scoring batch.                                                                                             | At 99% aligned nucleotide identity and ≥95% coverage of both genomes (`--cov-mode 0`, `--seq-id-mode 0`, `--cluster-mode 0`), a member of a cluster of size *N* scores `1/N`. Sequences retain their supplied start and strand; the default prompts share coordinate 1. Arbitrarily rotated near-clones are not guaranteed to share a cluster. A shared short gene alone cannot qualify. DUST is not part of this prefilter, and a failed MMseqs command fails the scoring batch. All prompts for the same design goal share this batch pool. This is within-batch diversity, not a per-genome viability gate; final passers use the same thresholds for separate set-level selection. [MMseqs2](https://doi.org/10.1038/nbt.3988) supplies the implementation. |
+
+`gene_b_integrity` (`reward_gene_b_integrity`) is the direct-reference
+`w = (S * I * Q * T)**0.25` match to canonical B, `NC_001422.1_ORF.14`, for the
+candidate ORF selected by the existing one-to-one direct-reference assignment. Candidate
+ORFs are circular-aware. It uses the existing core protein-match settings:
+full credit requires E ≤1e-5, identity ≥90%, and native query and target coverage each ≥95%.
+Partial matches follow the factors above; any zero factor, no admitted B hit, or missing,
+invalid, or unavailable evidence gives zero. A successful no-hit remains a measured zero;
+a failed measurement remains unavailable. It shares the existing reference search without
+changing its thresholds or the core objective. There is no B motif score, PHROG-family
+substitute, coordinate-window requirement, or new hard acceptance filter. The direct match
+is a protein-integrity proxy, not proof of folding, B function, or whole-genome viability;
+see the [B-function biological context](../configs/required_genes.md).
+Positive and disrupted controls should cover native B, fragments, circular rotations/reverse
+complements, missing/no-hit evidence, and family-only evidence that must not replace B.
 
 For gene-A origin, rescale each motif match fraction with `f(x) = max(0, (x - 0.25) / 0.75)`.
 Let `r` cover the first 10 nt (recognition), `b` the next 18 nt (binding), and `n` positions

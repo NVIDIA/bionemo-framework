@@ -35,6 +35,15 @@ The PhiX configs enable `zero_reward_without_eod` by default with a 6,000-token 
 
 Compare configured objectives with emitted scores and positive/failure controls. Separate valid zero or candidate-level safety failure from unavailable measurements. Diagnose missing scorers; keep sparse but measured objectives visible. Record deliberate objective changes and report them in the next useful update.
 
+The current PhiX GDPO profile has 22 channels: 16 individual and six products, preserving
+the prior 18 and adding standalone `gene_b_integrity` plus three `gene_a_and_b_*` products.
+Use the [worked definitions](../../examples/README.md#current-phix174-gdpo-score-definitions)
+for exact factors. B uses canonical direct-reference protein evidence, while A retains its
+protein-plus-origin formula; both use smooth-reference measurement support. All 19
+non-safety channels require safety PASS, and no-EOD rows zero the entire 22-column vector.
+Base GRPO and final filters are unchanged; a changed objective inventory requires a new
+SFT-anchored result root and aggregate scores are comparable only within that inventory.
+
 The readiness check treats complete reference FASTA records as constructed terminated-response
 controls and labels that evidence in its report. It retains the configured missing-EOD gate;
 control success verifies scoring, not the policy's ability to terminate. Use actual pilot tokens

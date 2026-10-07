@@ -120,7 +120,7 @@ def test_gdpo_config_uses_registered_objectives_and_mmseqs_diversity(tmp_path):
     assert objectives
     assert len({objective["name"] for objective in objectives}) == len(objectives)
     individual = [objective for objective in objectives if len(objective["columns"]) == 1]
-    assert len(individual) == 15
+    assert len(individual) == 16
     columns = [objective["columns"][0] for objective in individual]
     assert len(set(columns)) == len(columns)
     assert {column for objective in objectives for column in objective["columns"]} <= registered_columns
@@ -183,15 +183,23 @@ def test_phix_joint_objective_config():
     aai = "reward_external_average_protein_identity"
     core = "reward_external_core_gene_ordered_conservation"
     accessory = "reward_external_accessory_gene_diversification"
+    a, b = "reward_gene_a_origin", "reward_gene_b_integrity"
     assert products == {
         name: dict(name=name, columns=columns, reducer="product", requires_safety_eligibility=True)
         for name, columns in {
             "aai_with_core": [aai, core],
             "accessory_with_core": [accessory, core],
             "aai_with_core_and_accessory": [aai, core, accessory],
+            "gene_a_and_b_with_accessory": [a, b, accessory],
+            "gene_a_and_b_with_core": [a, b, core],
+            "gene_a_and_b_with_core_aai_accessory": [a, b, core, aai, accessory],
         }.items()
     }
-    assert len(objectives) == 18
+    assert len(objectives) == 22
+    env = config["env"]["phage_qc"]
+    assert env["external_qc"]["enable_gene_b_integrity"] is True
+    assert env["external_qc"]["gene_b_reference_locus"] == "NC_001422.1_ORF.14"
+    assert env["weight_gene_b_integrity"] == 1.0
 
 
 def test_phix_example_documents_every_gdpo_objective():

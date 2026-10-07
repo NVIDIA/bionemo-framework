@@ -475,6 +475,8 @@ def test_phix_joint_score_matrix():
     scored["reward_external_average_protein_identity"] = [0.8, 0.0, 1.0, 1.0, 1.0, float("nan")]
     scored["reward_external_core_gene_ordered_conservation"] = [0.5, 1.0, 1.0, 1.0, 1.0, 0.5]
     scored["reward_external_accessory_gene_diversification"] = [0.25, 1.0, 1.0, 1.0, 1.0, 0.5]
+    scored["reward_gene_a_origin"] = [0.8, 1.0, 1.0, 1.0, 1.0, 1.0]
+    scored["reward_gene_b_integrity"] = [0.5, 0.0, 1.0, 1.0, 1.0, float("nan")]
     scored["safety_gate_state"] = ["PASS", "PASS", "PASS", "FAIL", "PASS", "PASS"]
     scored["safety_gate_pass"] = [1.0, 1.0, 1.0, 0.0, 1.0, 1.0]
     scored["generation_stopped_on_eod"] = [True, True, True, True, False, True]
@@ -491,7 +493,11 @@ def test_phix_joint_score_matrix():
     assert scores["aai_with_core_and_accessory"].tolist() == pytest.approx([0.1, 0.0, 1.0, 0.0, 0.0, 0.0])
     assert scores["average_protein_identity"].tolist() == pytest.approx([0.8, 0.0, 1.0, 0.0, 0.0, 0.0])
     assert scores["core_gene_ordered_conservation"].tolist() == pytest.approx([0.5, 1.0, 1.0, 0.0, 0.0, 0.5])
-    assert scores.shape == (6, 18)
+    assert scores["gene_b_integrity"].tolist() == pytest.approx([0.5, 0.0, 1.0, 0.0, 0.0, 0.0])
+    assert scores["gene_a_and_b_with_accessory"].tolist() == pytest.approx([0.1, 0.0, 1.0, 0.0, 0.0, 0.0])
+    assert scores["gene_a_and_b_with_core"].tolist() == pytest.approx([0.2, 0.0, 1.0, 0.0, 0.0, 0.0])
+    assert scores["gene_a_and_b_with_core_aai_accessory"].tolist() == pytest.approx([0.04, 0, 1, 0, 0, 0])
+    assert scores.shape == (6, 22)
     assert (scores.loc[4] == 0.0).all()  # No EOD also zeros the three safety columns.
     assert scores.loc[3, "safety_amr"] == 1.0  # Overall failure doesn't mask class evidence.
     pd.testing.assert_frame_equal(scored, original)
@@ -511,10 +517,14 @@ def test_joint_measurement_intersection():
     scored["average_protein_identity_measurement_available"] = [1.0, 0.0, 1.0]
     scored["core_gene_ordered_conservation_measurement_available"] = [0.0, 1.0, 1.0]
     scored["accessory_gene_diversification_measurement_available"] = [1.0, 1.0, 0.0]
+    scored["smooth_reference_measurement_available"] = [1.0, 0.0, 1.0]
     metrics = phage_qc_metrics_from_scored(scored, RewardWeights(), objectives=objectives)
     assert metrics["gdpo/aai_with_core_measurement_available_rate"] == pytest.approx(1 / 3)
     assert metrics["gdpo/accessory_with_core_measurement_available_rate"] == pytest.approx(1 / 3)
     assert metrics["gdpo/aai_with_core_and_accessory_measurement_available_rate"] == 0.0
+    assert metrics["gdpo/gene_a_and_b_with_core_measurement_available_rate"] == pytest.approx(1 / 3)
+    assert metrics["gdpo/gene_a_and_b_with_accessory_measurement_available_rate"] == pytest.approx(1 / 3)
+    assert metrics["gdpo/gene_a_and_b_with_core_aai_accessory_measurement_available_rate"] == 0.0
     missing = scored.drop(columns="average_protein_identity_measurement_available")
     metrics = phage_qc_metrics_from_scored(missing, RewardWeights(), objectives=objectives)
     assert metrics["gdpo/aai_with_core_measurement_available_rate"] == 0.0

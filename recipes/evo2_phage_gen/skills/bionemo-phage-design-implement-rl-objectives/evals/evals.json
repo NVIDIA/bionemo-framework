@@ -2,6 +2,23 @@
   "skill_name": "bionemo-phage-design-implement-rl-objectives",
   "evals": [
     {
+      "id": "bionemo-phage-design-implement-rl-objectives-011-ab-integrity-products",
+      "prompt": "Implement the approved PhiX extension of the current 18-channel GDPO run: standalone B integrity and joint A/B pressure with accessory, core, and core plus AAI plus accessory. Reuse the existing scorer and reducer, preserve the old objectives, and define controls and measurement support. A family-based core slot already reports B present; can that replace the new direct B score?",
+      "expected_output": "A narrow 22-channel GDPO extension using direct B integrity and the existing full A-origin score, with exact product wiring and no hard-filter change.",
+      "assertions": [
+        "The inventory is 22 objectives: 16 individual and six products, with all original 18 unchanged and 19 non-safety channels.",
+        "gene_b_integrity uses reward_gene_b_integrity from direct canonical B NC_001422.1_ORF.14 evidence and the existing one-to-one direct-reference assignment of circular-aware ORFs. It reuses the smooth core protein factor and its significance, 90% identity, and 95% native reciprocal-coverage full-credit targets, without changing core thresholds.",
+        "B has no motif score or PHROG-family substitute. gene_a_origin retains A-protein integrity plus its existing origin, position/frame and uniqueness factors.",
+        "gene_a_and_b_with_accessory multiplies reward_gene_a_origin, reward_gene_b_integrity and reward_external_accessory_gene_diversification; gene_a_and_b_with_core uses A, B and reward_external_core_gene_ordered_conservation; gene_a_and_b_with_core_aai_accessory uses A, B, core, reward_external_average_protein_identity and accessory.",
+        "The implementation uses the generic columns/product reducer and existing shared reference search without a new product registry or additional search; B is enabled only in the GDPO profile and base GRPO remains unchanged.",
+        "Both A and B use smooth_reference_measurement_available in row-wise product support. Measured no-hit zero, missing evidence and failed measurement remain distinct; absent support telemetry is unknown.",
+        "Controls cover native B, truncation, family-only evidence, circular rotations/reverse complements, missing and invalid evidence, zero/partial products and full safety/EOD gating. The 19 non-safety objectives require safety PASS and no EOD zeros all 22 channels.",
+        "The score is an integrity proxy, not proof of protein function or viability, and adds no hard gate or filter-7 change. New aggregate values are not directly comparable with the 18-channel run."
+      ],
+      "expected_skill": "bionemo-phage-design-implement-rl-objectives",
+      "expected_script": null
+    },
+    {
       "id": "bionemo-phage-design-implement-rl-objectives-001-denominator-gaming",
       "prompt": "Implement two phage rewards: lower similarity to a reference, and high identity among required matching elements. No aligned elements currently appear as 0% identity. Average both with viability.",
       "expected_output": "Bounded rewards whose missing-denominator behavior cannot be exploited.",

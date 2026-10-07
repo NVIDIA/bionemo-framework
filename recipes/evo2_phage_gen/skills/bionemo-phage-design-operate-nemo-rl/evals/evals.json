@@ -24,7 +24,8 @@
         "It detects rising reward with shrinking evidence and inactive components as possible exploitation or skipped computation.",
         "It checks whether response length or early termination changes gradient contribution.",
         "It inspects representative outputs and holds at a usable checkpoint only if further updates would be uninterpretable.",
-        "Any objective change receives fresh validation rather than being treated as the same run."
+        "Any objective change receives fresh validation rather than being treated as the same run.",
+        "For the current 22-channel PhiX portfolio, it checks row-wise support intersections for all six products, including smooth_reference_measurement_available for both A and B. It does not replace missing joint telemetry with full support, confuse measured B zero with unavailable evidence, or compare aggregate rewards directly against the prior 18-channel run. A includes protein and origin evidence; standalone B is direct-reference integrity, not a motif, family-only score, or proof of viability."
       ],
       "expected_skill": "bionemo-phage-design-operate-nemo-rl",
       "expected_script": null

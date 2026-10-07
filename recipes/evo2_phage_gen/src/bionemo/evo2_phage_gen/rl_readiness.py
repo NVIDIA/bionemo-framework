@@ -527,6 +527,18 @@ def _validate_control_support(row: dict[str, Any], environment: Any) -> dict[str
         support["external_qc"] = True
         external_components = (
             (
+                "enable_gene_a_origin",
+                "gene_a_origin",
+                "reward_gene_a_origin",
+                "smooth_reference_measurement_available",
+            ),
+            (
+                "enable_gene_b_integrity",
+                "gene_b_integrity",
+                "reward_gene_b_integrity",
+                "smooth_reference_measurement_available",
+            ),
+            (
                 "enable_accessory_gene_diversification",
                 "accessory_gene_diversification",
                 "reward_external_accessory_gene_diversification",

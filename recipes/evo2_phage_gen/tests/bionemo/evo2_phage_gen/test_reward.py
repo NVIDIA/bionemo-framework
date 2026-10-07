@@ -1347,9 +1347,10 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
         "##gff-version 3\n"
         "ref\ttest\tCDS\t1\t9\t.\t+\t0\tID=A\n"
         "ref\ttest\tCDS\t10\t18\t.\t+\t0\tID=G\n"
+        "ref\ttest\tCDS\t19\t27\t.\t+\t0\tID=B\n"
         "##FASTA\n"
         ">ref\n"
-        "ATGAAATAAATGCCCTAA\n"
+        "ATGAAATAAATGCCCTAAATGAAATAA\n"
     )
     a_orf = "G" * 6 + motif + "G" * 30
     input_fasta = tmp_path / "input.fasta"
@@ -1359,10 +1360,13 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
         f">umi1_ORF.1 [0-{len(a_orf)}](+) type:complete length:{len(a_orf)}\n{a_orf}\n"
         ">umi1_ORF.2 [3-105](+) type:complete length:102\n"
         f"{'ATG' * 34}\n"
+        ">umi1_ORF.3 [6-108](+) type:complete length:102\n"
+        f"{'ATG' * 34}\n"
     )
     (tmp_path / "proteins.fasta").write_text(
         ">umi1_ORF.1 [0-66](+) type:complete length:66\nMMMMMMMMMMMMMMMMMMMMMM\n"
         ">umi1_ORF.2 [3-105](+) type:complete length:102\nMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM\n"
+        ">umi1_ORF.3 [6-108](+) type:complete length:102\nMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM\n"
     )
 
     def fake_run(command, **kwargs):
@@ -1372,6 +1376,7 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
             Path(command[5]).write_text(
                 f"A\tumi1_ORF.1\t1e-20\t{identity}\t95\t100\t100\t0.95\t0.95\n"
                 f"G\tumi1_ORF.2\t1e-20\t{identity}\t99\t100\t100\t0.99\t0.99\n"
+                f"B\tumi1_ORF.3\t1e-20\t{identity}\t95\t100\t100\t0.95\t0.95\n"
             )
         else:
             assert command[1] == "align"
@@ -1395,6 +1400,8 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
         enable_core_gene_ordered_conservation=True,
         enable_tropism=True,
         enable_gene_a_origin=True,
+        enable_gene_b_integrity=True,
+        gene_b_reference_locus="B",
         gene_a_reference_locus="A",
         tropism_reference_locus="G",
         gene_a_origin_motif=motif,
@@ -1443,13 +1450,17 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
     assert observed.loc[0, "reward_external_core_gene_ordered_conservation"] == (1.0 if function_aware else expected)
     assert observed.loc[0, "reward_external_tropism"] == expected
     assert observed.loc[0, "reward_gene_a_origin"] == expected
+    assert observed.loc[0, "reward_gene_b_integrity"] == expected
+    assert observed.loc[0, "reward_gene_b_integrity_pass"] == float(expected == 1.0)
     assert observed.loc[0, "reward_external_core_gene_ordered_conservation_pass"] == 1.0
     assert observed.loc[0, "reward_external_tropism_pass"] == 1.0
     assert observed.loc[0, "smooth_reference_measurement_available"] == 1.0
+    assert observed.loc[1, "smooth_reference_measurement_available"] == 0.0
     for column in (
         "reward_external_core_gene_ordered_conservation",
         "reward_external_tropism",
         "reward_gene_a_origin",
+        "reward_gene_b_integrity",
     ):
         assert observed.loc[1, column] == 0.0
 

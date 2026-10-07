@@ -19,8 +19,13 @@ For approved joint objectives, reuse `gdpo_objectives` with `columns` and `reduc
 do not add another product registry or repeat expensive measurements. Keep the individual
 terms and safety/EOD gates. A product adds a separately normalized GDPO channel, not a scalar
 weight. Diagnose joint rarity against marginal rates and relevant measured strata before
-calling it a conflict; unmeasured filter outcomes are not failures. PhiX enables AAI×core,
-accessory×core, and AAI×core×accessory, while Arc filter 7 remains diagnostic-only.
+calling it a conflict; unmeasured filter outcomes are not failures. PhiX has 22 channels:
+16 individual and six products. Its original 18 remain, with standalone B integrity and
+A×B×accessory, A×B×core, and A×B×core×AAI×accessory added. Here A is the complete
+`gene_a_origin` reward and B is `gene_b_integrity`; use the exact column mappings in the
+[reward API](references/reward-api.md#optional-adaptation-utilities). Arc filter 7 remains
+diagnostic-only. Joint support intersects row-wise measurement availability, including
+smooth-reference support for both A and B.
 
 Preserve formulas, controls, record mapping, and verified scoring concurrency when refactoring or optimizing a scorer; compare the reference and optimized paths on the same cases.
 
@@ -39,6 +44,13 @@ Use the [synteny entry points](references/reward-api.md#core-gene-ordered-conser
 The PHROGs annotation search has its own [configured sensitivity and CPU allocation](references/reward-api.md), shared by online function evidence and final screening. Evaluate search sensitivity separately from coverage/assignment rules, and compare absolute stage cost with end-to-end timing before judging a runtime ratio.
 
 For PhiX gene-A origin shaping, use the [origin formula](references/reward-api.md#gene-a-origin): the four-factor geometric mean of A-protein integrity, motif credit above the 25% uniform-DNA baseline, position/frame eligibility, and strong-site uniqueness. Partial motif credit does not require a strong site. Check partial-match progression and shuffled-window background as well as viable endpoints; the baseline is a shaping choice, not a significance threshold.
+
+For standalone PhiX B integrity, use the [direct-reference formula](references/reward-api.md#gene-b-integrity)
+against canonical B `NC_001422.1_ORF.14` and circular-aware ORFs. Reuse the existing core
+protein-match significance, 90% identity, and 95% native reciprocal-coverage full-credit
+settings without changing core thresholds. A motif or PHROG-family match cannot substitute
+for B integrity. B is enabled only in the GDPO profile; base GRPO is unchanged. This adds
+no search, hard filter, or guarantee of functional viability.
 
 Reference conservation, divergence from a database, and within-batch diversity are separate goals. Include novelty pressure only when the approved objective plan calls for it, with a database, direction, and threshold suited to that task. For the PhiX reproduction's specific AAI definition and asset setup, use the [PhiX protein-scoring reference](../../examples/README.md#protein-evidence-synteny-and-diversity); its novelty cutoff is not a general viability requirement.
 

@@ -42,7 +42,8 @@ components. GRPO trains on that weighted scalar mean. GDPO instead trains on the
 then normalize the combined advantage. Scalar `weight_*` values do not scale or disable
 GDPO objectives. Existing safety/EOD gating happens before normalization.
 
-PhiX GDPO retains its 15 individual objectives and adds three joint objectives:
+PhiX GDPO retains the original 18 channels and now uses 22: 16 individual objectives
+and six products. The original joint objectives are
 `aai_with_core`, `accessory_with_core`, and `aai_with_core_and_accessory`.
 They multiply the existing AAI novelty, core ordered conservation, and K/X accessory
 scores as their names indicate. Each is another independently normalized GDPO channel,
@@ -50,6 +51,16 @@ not a scalar weight or a replacement for its components. No additional search is
 These products encourage novelty with conserved core functions; they do not guarantee
 joint biological success or agreement with Arc's separate filter-7 architecture diagnostic.
 GRPO and final acceptance gates are unchanged.
+The canonical-architecture additions are standalone `gene_b_integrity` and products
+`gene_a_and_b_with_accessory`, `gene_a_and_b_with_core`, and
+`gene_a_and_b_with_core_aai_accessory`. B uses the direct reference-protein integrity
+for `NC_001422.1_ORF.14`, with circular-aware ORFs and the same identity/reciprocal
+coverage criteria as A's protein factor. It has no origin-motif requirement and
+cannot earn credit from an alternative PHROG family alone. A is the existing
+`gene_a_origin` score, including protein integrity and origin evidence. Each new
+product multiplies these A/B scores by its named original components; no additional
+protein search is needed. A/B measurement flags reflect upstream cohort membership,
+not merely completion of another row's search.
 GDPO aggregate logs/selection still use the configured reward vector: adding columns
 changes that aggregate's scale and ranking. Compare individual metrics across regimes,
 and select checkpoints within the new run rather than pooling old and new aggregates.

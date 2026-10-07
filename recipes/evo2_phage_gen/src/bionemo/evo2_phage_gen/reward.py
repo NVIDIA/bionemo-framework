@@ -161,6 +161,7 @@ class RewardWeights:
     core_gene_ordered_conservation: float = 0.0
     accessory_gene_diversification: float = 0.0
     gene_a_origin: float = 0.0
+    gene_b_integrity: float = 0.0
     average_protein_identity: float = 0.0
     required_genes: float = 0.0
     mmseqs_cluster_diversity: float = 0.0
@@ -198,6 +199,7 @@ REWARD_COMPONENTS: tuple[RewardComponent, ...] = (
         "gene_a_origin",
         "reward_gene_a_origin",
     ),
+    RewardComponent("gene_b_integrity", "gene_b_integrity", "reward_gene_b_integrity"),
     RewardComponent(
         "average_protein_identity",
         "average_protein_identity",
@@ -242,6 +244,7 @@ class ExternalQCRewardConfig:
     tropism_match_min_reciprocal_coverage: float = 0.95
     enable_smooth_reference_rewards: bool = False
     enable_gene_a_origin: bool = False
+    enable_gene_b_integrity: bool = False
     core_gene_identity_zero_credit: float = 0.05
     core_gene_identity_full_credit: float = 0.90
     core_gene_reciprocal_coverage_full_credit: float = 0.95
@@ -251,6 +254,7 @@ class ExternalQCRewardConfig:
     tropism_identity_full_credit: float = 0.95
     tropism_reciprocal_coverage_full_credit: float = 0.99
     gene_a_reference_locus: str = "NC_001422.1_ORF.23"
+    gene_b_reference_locus: str = "NC_001422.1_ORF.14"
     tropism_reference_locus: str = "NC_001422.1_ORF.3"
     gene_a_origin_motif: str = "CAACTTGATATTAATAACACTATAGACCAC"
     gene_a_origin_offset_nt: int = 345
@@ -1106,6 +1110,8 @@ def _write_external_qc_config(
 
     if external_qc.enable_gene_a_origin and not external_qc.enable_smooth_reference_rewards:
         raise ValueError("enable_gene_a_origin requires enable_smooth_reference_rewards")
+    if external_qc.enable_gene_b_integrity and not external_qc.enable_smooth_reference_rewards:
+        raise ValueError("enable_gene_b_integrity requires enable_smooth_reference_rewards")
     synteny_enabled = external_qc.enable_core_gene_ordered_conservation
     smooth_reference_enabled = bool(
         external_qc.enable_smooth_reference_rewards
@@ -1113,6 +1119,7 @@ def _write_external_qc_config(
             external_qc.enable_core_gene_ordered_conservation
             or external_qc.enable_tropism
             or external_qc.enable_gene_a_origin
+            or external_qc.enable_gene_b_integrity
         )
     )
     protein_metrics_stage_enabled = bool(
@@ -1129,6 +1136,7 @@ def _write_external_qc_config(
         or external_qc.enable_average_protein_identity
         or external_qc.enable_required_genes
         or external_qc.enable_gene_a_origin
+        or external_qc.enable_gene_b_integrity
         or external_qc.enable_accessory_gene_diversification
     )
 
@@ -1237,7 +1245,7 @@ def _add_smooth_reference_rewards(
     config: dict,
     external_qc: ExternalQCRewardConfig,
 ) -> pd.DataFrame:
-    """Add smooth synteny, tropism, and gene-A-origin rewards from protein evidence."""
+    """Add smooth synteny, tropism, A-origin and B-integrity rewards from shared protein evidence."""
     reference_gff_value = config.get("smooth_reference_genome_gff_file")
     protein_orfs_value = config.get("orfipy_proteins_file_save_location")
     nucleotide_orfs_value = config.get("orfipy_orfs_file_save_location")
@@ -1255,11 +1263,13 @@ def _add_smooth_reference_rewards(
     elif config.get("use_nucleotide_filtered_df_instead") and not config.get("use_orf_filtered_df"):
         upstream_csv = config["nucleotide_filter_seqs_csv_file_save_location"]
     skipped_empty_cohort = False
+    upstream_ids = None
     if upstream_csv:
         upstream_df = pd.read_csv(run_dir / upstream_csv)
         if not {"id_prompt", "sequence"}.issubset(upstream_df.columns):
             raise ValueError("Homology input must contain id_prompt and sequence columns")
         skipped_empty_cohort = upstream_df.empty
+        upstream_ids = set(upstream_df["id_prompt"].astype(str))
     if not reference_gff.exists() or (
         not skipped_empty_cohort and (not protein_orfs.exists() or not nucleotide_orfs.exists())
     ):
@@ -1278,6 +1288,8 @@ def _add_smooth_reference_rewards(
         required_reference_loci.add(external_qc.tropism_reference_locus)
     if external_qc.enable_gene_a_origin:
         required_reference_loci.add(external_qc.gene_a_reference_locus)
+    if external_qc.enable_gene_b_integrity:
+        required_reference_loci.add(external_qc.gene_b_reference_locus)
     missing_reference_loci = required_reference_loci - set(reference_order)
     if missing_reference_loci:
         raise ValueError(f"Smooth reference loci are absent from the staged GFF: {sorted(missing_reference_loci)}")
@@ -1348,6 +1360,7 @@ def _add_smooth_reference_rewards(
         gene_a_origin_motif=external_qc.gene_a_origin_motif,
         gene_a_origin_offset_nt=external_qc.gene_a_origin_offset_nt,
         gene_a_origin_offset_tolerance_nt=external_qc.gene_a_origin_offset_tolerance_nt,
+        gene_b_reference_locus=external_qc.gene_b_reference_locus if external_qc.enable_gene_b_integrity else None,
         function_matches=function_matches,
         reference_functions=reference_functions,
     ).set_index("id_prompt")
@@ -1360,18 +1373,25 @@ def _add_smooth_reference_rewards(
         reward_columns.add("reward_external_tropism")
     if external_qc.enable_gene_a_origin:
         reward_columns.add("reward_gene_a_origin")
+    if external_qc.enable_gene_b_integrity:
+        reward_columns.add("reward_gene_b_integrity")
     telemetry_columns = set(summary.columns) - {
         "reward_external_core_gene_ordered_conservation",
         "reward_external_tropism",
         "reward_gene_a_origin",
+        "reward_gene_b_integrity",
     }
     for column in sorted(reward_columns | telemetry_columns):
         scored_df[column] = row_ids.map(summary[column]).fillna(0.0)
-    scored_df["smooth_reference_stage_reached"] = float(not skipped_empty_cohort)
-    scored_df["smooth_reference_measurement_available"] = float(not skipped_empty_cohort)
+    # Eligible no-hit/no-ORF rows are measured zeros; excluded rows are unavailable.
+    measured = row_ids.isin(upstream_ids if upstream_ids is not None else genome_sequences).astype(float)
+    scored_df["smooth_reference_stage_reached"] = measured
+    scored_df["smooth_reference_measurement_available"] = measured
     scored_df["smooth_reference_missing_artifact"] = 0.0
     if external_qc.enable_gene_a_origin:
         scored_df["reward_gene_a_origin_pass"] = scored_df["reward_gene_a_origin"].eq(1.0).astype(float)
+    if external_qc.enable_gene_b_integrity:
+        scored_df["reward_gene_b_integrity_pass"] = scored_df["reward_gene_b_integrity"].eq(1.0).astype(float)
     return scored_df
 
 
@@ -1682,6 +1702,7 @@ def add_external_qc_rewards(
         "reward_external_core_gene_ordered_conservation",
         "reward_external_accessory_gene_diversification",
         "reward_gene_a_origin",
+        "reward_gene_b_integrity",
         "reward_external_average_protein_identity",
         "reward_external_required_genes",
     ]:
@@ -1690,6 +1711,8 @@ def add_external_qc_rewards(
         df["reward_external_core_gene_ordered_conservation_pass"] = 0.0
     if external_qc.enable_gene_a_origin:
         df["reward_gene_a_origin_pass"] = 0.0
+    if external_qc.enable_gene_b_integrity:
+        df["reward_gene_b_integrity_pass"] = 0.0
     if external_qc.enable_average_protein_identity:
         df["reward_external_average_protein_identity_pass"] = 0.0
     if external_qc.enable_required_genes:
@@ -1757,6 +1780,7 @@ def add_external_qc_rewards(
             external_qc.enable_core_gene_ordered_conservation
             or external_qc.enable_tropism
             or external_qc.enable_gene_a_origin
+            or external_qc.enable_gene_b_integrity
         ):
             phase_start = time.perf_counter()
             try:
@@ -1779,6 +1803,8 @@ def add_external_qc_rewards(
                     df["reward_external_tropism"] = 0.0
                 if external_qc.enable_gene_a_origin:
                     df["reward_gene_a_origin"] = 0.0
+                if external_qc.enable_gene_b_integrity:
+                    df["reward_gene_b_integrity"] = 0.0
                 message = f"Smooth reference scoring failed for {run_dir}; artifacts were retained"
                 if external_qc.fail_on_error:
                     raise RuntimeError(message) from exc
