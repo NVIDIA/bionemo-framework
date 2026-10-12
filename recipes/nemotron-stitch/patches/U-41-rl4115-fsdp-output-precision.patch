@@ -1,0 +1,82 @@
+diff --git a/nemo_rl/models/automodel/setup.py b/nemo_rl/models/automodel/setup.py
+index 86996a2ce..bcbdb471c 100644
+--- a/nemo_rl/models/automodel/setup.py
++++ b/nemo_rl/models/automodel/setup.py
+@@ -294,6 +294,9 @@ def validate_and_prepare_config(
+     if precision not in STRING_TO_DTYPE:
+         raise ValueError(f"Unknown precision: {precision}")
+     dtype = STRING_TO_DTYPE[precision]
++    fsdp_output_dtype = config["dtensor_cfg"].get("fsdp_output_dtype", "float32")
++    if fsdp_output_dtype not in ("float32", "bfloat16", "float16"):
++        raise ValueError(f"Unknown FSDP output dtype: {fsdp_output_dtype}")
+
+     # Get other configuration values
+     cpu_offload = config["dtensor_cfg"]["cpu_offload"]
+@@ -463,6 +466,7 @@ def setup_distributed(
+     # Extract configuration values
+     dtype = runtime_config.dtype
+     cpu_offload = runtime_config.cpu_offload
++    fsdp_output_dtype = config["dtensor_cfg"].get("fsdp_output_dtype", "float32")
+
+     # Extract parallelization config
+     tp_size = config["dtensor_cfg"].get("tensor_parallel_size", 1)
+@@ -491,7 +495,7 @@ def setup_distributed(
+         mp_policy=MixedPrecisionPolicy(
+             param_dtype=dtype,
+             reduce_dtype=torch.float32,
+-            output_dtype=torch.float32,
++            output_dtype=STRING_TO_DTYPE[fsdp_output_dtype],
+         ),
+         offload_policy=CPUOffloadPolicy(pin_memory=False) if cpu_offload else None,
+         activation_checkpointing=config["dtensor_cfg"]["activation_checkpointing"],
+diff --git a/nemo_rl/models/policy/__init__.py b/nemo_rl/models/policy/__init__.py
+index 3325edfbf..b17c9d3b1 100644
+--- a/nemo_rl/models/policy/__init__.py
++++ b/nemo_rl/models/policy/__init__.py
+@@ -201,6 +201,9 @@ class DTensorConfig(TypedDict):
+     cpu_offload: bool
+     custom_parallel_plan: NotRequired[str | None]
+     defer_fsdp_grad_sync: NotRequired[bool]
++    # AutoModel FSDP2 output precision. Master weights/reductions remain FP32;
++    # BF16 outputs avoid retaining full FP32 residual/logit buffers.
++    fsdp_output_dtype: NotRequired[Literal["float32", "bfloat16", "float16"]]
+     # MoE parallelizer config
+     moe_parallelizer: NotRequired[MoEParallelizerOptions]
+     # Model config
+diff --git a/tests/unit/models/test_automodel_output_precision.py b/tests/unit/models/test_automodel_output_precision.py
+new file mode 100644
+index 000000000..acc00a6d0
+--- /dev/null
++++ b/tests/unit/models/test_automodel_output_precision.py
+@@ -0,0 +1,29 @@
++"""Check the mixed-precision policy passed to native AutoModel mesh setup."""
++from types import SimpleNamespace
++from unittest.mock import MagicMock
++
++import pytest
++import torch
++
++from nemo_rl.models.automodel import setup
++
++
++@pytest.mark.parametrize("output_dtype", [None, "bfloat16", "float32"])
++def test_distributed_setup_preserves_compute_and_reduction_precision(monkeypatch, output_dtype):
++    """Changing output precision must preserve BF16 compute and FP32 reductions."""
++    monkeypatch.setattr(torch.distributed, "init_process_group", lambda **kwargs: None)
++    monkeypatch.setattr(torch.distributed, "get_world_size", lambda: 8)
++    mesh = MagicMock()
++    mesh.__getitem__.return_value.size.return_value = 1
++    monkeypatch.setattr(setup.MeshContext, "build", lambda *args, **kwargs: SimpleNamespace(device_mesh=mesh, moe_mesh=mesh))
++    dtensor = {"sequence_parallel": False, "activation_checkpointing": False, "expert_parallel_size": 8}
++    if output_dtype is not None:
++        dtensor["fsdp_output_dtype"] = output_dtype
++    result = setup.setup_distributed(
++        {"dtensor_cfg": dtensor},
++        SimpleNamespace(dtype=torch.bfloat16, cpu_offload=False),
++    )
++    policy = result.fsdp2_config.mp_policy
++    assert policy.param_dtype == torch.bfloat16
++    assert policy.reduce_dtype == torch.float32
++    assert policy.output_dtype == (torch.bfloat16 if output_dtype == "bfloat16" else torch.float32)
+--
+2.43.0

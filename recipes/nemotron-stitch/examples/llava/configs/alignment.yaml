@@ -1,0 +1,105 @@
+# Stage 1 — alignment: frozen LM, trainable module-owned projector.
+# One rank:    python -m nemo_automodel.cli.app configs/alignment.yaml --nproc-per-node 1
+# Two ranks:   python -m nemo_automodel.cli.app configs/alignment.yaml --nproc-per-node 2
+# Eight ranks: torchrun --nproc-per-node 8 -m nemo_automodel.cli.app configs/alignment.yaml \
+#                --step_scheduler.local_batch_size=2
+# Global batch and seed are rank-count-invariant; AutoModel derives gradient
+# accumulation from world size. At eight ranks local_batch_size must drop so
+# that global_batch_size stays divisible by local_batch_size * world_size.
+#
+# AutoModel r0.6.0 configs are self-contained, so this file carries the values
+# its model and loader consume directly. The agreement test keeps copies aligned.
+recipe: nemotron_stitch.automodel.recipe.ProjectorFinetuneRecipe
+
+step_scheduler:
+  global_batch_size: 16
+  local_batch_size: 8
+  num_epochs: 1000
+  max_steps: 100
+  ckpt_every_steps: 1000
+  val_every_steps: 1000
+
+dist_env:
+  backend: nccl
+  timeout_minutes: 30
+
+rng:
+  _target_: nemo_automodel.components.training.rng.StatefulRNG
+  seed: 42
+  ranked: true
+
+model:
+  _target_: nemo_automodel.NeMoAutoModelForCausalLM.from_pretrained
+  pretrained_model_name_or_path: &model-path artifacts/models/nemotron-nano-4b-bf16
+  local_files_only: true
+  trust_remote_code: true
+  torch_dtype: torch.bfloat16
+  architectures: [LlavaExampleNemotronForCausalLM]
+  mm_training_stage: 1
+  mm_projector_ownership: module
+  mm_projectors:
+    - name: image
+      kind: mlp2x_gelu
+      mm_hidden_size: 768
+  mm_placeholder_token_ids:
+    image: 32
+
+peft: null
+
+# The projector is the complete trainable state; the package's artifact export
+# (projector.artifact_dir) is the checkpoint. The frozen base needs none.
+checkpoint:
+  enabled: false
+  checkpoint_dir: outputs/alignment/checkpoints
+
+distributed:
+  strategy: fsdp2
+  tp_size: 1
+  cp_size: 1
+  pp_size: 1
+  ep_size: 1
+  sequence_parallel: false
+  activation_checkpointing: false
+
+# No freeze_config: the recipe's trainability seam (stage 1) sets requires_grad
+# exactly — projector trainable, everything else frozen — and writes the
+# manifest proving it.
+loss_fn:
+  _target_: nemo_automodel.components.loss.masked_ce.MaskedCrossEntropy
+
+dataset:
+  _target_: nemotron_stitch.automodel.data.ManifestFeatureDataset
+  manifest_path: outputs/data/manifest.jsonl
+  stage: alignment
+  split: train
+  cache_root: outputs/data/feature-cache
+
+dataloader:
+  _target_: torchdata.stateful_dataloader.StatefulDataLoader
+  num_workers: 0
+  shuffle: true
+  collate_fn:
+    _target_: nemotron_stitch.automodel.data.collate_fn
+    tokenizer_name_or_path: *model-path
+    projector_name: image
+    placeholder_token_id: 32
+    max_length: 512
+    # The model answers directly (no think block); must match the GRPO prompt
+    # rendering byte-for-byte.
+    chat_template_kwargs: {enable_thinking: false}
+  drop_last: true
+
+optimizer:
+  _target_: nemotron_stitch.automodel.optim.ProjectorAdamWConfig
+  lr: 3.0e-4
+  weight_decay: 0.0
+  betas: [0.9, 0.95]
+
+wandb:
+  mode: disabled
+
+projector:
+  model_registry_callback: llava_example.register_models
+  train_projector: true
+  artifact_dir: outputs/alignment/projector
+  trainability_manifest: outputs/alignment/trainability.json

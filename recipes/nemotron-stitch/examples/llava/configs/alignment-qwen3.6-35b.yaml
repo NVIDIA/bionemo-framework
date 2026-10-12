@@ -1,0 +1,105 @@
+# Stage 1 — one-step alignment on Qwen3.6-35B-A3B: frozen native Qwen
+# MoE VLM, trainable module-owned CLIP projector.
+#
+#   python -m nemo_automodel.cli.app configs/alignment-qwen3.6-35b.yaml --nproc-per-node 1
+recipe: nemotron_stitch.automodel.recipe.ProjectorFinetuneRecipe
+
+step_scheduler:
+  global_batch_size: 1
+  local_batch_size: 1
+  num_epochs: 1
+  max_steps: 1
+  ckpt_every_steps: 1000
+  val_every_steps: 1000
+
+dist_env:
+  backend: nccl
+  timeout_minutes: 60
+
+rng:
+  _target_: nemo_automodel.components.training.rng.StatefulRNG
+  seed: 45
+  ranked: true
+
+model:
+  _target_: nemo_automodel.NeMoAutoModelForCausalLM.from_pretrained
+  pretrained_model_name_or_path: &model-path artifacts/models/qwen3.6-35b-a3b
+  local_files_only: true
+  trust_remote_code: false
+  torch_dtype: torch.bfloat16
+  # AutoModel's native qwen3_5_moe implementation; single-GPU torch routing
+  # avoids the grouped-GEMM/DeepEP dependencies used by its EP8 recipe.
+  backend:
+    _target_: nemo_automodel.components.models.common.BackendConfig
+    attn: sdpa
+    linear: torch
+    rms_norm: torch_fp32
+    rope_fusion: false
+    experts: torch_mm
+    dispatcher: torch
+    enable_hf_state_dict_adapter: true
+  architectures: [LlavaExampleQwen3_5MoeForConditionalGeneration]
+  mm_training_stage: 1
+  mm_projector_ownership: module
+  mm_projectors:
+    - name: clip_image
+      kind: mlp2x_gelu
+      mm_hidden_size: 768
+  mm_placeholder_token_ids:
+    clip_image: 248055
+
+peft: null
+
+checkpoint:
+  enabled: false
+  checkpoint_dir: outputs/qwen3.6-alignment/checkpoints
+
+distributed:
+  strategy: fsdp2
+  tp_size: 1
+  cp_size: 1
+  pp_size: 1
+  ep_size: 1
+  sequence_parallel: false
+  activation_checkpointing: false
+
+loss_fn:
+  _target_: nemo_automodel.components.loss.masked_ce.MaskedCrossEntropy
+
+packed_sequence:
+  packed_sequence_size: 512
+  packing_strategy: nemotron_stitch.automodel.data.StreamingFeaturePackingConfig
+  packing_format: neat
+
+dataset:
+  _target_: nemotron_stitch.automodel.data.ManifestFeatureIterableDatasetConfig
+  manifest_path: outputs/data-qwen/manifest.jsonl
+  stage: alignment
+  split: train
+  cache_root: outputs/data-qwen/feature-cache
+  projector_name: clip_image
+  placeholder_token_id: 248055
+  max_length: 512
+  chat_template_kwargs: {enable_thinking: false}
+
+dataloader:
+  _target_: torchdata.stateful_dataloader.StatefulDataLoader
+  batch_size: null
+  num_workers: 0
+  shuffle: true
+  shuffle_buffer_size: 1000
+
+optimizer:
+  _target_: nemotron_stitch.automodel.optim.ProjectorAdamWConfig
+  lr: 3.0e-4
+  weight_decay: 0.0
+  betas: [0.9, 0.95]
+
+wandb:
+  mode: disabled
+
+projector:
+  model_registry_callback: llava_qwen.register_moe_models
+  train_projector: true
+  artifact_dir: outputs/qwen3.6-alignment/projector
+  trainability_manifest: outputs/qwen3.6-alignment/trainability.json

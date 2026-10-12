@@ -755,6 +755,7 @@ def _add_unavailable_sequence_safety_rewards(
     defaults: dict[str, object] = {
         "safety_gate_state": "INDETERMINATE",
         "safety_gate_pass": 0.0,
+        "reward_safety_penalty": 1.0,
         "safety_gate_reason_codes": reasons_json,
         "safety_environment_healthy": 0.0,
         "safety_gate_measurement_available": 0.0,
@@ -801,7 +802,9 @@ def _sequence_is_scannable(sequence: object) -> bool:
 def _set_row_values(scored_df: pd.DataFrame, position: int, values: dict[str, object]) -> None:
     for column, value in values.items():
         if column not in scored_df:
-            scored_df[column] = ""
+            # pandas 3 infers a strict str dtype from a "" placeholder, which rejects
+            # non-string telemetry; keep the fallback column object-dtype instead.
+            scored_df[column] = pd.Series("", index=scored_df.index, dtype=object)
         scored_df.iloc[position, scored_df.columns.get_loc(column)] = value
 
 

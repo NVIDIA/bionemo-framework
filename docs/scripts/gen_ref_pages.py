@@ -610,7 +610,7 @@ def get_recipe_docs(recipe_item: Path, section: str, root: Path) -> None:
         dest_file = dest_dir / extra_doc.name
         copy_text_file(extra_doc, dest_file, root, f"Added recipe doc: {dest_file}")
 
-    for docs_dir_name in ("examples", "notebooks"):
+    for docs_dir_name in ("docs", "examples", "notebooks"):
         docs_dir = recipe_item / docs_dir_name
         if docs_dir.exists():
             copy_docs_from_dir(docs_dir, dest_dir / docs_dir_name, root, "Added recipe example")

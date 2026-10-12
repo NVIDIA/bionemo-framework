@@ -1,0 +1,133 @@
+diff --git a/nemo_rl/models/automodel/train.py b/nemo_rl/models/automodel/train.py
+index f5932477e..13d162035 100644
+--- a/nemo_rl/models/automodel/train.py
++++ b/nemo_rl/models/automodel/train.py
+@@ -553,6 +553,7 @@ class LossPostProcessor:
+         dp_size: int,
+         enable_seq_packing: bool = False,
+         sampling_params: Optional[TrainingSamplingParams] = None,
++        tp_mesh: Any = None,
+     ):
+         """Initialize LossPostProcessor.
+
+@@ -566,6 +567,8 @@ class LossPostProcessor:
+             dp_size: Data parallel size
+             enable_seq_packing: Whether sequence packing is enabled
+             sampling_params: Sampling parameters
++            tp_mesh: Tensor-parallel mesh; its singleton group permits the
++                existing chunked vocabulary loss to handle unsharded logits.
+         """
+         self.loss_fn: LossFunction = loss_fn
+         self.cfg: PolicyConfig = cfg
+@@ -574,6 +577,7 @@ class LossPostProcessor:
+         self.dp_size = dp_size
+         self.enable_seq_packing = enable_seq_packing
+         self.sampling_params = sampling_params
++        self.tp_mesh = tp_mesh
+         self._cp_gradient_fanout = (
+             cp_size
+             if cp_size > 1
+@@ -637,10 +641,30 @@ class LossPostProcessor:
+                     "context_parallel_size > 1 on the automodel policy worker."
+                 )
+
++        # The local-vocabulary path otherwise materializes full FP32 logits and
++        # log_softmax outputs. Reuse the existing chunked autograd implementation
++        # with a singleton TP group rather than inventing a second loss kernel.
++        chunk_size = self.cfg.get("logprob_chunk_size")
++        local_vocab_group = None
++        if (
++            chunk_size is not None
++            and token_layout is None
++            and self.loss_fn.input_type == LossInputType.LOGPROB
++            and not isinstance(logits, torch.distributed.tensor.DTensor)
++        ):
++            if chunk_size <= 0:
++                raise ValueError("logprob_chunk_size must be positive")
++            if self.tp_mesh is None or self.tp_mesh.size() != 1:
++                raise ValueError("chunked local logits require a singleton TP mesh")
++            local_vocab_group = self.tp_mesh.get_group()
++
+         # Wrap prepare_loss_input with sampling_params
+         prepare_loss_input_wrapped = partial(
+             prepare_loss_input,
+             sampling_params=self.sampling_params,
++            chunk_size=chunk_size,
++            vocab_parallel_group=local_vocab_group,
++            vocab_parallel_rank=0 if local_vocab_group is not None else None,
+             context_parallel_group=(
+                 self.cp_mesh.get_group() if self.cp_size > 1 else None
+             ),
+diff --git a/nemo_rl/models/policy/workers/dtensor_policy_worker_v2.py b/nemo_rl/models/policy/workers/dtensor_policy_worker_v2.py
+index d42a63ce2..132c920bc 100644
+--- a/nemo_rl/models/policy/workers/dtensor_policy_worker_v2.py
++++ b/nemo_rl/models/policy/workers/dtensor_policy_worker_v2.py
+@@ -435,6 +435,7 @@ class DTensorPolicyWorkerV2Impl(
+             dp_size=self.dp_size,
+             enable_seq_packing=self.enable_seq_packing,
+             sampling_params=self.sampling_params,
++            tp_mesh=self.tp_mesh,
+         )
+
+         # Setup cache clearing callback if configured
+diff --git a/tests/unit/models/test_automodel_local_logprob_chunks.py b/tests/unit/models/test_automodel_local_logprob_chunks.py
+new file mode 100644
+index 000000000..48b30f91b
+--- /dev/null
++++ b/tests/unit/models/test_automodel_local_logprob_chunks.py
+@@ -0,0 +1,53 @@
++"""Qualify local-vocabulary loss chunking through the AutoModel loss boundary."""
++
++from collections.abc import Iterator
++from typing import Any
++
++import pytest
++import torch
++import torch.distributed as dist
++from torch.distributed.device_mesh import DeviceMesh
++
++from nemo_rl.algorithms.loss.interfaces import LossInputType
++from nemo_rl.distributed.batched_data_dict import BatchedDataDict
++from nemo_rl.models.automodel.train import LossPostProcessor
++
++
++class WeightedTokenLoss:
++    """Expose token logprobs and signed, nonuniform gradients for parity checks."""
++
++    input_type = LossInputType.LOGPROB
++
++    def __call__(self, *, data: Any, next_token_logprobs: torch.Tensor, **kwargs: Any) -> tuple[torch.Tensor, dict[str, Any]]:
++        return (next_token_logprobs * data['weights']).sum(), {'selected': next_token_logprobs.detach()}
++
++
++@pytest.fixture(scope='module')
++def singleton_tp_mesh(tmp_path_factory: Any) -> Iterator[DeviceMesh]:
++    """Use a real singleton NCCL group, matching each FSDP rank's TP=1 mesh."""
++    assert torch.cuda.is_available(), 'this qualification requires a GPU'
++    store = tmp_path_factory.mktemp('local-logprob') / 'store'
++    dist.init_process_group('nccl', init_method=f'file://{store}', rank=0, world_size=1)
++    try:
++        yield DeviceMesh('cuda', [0], mesh_dim_names=('tp',))
++    finally:
++        dist.destroy_process_group()
++
++
++@pytest.mark.parametrize('dtype', [torch.float32, torch.bfloat16])
++@pytest.mark.parametrize('chunk_size', [1, 7, 64])
++def test_chunked_local_loss_preserves_selected_values_and_gradients(singleton_tp_mesh: DeviceMesh, dtype: torch.dtype, chunk_size: int) -> None:
++    """Cover ragged final chunks, oversized chunks, signed weights, and both dtypes."""
++    torch.manual_seed(42)
++    original = torch.randn(2, 37, 257, device='cuda', dtype=dtype)
++    data = BatchedDataDict({'input_ids': torch.randint(257, (2, 37), device='cuda'), 'weights': torch.randn(2, 36, device='cuda') / 72})
++    results = []
++    for selected_chunk in (None, chunk_size):
++        logits = original.clone().requires_grad_()
++        processor = LossPostProcessor(loss_fn=WeightedTokenLoss(), cfg={'logprob_chunk_size': selected_chunk}, cp_mesh=None, cp_size=1, dp_size=1, tp_mesh=singleton_tp_mesh)
++        loss, metrics = processor(logits, data, None, torch.tensor(2, device='cuda'), torch.tensor(72, device='cuda'), cp_sharder=None)
++        loss.backward()
++        results.append((loss.detach(), metrics['selected'], logits.grad))
++    torch.testing.assert_close(results[1][0], results[0][0], rtol=1e-5, atol=1e-6)
++    torch.testing.assert_close(results[1][1], results[0][1], rtol=1e-5, atol=1e-6)
++    torch.testing.assert_close(results[1][2], results[0][2], rtol=.01 if dtype == torch.bfloat16 else 1e-5, atol=5e-5 if dtype == torch.bfloat16 else 1e-7)
+--
+2.43.0

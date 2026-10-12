@@ -15,6 +15,7 @@ dependencies = [
     "jinja2",
     "nvidia_resiliency_ext",
     "omegaconf",
+    "pyarrow<26",                        # pyarrow 26 requires NumPy>=2; the AMPLIFY container ships NumPy 1.26
     "pytest",
     "setuptools<82",
     "torch==2.6.0a0+ecf3bae40a.nv25.01",

@@ -279,7 +279,9 @@ class NVQwen3Model(NVQwen3PreTrainedModel):
             # dynamically convert to THD-style inputs in our forward pass, and then convert back to BSHD for the output.
             # This lets the entire transformer stack run in THD mode. This might be slower for BSHD + padding with fused
             # attention backend, but it should be faster for the flash attention backend.
-            assert attention_mask is not None, "Attention mask is required when packing BSHD inputs."
+            if attention_mask is None:
+                # A missing mask means no padding (e.g., HF generate() drops all-ones masks).
+                attention_mask = torch.ones(hidden_states.shape[:2], dtype=torch.long, device=hidden_states.device)
             batch_size = hidden_states.size(0)
             padded_seq_len = input_ids.size(1)
             hidden_states, indices, cu_seqlens, max_seqlen, _ = _unpad_input(hidden_states, attention_mask)

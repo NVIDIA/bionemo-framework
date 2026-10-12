@@ -1,0 +1,128 @@
+# Stage 2 — SFT: the module-owned projector warm-starts from the alignment
+# artifact and trains jointly with a LoRA adapter on the qualified attention
+# projections only (the LLaVA recipe's finetune stage).
+# Explicit target names, not all-linear: all-linear can capture projector
+# layers, and the trainability manifest must prove it did not.
+# One rank:    python -m nemo_automodel.cli.app configs/sft.yaml --nproc-per-node 1
+# Two ranks:   python -m nemo_automodel.cli.app configs/sft.yaml --nproc-per-node 2
+# Eight ranks: torchrun --nproc-per-node 8 -m nemo_automodel.cli.app configs/sft.yaml \
+#                --step_scheduler.local_batch_size=2
+# (global_batch_size must stay divisible by local_batch_size * world_size)
+#
+recipe: nemotron_stitch.automodel.recipe.ProjectorFinetuneRecipe
+
+step_scheduler:
+  global_batch_size: 16
+  local_batch_size: 8
+  num_epochs: 1000
+  max_steps: 200
+  ckpt_every_steps: 200
+  val_every_steps: 1000
+
+dist_env:
+  backend: nccl
+  timeout_minutes: 30
+
+rng:
+  _target_: nemo_automodel.components.training.rng.StatefulRNG
+  seed: 43
+  ranked: true
+
+model:
+  _target_: nemo_automodel.NeMoAutoModelForCausalLM.from_pretrained
+  pretrained_model_name_or_path: &model-path artifacts/models/nemotron-nano-4b-bf16
+  local_files_only: true
+  trust_remote_code: true
+  torch_dtype: torch.bfloat16
+  architectures: [LlavaExampleNemotronForCausalLM]
+  mm_training_stage: 2
+  mm_projector_ownership: module
+  mm_projectors:
+    - name: image
+      kind: mlp2x_gelu
+      mm_hidden_size: 768
+  mm_placeholder_token_ids:
+    image: 32
+
+peft:
+  _target_: nemo_automodel.components._peft.lora.PeftConfig
+  # Every projection that survives the SFT->GRPO handoff on this dense
+  # hybrid: attention plus the mamba input projection, which the training
+  # forward calls as a module on every path. mixer.out_proj is excluded —
+  # the mamba fast path passes its weight directly to the fused scan kernel,
+  # so a LoRA wrapper would be silently inert (U-30) — and this model has no
+  # experts. conv1d/A/D, embeddings, norms, and lm_head have no LinearLoRA
+  # form.
+  target_modules:
+    - "*.mixer.q_proj"
+    - "*.mixer.k_proj"
+    - "*.mixer.v_proj"
+    - "*.mixer.o_proj"
+    - "*.mixer.in_proj"
+  exclude_modules: []
+  match_all_linear: false
+  dim: 8
+  alpha: 16
+  dropout: 0.0
+  use_triton: true
+
+checkpoint:
+  # The PEFT checkpoint holds the LoRA state only; the jointly trained
+  # projector is NOT copied here — it is exported to projector.artifact_dir.
+  enabled: true
+  checkpoint_dir: outputs/sft/checkpoints
+  model_save_format: safetensors
+  save_consolidated: final
+
+distributed:
+  strategy: fsdp2
+  tp_size: 1
+  cp_size: 1
+  pp_size: 1
+  ep_size: 1
+  sequence_parallel: false
+  activation_checkpointing: false
+
+loss_fn:
+  _target_: nemo_automodel.components.loss.masked_ce.MaskedCrossEntropy
+
+dataset:
+  _target_: nemotron_stitch.automodel.data.ManifestFeatureDataset
+  manifest_path: outputs/data/manifest.jsonl
+  stage: sft
+  split: train
+  cache_root: outputs/data/feature-cache
+
+dataloader:
+  _target_: torchdata.stateful_dataloader.StatefulDataLoader
+  num_workers: 0
+  shuffle: true
+  collate_fn:
+    _target_: nemotron_stitch.automodel.data.collate_fn
+    tokenizer_name_or_path: *model-path
+    projector_name: image
+    placeholder_token_id: 32
+    max_length: 512
+    # The model answers directly (no think block); must match the GRPO prompt
+    # rendering byte-for-byte.
+    chat_template_kwargs: {enable_thinking: false}
+  drop_last: true
+
+optimizer:
+  _target_: nemotron_stitch.automodel.optim.ProjectorAdamWConfig
+  lr: 1.0e-4
+  weight_decay: 0.0
+  betas: [0.9, 0.95]
+
+wandb:
+  mode: disabled
+
+projector:
+  model_registry_callback: llava_example.register_models
+  train_projector: true
+  # Warm start from the module-written alignment artifact.
+  initial_artifact: outputs/alignment/projector
+  # Stage 2 trains the projector jointly with LoRA, so the updated projector
+  # is the stage's own export — GRPO warm-starts from this, not alignment's.
+  artifact_dir: outputs/sft/projector
+  trainability_manifest: outputs/sft/trainability.json

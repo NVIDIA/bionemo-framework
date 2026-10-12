@@ -119,15 +119,19 @@ jobs:
             echo "Found 'ciflow:all' label - running all directories"
             DIRS="$ALL_DIRS"
           else
-            # Filter directories to only those that have changed files
+            # Filter directories to only those that have changed files. Changed entries are
+            # directory names truncated to depth 3 (e.g. "recipes/evo2_phage_gen/src" for a
+            # change under recipes/evo2_phage_gen), so match a recipe when a changed entry is
+            # the recipe dir itself or any path beneath it. A plain index() lookup misses
+            # deep-only changes and silently produces an empty (vacuously green) matrix.
             DIRS=$(echo "$ALL_DIRS" | jq -c --argjson changed "$CHANGED_FILES" '
-              map(select(. as $dir | $changed | index($dir) != null))
+              map(select(. as $dir | $changed | any(. == $dir or startswith($dir + "/"))))
             ')
           fi
 
-          # Assign Docker images to the selected directories
-          # Currently, AMPLIFY is the only folder that needs a custom base image, since we have to support both TE and
-          # xformers-based models for golden value testing. The rest of the models use the default pytorch image.
+          # Assign Docker images to the selected directories. AMPLIFY needs both TE and
+          # xformers for golden-value testing. Nemotron Stitch needs its pinned NeMo RL,
+          # AutoModel, and vLLM environments.
 
           DIRS_WITH_IMAGES=$(echo "$DIRS" | jq -c '
             map({
@@ -136,6 +140,8 @@ jobs:
               image: (
                 if . == "models/amplify" then
                   "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025"
+                elif . == "recipes/nemotron-stitch" then
+                  "svcbionemo023/bionemo-framework:nemo-rl-ci-b03da0f4-amd64@sha256:08fd971c29f8e76f0d589bc7195104231594e859707fda6fac82388770732140"
                 else
                   "nvcr.io/nvidia/pytorch:26.07-py3"
                 end

@@ -1,0 +1,97 @@
+# One-GPU cached-feature preference demonstration over the prepared CLEVR rows.
+# Run from examples/llava after preparing data, alignment, and SFT:
+#   python -c 'from llava_example import prepare_dpo_preferences; print(prepare_dpo_preferences())'
+#   python run_dpo.py --config configs/dpo.yaml
+defaults:
+  - ../third_party/nemo-rl/examples/configs/dpo.yaml
+  - models/nano-4b.yaml
+
+dpo:
+  max_num_steps: 1
+  val_period: 0
+  val_at_start: false
+  val_at_end: false
+  reference_policy_kl_penalty: 0.05
+
+checkpointing:
+  enabled: false
+  metric_name: null
+
+policy:
+  # The model contract includes vLLM metadata; DPO never launches generation.
+  generation:
+    backend: vllm
+    max_new_tokens: 64
+    temperature: 1.0
+    top_p: 1.0
+    top_k: null
+    val_temperature: 1.0
+    val_top_p: 1.0
+    val_top_k: null
+    stop_token_ids: null
+    stop_strings: null
+  model_registry_callback: llava_example.register_models
+  worker_extension_cls_fqn: nemotron_stitch.nemo_rl.policy.EncoderDTensorPolicyWorkerV2
+  initial_adapter_expected_config:
+    peft_type: LORA
+    r: 8
+    lora_alpha: 16
+  train_global_batch_size: 2
+  train_micro_batch_size: 1
+  max_total_sequence_length: 512
+  dtensor_cfg:
+    _v2: true
+    enabled: true
+    cpu_offload: false
+    activation_checkpointing: false
+    tensor_parallel_size: 1
+    context_parallel_size: 1
+    expert_parallel_size: 1
+    dp_replicate_size: 1
+    lora_cfg:
+      enabled: true
+      exclude_modules: []
+      match_all_linear: false
+      dim: 8
+      alpha: 16
+      dropout: 0.0
+      dropout_position: post
+      lora_A_init: xavier
+      use_triton: false
+  dynamic_batching:
+    enabled: false
+  sequence_packing:
+    enabled: false
+  optimizer:
+    name: torch.optim.AdamW
+    kwargs:
+      lr: 1.0e-6
+      weight_decay: 0.0
+      betas: [0.9, 0.95]
+      eps: 1.0e-8
+      foreach: false
+      fused: false
+
+data:
+  max_input_seq_length: ${policy.max_total_sequence_length}
+  shuffle: false
+  num_workers: 0
+  train:
+    dataset_name: PreferenceDataset
+    data_path: outputs/data/preferences-llava.jsonl
+  validation: null
+  default:
+    prompt_file: null
+    system_prompt_file: null
+
+logger:
+  log_dir: outputs/dpo/logs
+  wandb_enabled: false
+  tensorboard_enabled: false
+  mlflow_enabled: false
+  swanlab_enabled: false
+  monitor_gpus: false
+
+cluster:
+  gpus_per_node: 1
+  num_nodes: 1

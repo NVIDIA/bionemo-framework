@@ -156,3 +156,30 @@ def test_example_support_file_is_copied_next_to_generated_readme(
 
 def test_run_results_are_not_doc_support() -> None:
     assert not gen_ref_pages._should_copy_support_file(Path("results/run-001/records.json"))
+
+
+def test_recipe_issue_doc_is_published(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Recipe issue references resolve to published nested documentation."""
+    recipe = tmp_path / "recipes" / "demo"
+    (recipe / "docs").mkdir(parents=True)
+    (recipe / "README.md").write_text("[issues](docs/upstream-gaps.md)\n", encoding="utf-8")
+    (recipe / "docs" / "upstream-gaps.md").write_text("# Open issues\n", encoding="utf-8")
+    generated_root = tmp_path / "generated"
+
+    def open_generated(path: Path, mode: str):
+        destination = generated_root / path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        return destination.open(mode)
+
+    generated_files = ModuleType("mkdocs_gen_files")
+    generated_files.open = open_generated
+    generated_files.set_edit_path = lambda *args: None
+    monkeypatch.setattr(gen_ref_pages, "mkdocs_gen_files", generated_files)
+
+    gen_ref_pages.get_recipes_readmes(tmp_path, tmp_path)
+    gen_ref_pages.get_recipe_docs(recipe, "recipes", tmp_path)
+
+    generated_recipe = generated_root / "main/recipes/recipes/demo"
+    readme = (generated_recipe / "index.md").read_text(encoding="utf-8")
+    assert "[issues](docs/upstream-gaps.md)" in readme
+    assert (generated_recipe / "docs/upstream-gaps.md").read_text(encoding="utf-8") == "# Open issues\n"

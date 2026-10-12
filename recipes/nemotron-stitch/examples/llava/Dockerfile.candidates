@@ -1,0 +1,51 @@
+# syntax=docker/dockerfile:1
+# Candidate overlay: bake the two open NeMo RL PRs tracked by U-41 into the
+# built example image. This is NOT the qualified stack — the qualified image
+# is the pinned NeMo RL b03da0f4 base with no source patches. Build it only
+# when a run needs the local-vocabulary logprob memory fix or the FSDP
+# output-precision knob before the PRs merge:
+#
+#   docker build -f examples/llava/Dockerfile.candidates \
+#     --build-arg CANDIDATE_IMAGE=llava-example \
+#     -t llava-example:rl41-candidates .
+#
+# The patches apply to /opt/nemo-rl (an editable install in every worker
+# venv, so one patch reaches all environments; the import-time container
+# fingerprint hashes only actor_environments.py, pyproject.toml, and the
+# submodule pins, none of which these patches touch). Each layer below is
+# independent and carries its own deletion condition: delete a layer when
+# its PR merges AND the base pin advances past the merge — at that point
+# the qualified image carries the change and this overlay reduces to a
+# no-op patch application that will fail `--check` (delete, do not force).
+
+ARG CANDIDATE_IMAGE=llava-example
+FROM ${CANDIDATE_IMAGE}
+
+# RL#4114 "fix(automodel): honor training logprob chunks for local
+# vocabulary" (candidate c0812b110, open): forwards policy.logprob_chunk_size
+# through LossPostProcessor to the chunked vocabulary loss for unsharded
+# local-vocabulary logits (GB300 measured peak 5.87 -> 2.45 GiB on
+# [1, 4096, 128256] bf16 logits at chunk 512; U-41). Delete when merged.
+COPY patches/U-41-rl4114-logprob-chunks.patch /tmp/rl4114.patch
+RUN git -C /opt/nemo-rl apply --check /tmp/rl4114.patch \
+ && git -C /opt/nemo-rl apply /tmp/rl4114.patch \
+ && rm /tmp/rl4114.patch \
+ && python -c "\
+import inspect; \
+from nemo_rl.models.automodel.train import LossPostProcessor; \
+assert 'tp_mesh' in inspect.signature(LossPostProcessor.__init__).parameters; \
+print('rl4114 ok')"
+
+# RL#4115 "feat(automodel): expose FSDP output precision" (candidate
+# 66aa9c0a5, open): exposes policy.dtensor_cfg.fsdp_output_dtype on
+# AutoModel's existing FSDP2Config.mp_policy with the FP32 default
+# preserved (U-41). Delete when merged.
+COPY patches/U-41-rl4115-fsdp-output-precision.patch /tmp/rl4115.patch
+RUN git -C /opt/nemo-rl apply --check /tmp/rl4115.patch \
+ && git -C /opt/nemo-rl apply /tmp/rl4115.patch \
+ && rm /tmp/rl4115.patch \
+ && python -c "\
+import inspect; \
+from nemo_rl.models.automodel.setup import validate_and_prepare_config; \
+assert 'fsdp_output_dtype' in inspect.getsource(validate_and_prepare_config); \
+print('rl4115 ok')"

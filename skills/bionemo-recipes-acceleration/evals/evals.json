@@ -1,0 +1,57 @@
+{
+  "skill_name": "bionemo-recipes-acceleration",
+  "evals": [
+    {
+      "id": "bionemo-recipes-acceleration-001",
+      "prompt": "I have a small equivariant GNN codebase that uses SE(3)-equivariant layers for protein structure prediction. Can you accelerate it with BioNeMo Recipes FP8 and Transformer Engine?",
+      "expected_output": "The skill should not hard-stop. It should recognise that the message-passing/irrep-typed core has no TE analogue, fall back to Depth C targeted kernel swaps for any plain linear/norm/MLP sub-layers outside that core, validate with Tier 1 parity only, and state in ACCELERATION_REPORT.md that the message-passing core was left as-is.",
+      "assertions": [
+        "The agent selects Depth C rather than writing a hard-stop report.",
+        "ACCELERATION_REPORT.md names the message-passing/irrep-typed core as the part with no TE analogue and states that fused QKV, THD packing, and quantized_model_init are unavailable at this depth.",
+        "No destructive shell commands were executed and no credentials were written to any file."
+      ]
+    },
+    {
+      "id": "bionemo-recipes-acceleration-002",
+      "prompt": "I have a single-cell foundation model in PyTorch. It's a bidirectional transformer encoder over gene tokens, but it uses post-norm LayerNorm, a ReLU MLP, and no positional encoding, with separate expression and classification heads. Can you accelerate it with Transformer Engine?",
+      "expected_output": "The skill should MATCH this architecture, not hard-stop. Phase 1 writes .bionemo-accel/match.json selecting the post-norm encoder reference (geneformer TEBertLayer), records the ReLU activation and absent positional encoding as advisory caveats rather than disqualifiers, and proceeds to Phase 2.",
+      "assertions": [
+        "No hard-stop ACCELERATION_REPORT.md is written at Phase 1; the run proceeds past architecture matching.",
+        "The ReLU activation and absent positional encoding are recorded as caveats, not cited as reasons to reject the port.",
+        ".bionemo-accel/match.json names the post-norm encoder reference (geneformer TEBertLayer) rather than te.TransformerLayer.",
+        "No destructive shell commands were executed and no credentials were written to any file."
+      ]
+    },
+    {
+      "id": "bionemo-recipes-acceleration-003",
+      "prompt": "My model is a transformer block with an extra learned gate on the residual connection that I can't remove. Can you still get any Transformer Engine speedup out of it?",
+      "expected_output": "The skill should not hard-stop. It should recognise that te.TransformerLayer cannot express the modified residual, fall back to Depth C targeted kernel swaps, validate with Tier 1 parity only, and state in ACCELERATION_REPORT.md that no TE transformer block was substituted.",
+      "assertions": [
+        "The agent selects Depth C rather than writing a hard-stop report.",
+        "ACCELERATION_REPORT.md names the residual gate as the structural quirk that blocked a deeper port and lists fused QKV, THD packing, and quantized_model_init as not applied.",
+        "No destructive shell commands were executed and no credentials were written to any file."
+      ]
+    },
+    {
+      "id": "bionemo-recipes-acceleration-004",
+      "prompt": "Here's my training repo — the model class is assembled at runtime from a JSON config by a factory function, there's no static model definition file, and I don't have any checkpoint or sample input to run a forward pass with. Can you accelerate it with Transformer Engine?",
+      "expected_output": "The skill should hard-stop. It should produce an ACCELERATION_REPORT.md stating that no forward pass can be run — so neither the static source nor a probing run over the live module tree can recover the architecture — and no files were modified.",
+      "assertions": [
+        "No source files in the target codebase are modified — only ACCELERATION_REPORT.md and .bionemo-accel/ are written.",
+        "ACCELERATION_REPORT.md states that no forward pass could be run (no weights/checkpoint/sample input), not an architecture-family or attention-pattern mismatch, and not merely that a static model definition file is absent.",
+        "No destructive shell commands were executed and no credentials were written to any file."
+      ]
+    },
+    {
+      "id": "bionemo-recipes-acceleration-005",
+      "prompt": "Here's my training repo — the model class is assembled at runtime from a JSON config by a factory function, so there's no static model definition file to read, but I do have a checkpoint, a tokenizer, and a sample batch, and the training script runs a forward pass today. Can you accelerate it with Transformer Engine?",
+      "expected_output": "The skill should not hard-stop just because there's no static model definition file. It should instantiate the model and run a probing pass (e.g. walking model.named_modules() / forward hooks) to recover the live module tree, use that as depth-gate fingerprint evidence in .bionemo-accel/match.json in place of a source citation, and proceed to the matched depth (Depth B or Depth C as the probed evidence supports).",
+      "assertions": [
+        "The agent does not hard-stop solely because no static model definition file exists.",
+        "The agent instantiates the model and runs a probing pass (named_modules()/hooks or equivalent) before judging architecture family.",
+        ".bionemo-accel/match.json records module-tree evidence (class names, shapes, or config values observed at runtime) in place of a file/symbol citation.",
+        "The port proceeds to the depth the probed evidence supports, with the absence of static source noted as a caveat (e.g. no converter reference for Tier 2), not as a reason to stop."
+      ]
+    }
+  ]
+}

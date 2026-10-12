@@ -85,7 +85,8 @@ Self-contained training examples demonstrating best practices for scaling biolog
 - **Scaling strategies**: Single-GPU to multi-node training patterns
 - **Benchmarked performance**: Validated throughput and convergence metrics
 
-Recipes are **not pip-installable packages** but serve as reference implementations that users can adapt for their own research.
+Recipes are source-distributed reference implementations that users can adapt for their own research. Most are run directly;
+recipes that include package metadata, such as `nemotron-stitch`, document how to install from a checkout or immutable Git revision.
 
 ### Interpretability (`interpretability/`)
 

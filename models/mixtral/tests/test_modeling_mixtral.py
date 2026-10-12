@@ -163,6 +163,22 @@ class TestMixtralModel(BaseModelTest):
             past_key_values.allocate_memory(layer_number)
         return past_key_values
 
+    def test_thd_forward_without_attention_mask_matches_all_ones_mask(self):
+        """A missing attention mask on the BSHD->THD packing path is treated as an all-ones mask."""
+        config = self.create_test_config(attn_input_format="thd", self_attn_mask_type="padding_causal")
+        model = self.get_model_class()(config).to("cuda")
+        model.eval()
+
+        tokenizer = self.get_tokenizer()
+        inputs = tokenizer("The quick brown fox jumps over", return_tensors="pt")
+        input_ids = inputs["input_ids"].to("cuda")
+
+        with torch.no_grad():
+            logits_with_mask = model(input_ids=input_ids, attention_mask=torch.ones_like(input_ids)).logits
+            logits_without_mask = model(input_ids=input_ids).logits
+
+        torch.testing.assert_close(logits_without_mask, logits_with_mask)
+
 
 # ---------------------------------------------------------------------------
 # Single-GPU tests for the AllToAll dispatch/combine code path

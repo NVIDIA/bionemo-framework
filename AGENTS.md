@@ -85,3 +85,17 @@ the starting point instead of building a one-off suite.
   inputs through the harness where applicable.
 - The common harness is also managed by `ci/scripts/check_copied_files.py`; update the source copy
   and regenerate destinations if the harness itself changes.
+
+## Agent skills
+
+Skills live in `skills/{skill_name}/` (canonical, compatible with the
+[BioNeMo Agent Toolkit](https://github.com/NVIDIA-BioNeMo/bionemo-agent-toolkit)).
+`.claude/skills` and `.agents/skills` both symlink to `skills/` so every harness sees new skills
+without a per-skill symlink update. Always edit the canonical copy; never edit through a symlink.
+
+`bionemo-recipes-acceleration` ports an external codebase onto the Transformer Engine accelerations
+in `models/` and `recipes/`, then validates the port with the shared `BaseModelTest` harness.
+
+- **Path citation rule:** skill documentation must cite repo paths as `$BIONEMO_RECIPES/<path>`,
+  not as bare `models/...` or `recipes/...`. Bare paths escape the skill subtree and break when
+  vendored. Example: `$BIONEMO_RECIPES/models/esm2/convert.py::_pack_qkv_weight`.

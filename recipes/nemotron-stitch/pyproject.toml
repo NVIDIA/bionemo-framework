@@ -1,0 +1,94 @@
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13"]
+build-backend = "uv_build"
+
+[project]
+name = "nemotron-stitch"
+version = "0.4.2"
+description = "The LLaVA recipe generalized past vision: projectors, soft tokens, and the framework seams for adding an external encoder modality to Nemotron."
+readme = "README.md"
+requires-python = ">=3.10,<3.15"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "numpy>=1.26,<3",
+  "pyyaml>=6.0",
+  "safetensors>=0.5",
+  "torch>=2.7",
+]
+
+[project.optional-dependencies]
+# Framework integrations are imported lazily and pinned by the consuming
+# runtime — see docs/upstream-gaps.md.
+# These extras intentionally carry no pins of their own; they exist so a
+# consumer can declare which integration surface it exercises.
+automodel = []
+nemo-rl = []
+vllm = []
+
+[dependency-groups]
+dev = [
+  "pre-commit>=4",
+  "pytest>=8.3",
+  "pyrefly>=1.2",
+  "ruff>=0.11",
+]
+
+[tool.uv.build-backend]
+source-include = ["tests/**"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+pythonpath = ["src"]
+
+# Type checking: `pyrefly check` from the repo root covers the package and the
+# example together. Tests are out of scope: their doubles duck-type framework
+# boundaries on purpose. Third-party imports resolve to Any: the frameworks are
+# absent in some check environments (pre-commit's isolated env has no torch),
+# and pinning stub visibility per environment would make results
+# machine-dependent. What is checked is our own code's internal consistency.
+[tool.pyrefly]
+project-includes = [
+  "src/**/*.py",
+  "examples/llava/llava_example.py",
+  "examples/llava/llava_qwen.py",
+  "examples/llava/scripts/**/*.py",
+]
+search-path = ["src", "examples/llava"]
+python-version = "3.10"
+ignore-missing-imports = [
+  "torch", "torch.*",
+  "numpy", "numpy.*",
+  "yaml", "yaml.*",
+  "safetensors", "safetensors.*",
+  "transformers", "transformers.*",
+  "datasets", "datasets.*",
+  "PIL", "PIL.*",
+  "omegaconf", "omegaconf.*",
+  "pytest", "pytest.*",
+  "ray", "ray.*",
+  "peft", "peft.*",
+  "nemo_automodel", "nemo_automodel.*",
+  "nemo_rl", "nemo_rl.*",
+  "vllm", "vllm.*",
+]
+
+# Recipe formatting and lint configuration.
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# Patch-provenance markers are function attributes written with setattr on
+# purpose: a direct assignment is invisible to type checkers (pyrefly reports
+# missing-attribute on FunctionType), and the audit guards getattr them back.
+"src/nemotron_stitch/automodel/parallel.py" = ["B010"]
+"src/nemotron_stitch/nemo_rl/runner.py" = ["B010"]
+"src/nemotron_stitch/vllm/plugin.py" = ["B010"]
+# SIM118 assumes .keys() means dict-iterable; safetensors' safe_open handle
+# is not, and iterating it directly would break the audit/merge loops.
+"src/nemotron_stitch/automodel/checkpoint.py" = ["SIM118"]
+"examples/llava/scripts/infer.py" = ["SIM118"]

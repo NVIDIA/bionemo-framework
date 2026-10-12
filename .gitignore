@@ -219,4 +219,6 @@ outputs/
 # Nsys profiles
 *.nsys-rep
 
-.claude/
+# Local Claude Code state is ignored, but checked-in agent skills are shared with the repo.
+.claude/*
+!.claude/skills

@@ -1,0 +1,8 @@
+# The build context carries only tracked source; runtime outputs, model
+# artifacts, and caches are host-mounted at run time (and often root-owned
+# when container-written).
+.git/
+**/outputs/
+**/artifacts/
+**/third_party/
+**/__pycache__/

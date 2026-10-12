@@ -1,0 +1,4 @@
+artifacts/
+outputs/
+third_party/
+__pycache__/

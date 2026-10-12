@@ -914,7 +914,9 @@ class NVMixtralModel(NVMixtralPreTrainedModel):
         should_pack_inputs = not any(has_thd_input) and self.config.attn_input_format == "thd"
 
         if should_pack_inputs:
-            assert attention_mask is not None, "Attention mask is required when packing BSHD inputs."
+            if attention_mask is None:
+                # A missing mask means no padding (e.g., HF generate() drops all-ones masks).
+                attention_mask = torch.ones(hidden_states.shape[:2], dtype=torch.long, device=hidden_states.device)
             batch_size = hidden_states.size(0)
             padded_seq_len = input_ids.size(1)
             hidden_states, indices, cu_seqlens, max_seqlen, _ = _unpad_input(hidden_states, attention_mask)

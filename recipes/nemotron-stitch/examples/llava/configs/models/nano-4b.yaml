@@ -1,0 +1,61 @@
+# GRPO base-model contract for NANO_4B (llava_example.py): policy snapshot,
+# host architecture, projector geometry, sentinel tokens,
+# warm-start paths, and dtensor LoRA targets — every model-keyed value a
+# grpo*.yaml run needs. Composed through NeMo RL's `defaults:` (see
+# configs/grpo.yaml); never run directly.
+policy:
+  model_name: artifacts/models/nemotron-nano-4b-bf16
+  # Warm start: the SFT LoRA adapter plus SFT's projector export (itself
+  # warm-started from alignment, then trained jointly in SFT).
+  projector_artifact_path: outputs/sft/projector
+  tokenizer:
+    name: ${policy.model_name}
+    chat_template_kwargs:
+      enable_thinking: false
+    # The pinned artifact already carries the corrected Mistral regex; keep
+    # Transformers from re-patching it. Threaded by NeMo RL #3798.
+    tokenizer_kwargs:
+      fix_mistral_regex: false
+    use_processor: false
+  hf_config_overrides:
+    architectures: [LlavaExampleNemotronForCausalLM]
+    # GRPO policy ownership is sidecar: the package's encoder workers
+    # materialize and load it, one rank per cluster. Same host class, one
+    # config key different from alignment/SFT. The default stage keeps the
+    # projector frozen; the grpo-trainable-projector.yaml overlay switches to
+    # module ownership and mm_projector_trainable: true, and the policy worker
+    # validates both contracts against this same mapping.
+    mm_projector_ownership: sidecar
+    mm_projector_trainable: false
+    mm_projectors:
+      - name: image
+        kind: mlp2x_gelu
+        mm_hidden_size: 768
+    mm_placeholder_token_ids:
+      image: 32
+    # vLLM-side plugin configuration; NeMo RL copies policy.hf_config_overrides
+    # over the generation engine's hf_overrides (nemo_rl transport contract).
+    mm_encoder_start: "<SPECIAL_30>"
+    mm_encoder_placeholder: "<SPECIAL_32>"
+    mm_encoder_end: "<SPECIAL_31>"
+    # vLLM profiles the maximum payload; individual requests may be shorter.
+    mm_encoder_max_tokens: 49
+  dtensor_cfg:
+    automodel_kwargs: {}
+    lora_cfg:
+      # Warm start from the SFT compact-LoRA adapter.
+      restore_from: outputs/sft/checkpoints/LATEST/model
+      # Stage-2 targets with the Hub module prefix; sft.yaml documents the
+      # exclusions. Explicit names, because all-linear could capture
+      # projector layers and the policy worker's frozen-projector audit would
+      # (correctly) fail.
+      target_modules:
+        - "backbone.layers.*.mixer.q_proj"
+        - "backbone.layers.*.mixer.k_proj"
+        - "backbone.layers.*.mixer.v_proj"
+        - "backbone.layers.*.mixer.o_proj"
+        - "backbone.layers.*.mixer.in_proj"
+  generation:
+    vllm_kwargs:
+      limit_mm_per_prompt:
+        image: 1

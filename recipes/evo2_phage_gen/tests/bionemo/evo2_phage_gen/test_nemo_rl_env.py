@@ -975,12 +975,14 @@ def test_scored_records_exclude_full_sequence_from_rollout_metadata():
             "safety_nested_payload": [{"state": "PASS"}],
             "safety_list_payload": [["PASS"]],
             "safety_unbounded_payload": ["x" * 4097],
-            "safety_invalid_unicode": ["\ud800"],
             "reward_nonfinite": [float("inf")],
             "reward_nan": [float("nan")],
             "reward_complex": [1 + 2j],
         }
     )
+    # pandas 3 rejects lone surrogates in its inferred str dtype, so add the
+    # invalid-unicode probe as an object-dtype column after construction.
+    scored["safety_invalid_unicode"] = pd.Series(["\ud800"], dtype=object)
 
     records = _scored_records(scored)
 

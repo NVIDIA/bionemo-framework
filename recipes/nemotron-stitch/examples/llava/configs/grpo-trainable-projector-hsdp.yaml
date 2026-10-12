@@ -1,0 +1,37 @@
+# Trainable-projector qualification overlay for the data-replicated HSDP mesh
+# on the 4B control: dp_replicate 4 × dp_shard 2 over 8 GPUs (dp_size = 8,
+# tp=cp=ep=1). AutoModel switches to HSDP when dp_replicate > 1, so FSDP2
+# all-reduces projector gradients across replicas; the worker's per-update
+# sync assert (all-gathered drift compared across ranks) is the fail-closed
+# guard for that guarantee. The sampling knobs match the signal overlays
+# (8 generations per prompt, temperature 1.5) so the run carries nonzero
+# advantages and real projector gradients rather than the zero-advantage
+# smoke signature.
+#
+#   python -m nemotron_stitch.nemo_rl.runner --config configs/grpo-trainable-projector-hsdp.yaml
+defaults: grpo-trainable-projector.yaml
+
+cluster:
+  gpus_per_node: 8
+  num_nodes: 1
+
+grpo:
+  num_prompts_per_step: 4
+  num_generations_per_prompt: 8
+  max_num_steps: 3
+
+policy:
+  train_global_batch_size: 32
+  generation_batch_size: 32
+  dtensor_cfg:
+    dp_replicate_size: 4
+  generation:
+    temperature: 1.5
+
+checkpointing:
+  checkpoint_dir: outputs/grpo-trainable-projector-hsdp/checkpoints
+  save_period: 3
+  keep_top_k: 1
+
+logger:
+  log_dir: outputs/grpo-trainable-projector-hsdp/logs

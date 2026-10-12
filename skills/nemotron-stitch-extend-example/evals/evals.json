@@ -1,0 +1,46 @@
+{
+  "skill_name": "nemotron-stitch-extend-example",
+  "evals": [
+    {
+      "id": "stitch-001-provided-checkout",
+      "prompt": "Use my BioNeMo Recipes checkout to add an example for a frozen external encoder and paired question-answer data. Follow the LLaVA recipe and keep the example small.",
+      "expected_output": "Work begins from the supplied compatible recipe, with application-owned boundaries and explicit stage handoffs.",
+      "assertions": [
+        "Locate and record the supplied checkout and recipe roots before editing.",
+        "Read the recipe AGENTS.md, LLaVA README, and quickstart.",
+        "Keep encoder, data normalization, prompts, and evaluation in the application.",
+        "Use the shared projector artifacts and public host/plugin APIs rather than copying framework code."
+      ],
+      "expected_skill": "nemotron-stitch-extend-example",
+      "expected_script": null
+    },
+    {
+      "id": "stitch-002-installed-skill",
+      "prompt": "This skill is installed in my agent configuration directory, and there is no BioNeMo checkout here. A nearby older checkout has unrelated local edits. Help me start a Stitch example.",
+      "expected_output": "A compatible recipe checkout is selected or acquired without treating the skill installation as the recipe root or overwriting existing work.",
+      "assertions": [
+        "Check the named recipe files when selecting a checkout.",
+        "Do not derive the recipe location from the installed skill directory.",
+        "Preserve unrelated edits when acquiring a compatible checkout.",
+        "Record the selected revision and check its current framework pins."
+      ],
+      "expected_skill": "nemotron-stitch-extend-example",
+      "expected_script": null
+    },
+    {
+      "id": "stitch-003-joint-grpo",
+      "prompt": "In the supplied Stitch checkout pinned to NeMo RL b03da0f4 and vLLM 0.25.1, add a GRPO variant that trains both LoRA and the projector. I want a warmup schedule, combined dense replication plus expert parallelism, and colocated external-DP generation.",
+      "expected_output": "Explain the pinned stack limitations and choose a supported configuration without a demo-local framework workaround.",
+      "assertions": [
+        "Inspect the trainable-projector examples and current admission guards.",
+        "Require module ownership and explicit projector trainability.",
+        "Explain that this snapshot admits the constant-only scheduler and rejects combined replication and EP.",
+        "Keep async_scheduling false explicit for colocated external DP on vLLM 0.25.1.",
+        "Use the pinned container tests and distinguish smoke checks from quality qualification.",
+        "Keep docs/upstream-gaps.md limited to open framework issues explicitly cited in implementation, example configuration, or build files; exclude package bugs."
+      ],
+      "expected_skill": "nemotron-stitch-extend-example",
+      "expected_script": null
+    }
+  ]
+}

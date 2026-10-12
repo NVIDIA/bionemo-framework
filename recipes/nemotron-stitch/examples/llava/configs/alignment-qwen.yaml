@@ -1,0 +1,104 @@
+# Stage 1 — alignment on Qwen3.5-4B: frozen native Qwen VLM, trainable
+# module-owned CLIP projector. The distinct projector name avoids colliding
+# with Qwen's built-in image modality.
+#
+#   python -m nemo_automodel.cli.app configs/alignment-qwen.yaml --nproc-per-node 1
+recipe: nemotron_stitch.automodel.recipe.ProjectorFinetuneRecipe
+
+step_scheduler:
+  global_batch_size: 16
+  # One microbatch item is one indexed pack containing as many source samples
+  # as fit under packed_sequence.packed_sequence_size.
+  local_batch_size: 1
+  num_epochs: 1000
+  max_steps: 100
+  ckpt_every_steps: 1000
+  val_every_steps: 1000
+
+dist_env:
+  backend: nccl
+  timeout_minutes: 30
+
+rng:
+  _target_: nemo_automodel.components.training.rng.StatefulRNG
+  seed: 42
+  ranked: true
+
+model:
+  _target_: nemo_automodel.NeMoAutoModelForCausalLM.from_pretrained
+  pretrained_model_name_or_path: &model-path artifacts/models/qwen3.5-4b
+  local_files_only: true
+  trust_remote_code: false
+  torch_dtype: torch.bfloat16
+  # Match AutoModel's supported Qwen3.5-4B indexed-packing recipe. NEAT uses
+  # a block-causal indexed mask and does not require Transformer Engine.
+  backend:
+    _target_: nemo_automodel.components.models.common.BackendConfig
+    attn: sdpa
+  attn_implementation: flash_attention_2
+  architectures: [LlavaExampleQwen3_5ForConditionalGeneration]
+  mm_training_stage: 1
+  mm_projector_ownership: module
+  mm_projectors:
+    - name: clip_image
+      kind: mlp2x_gelu
+      mm_hidden_size: 768
+  mm_placeholder_token_ids:
+    # <|vision_pad|>: distinct from Qwen's native image/video payload tokens.
+    clip_image: 248055
+
+peft: null
+
+checkpoint:
+  enabled: false
+  checkpoint_dir: outputs/qwen-alignment/checkpoints
+
+distributed:
+  strategy: fsdp2
+  tp_size: 1
+  cp_size: 1
+  pp_size: 1
+  ep_size: 1
+  sequence_parallel: false
+  activation_checkpointing: false
+
+loss_fn:
+  _target_: nemo_automodel.components.loss.masked_ce.MaskedCrossEntropy
+
+packed_sequence:
+  packed_sequence_size: 2048
+  packing_strategy: nemotron_stitch.automodel.data.StreamingFeaturePackingConfig
+  packing_format: neat
+
+dataset:
+  _target_: nemotron_stitch.automodel.data.ManifestFeatureIterableDatasetConfig
+  manifest_path: outputs/data-qwen/manifest.jsonl
+  stage: alignment
+  split: train
+  cache_root: outputs/data-qwen/feature-cache
+  projector_name: clip_image
+  placeholder_token_id: 248055
+  max_length: 512
+  chat_template_kwargs: {enable_thinking: false}
+
+dataloader:
+  _target_: torchdata.stateful_dataloader.StatefulDataLoader
+  batch_size: null
+  num_workers: 0
+  shuffle: true
+  shuffle_buffer_size: 1000
+
+optimizer:
+  _target_: nemotron_stitch.automodel.optim.ProjectorAdamWConfig
+  lr: 3.0e-4
+  weight_decay: 0.0
+  betas: [0.9, 0.95]
+
+wandb:
+  mode: disabled
+
+projector:
+  model_registry_callback: llava_qwen.register_models
+  train_projector: true
+  artifact_dir: outputs/qwen-alignment/projector
+  trainability_manifest: outputs/qwen-alignment/trainability.json
