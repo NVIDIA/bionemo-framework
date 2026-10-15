@@ -89,7 +89,7 @@ from megatron.bridge.utils.common_utils import (
     get_rank_safe,
     get_world_size_safe,
 )
-from megatron.bridge.utils.instantiate_utils import instantiate
+from megatron.bridge.utils.instantiate_utils import instantiate, register_allowed_target_prefix
 from megatron.core import parallel_state, tensor_parallel
 from megatron.core.num_microbatches_calculator import init_num_microbatches_calculator
 from megatron.core.tensor_parallel.mappings import _gather_along_last_dim
@@ -926,6 +926,7 @@ def predict(
     run_config_filename = get_checkpoint_run_config_filename(str(resolved_ckpt_dir))
 
     run_config = read_run_config(run_config_filename)
+    register_allowed_target_prefix("bionemo.eden.")
     model_provider = instantiate(run_config["model"])
     logger.info(f"Instantiated model provider: {type(model_provider).__name__}")
 

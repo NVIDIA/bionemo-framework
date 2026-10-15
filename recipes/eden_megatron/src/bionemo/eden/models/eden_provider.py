@@ -27,6 +27,7 @@ from typing import Callable, Type
 
 import torch.nn.functional as F  # noqa: N812
 from megatron.bridge.models.gpt_provider import GPTModelProvider
+from megatron.bridge.utils.instantiate_utils import register_allowed_target_prefix
 
 
 def _patch_megatron_dataset_helper_compile() -> None:
@@ -53,6 +54,7 @@ def _patch_megatron_dataset_helper_compile() -> None:
 
 
 _patch_megatron_dataset_helper_compile()
+register_allowed_target_prefix("bionemo.eden.")
 
 
 @dataclass

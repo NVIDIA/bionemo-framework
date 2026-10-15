@@ -85,7 +85,7 @@ from megatron.bridge.training.utils.checkpoint_utils import (
     read_run_config,
 )
 from megatron.bridge.utils.common_utils import get_world_size_safe
-from megatron.bridge.utils.instantiate_utils import instantiate
+from megatron.bridge.utils.instantiate_utils import instantiate, register_allowed_target_prefix
 from megatron.core import parallel_state
 from megatron.core.inference.contexts import StaticInferenceContext
 from megatron.core.inference.engines.static_engine import StaticInferenceEngine
@@ -389,6 +389,7 @@ def setup_inference_engine(
         raise FileNotFoundError(f"run_config.yaml not found at {run_config_filename}")
 
     run_config = read_run_config(run_config_filename)
+    register_allowed_target_prefix("bionemo.eden.")
     model_provider = instantiate(run_config["model"])
     logger.info(f"Instantiated model provider: {type(model_provider).__name__}")
 
