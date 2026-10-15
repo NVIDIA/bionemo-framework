@@ -1,10 +1,10 @@
 #!/bin/bash
 # Source this before building CUDA extensions from source against PyTorch 26.09+.
 #
-# PyTorch 26.09 headers require C++20, but nv-grouped-gemm, causal-conv1d and mamba-ssm hardcode
-# -std=c++17 in their extension flags (#error C++20 or later compatible compiler is required). This
-# routes torch.utils.cpp_extension through compiler wrappers (via PYTORCH_NVCC and CXX) that upgrade
-# that flag to -std=c++20. Remove once those packages build with C++20 upstream.
+# PyTorch 26.09 headers require C++20, but some CUDA extensions (e.g. causal-conv1d and mamba-ssm)
+# hardcode -std=c++17 in their extension flags (#error C++20 or later compatible compiler is
+# required). This routes torch.utils.cpp_extension through compiler wrappers (via PYTORCH_NVCC and
+# CXX) that upgrade that flag to -std=c++20. Remove once those packages build with C++20 upstream.
 
 _cxx20_shim_dir="$(mktemp -d)"
 

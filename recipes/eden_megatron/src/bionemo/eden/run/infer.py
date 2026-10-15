@@ -71,7 +71,13 @@ from megatron.bridge.models.model_provider import ProcessGroupCollection
 from megatron.bridge.training.checkpointing import _load_model_weights_from_checkpoint
 from megatron.bridge.training.config import DistributedInitConfig, RNGConfig
 from megatron.bridge.training.mixed_precision import get_mixed_precision_config
-from megatron.bridge.training.tokenizers.tokenizer import _HuggingFaceTokenizer
+
+try:
+    from megatron.bridge.training.tokenizers.tokenizer import _HuggingFaceTokenizer
+except ImportError:
+    from megatron.core.tokenizers.text.libraries.huggingface_tokenizer import (
+        HuggingFaceTokenizer as _HuggingFaceTokenizer,
+    )
 from megatron.bridge.training.utils.checkpoint_utils import (
     file_exists,
     get_checkpoint_run_config_filename,
@@ -85,15 +91,11 @@ from megatron.core.inference.engines.static_engine import StaticInferenceEngine
 from megatron.core.inference.model_inference_wrappers.abstract_model_inference_wrapper import (
     AbstractModelInferenceWrapper,
 )
-from megatron.core.inference.model_inference_wrappers.inference_wrapper_config import (
-    InferenceWrapperConfig,
-)
 from megatron.core.inference.sampling_params import SamplingParams
 from megatron.core.inference.text_generation_controllers.text_generation_controller import (
     TextGenerationController,
 )
 from megatron.core.transformer.module import Float16Module
-from megatron.core.utils import get_model_config
 
 from bionemo.eden.run.predict import initialize_inference_distributed, resolve_checkpoint_path
 
@@ -223,17 +225,15 @@ class EdenModelInferenceWrapper(AbstractModelInferenceWrapper):
     def __init__(
         self,
         model: torch.nn.Module,
-        inference_wrapper_config: InferenceWrapperConfig,
         inference_context: Optional[StaticInferenceContext] = None,
     ):
         """Initialize the Eden inference wrapper.
 
         Args:
             model: The Eden model to wrap for inference.
-            inference_wrapper_config: Configuration with hidden size, vocab size, etc.
             inference_context: Context for managing state and sequence offsets.
         """
-        super().__init__(model, inference_wrapper_config, inference_context)
+        super().__init__(model, inference_context)
 
     def prep_inference_input(self, prompts_tokens: torch.Tensor) -> Dict[str, Any]:
         """Prepare the inference input data.
@@ -469,17 +469,6 @@ def setup_inference_engine(
     # -------------------------------------------------------------------------
     # Step 6: Setup MCore inference infrastructure
     # -------------------------------------------------------------------------
-    # Create inference wrapper config
-    model_config = get_model_config(raw_model)
-    inference_wrapper_config = InferenceWrapperConfig(
-        hidden_size=model_config.hidden_size,
-        inference_max_requests=max_batch_size,
-        inference_max_seq_length=max_seq_length,
-        inference_batch_times_seqlen_threshold=max_seq_length * max_batch_size,
-        params_dtype=torch.bfloat16,
-        padded_vocab_size=tokenizer.vocab_size,
-    )
-
     inference_context = StaticInferenceContext(
         max_batch_size=max_batch_size,
         max_sequence_length=max_seq_length,
@@ -489,7 +478,6 @@ def setup_inference_engine(
     # Create the inference wrapper
     inference_wrapper = EdenModelInferenceWrapper(
         model=model,
-        inference_wrapper_config=inference_wrapper_config,
         inference_context=inference_context,
     )
 

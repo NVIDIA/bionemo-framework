@@ -69,7 +69,13 @@ from megatron.bridge.data.samplers import build_pretraining_data_loader
 from megatron.bridge.training.checkpointing import _load_model_weights_from_checkpoint
 from megatron.bridge.training.config import DistributedInitConfig, RNGConfig
 from megatron.bridge.training.mixed_precision import MIXED_PRECISION_RECIPES, get_mixed_precision_config
-from megatron.bridge.training.tokenizers.tokenizer import _HuggingFaceTokenizer
+
+try:
+    from megatron.bridge.training.tokenizers.tokenizer import _HuggingFaceTokenizer
+except ImportError:
+    from megatron.core.tokenizers.text.libraries.huggingface_tokenizer import (
+        HuggingFaceTokenizer as _HuggingFaceTokenizer,
+    )
 from megatron.bridge.training.utils.checkpoint_utils import (
     file_exists,
     get_checkpoint_run_config_filename,
