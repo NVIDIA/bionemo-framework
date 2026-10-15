@@ -30,7 +30,7 @@ fi
 uv pip install -c pip-constraints.txt -r build_requirements.txt --no-build-isolation
 
 # 5. Install the recipe with all remaining dependencies, including test extras
-uv pip install -c pip-constraints.txt -e '.[test]' --no-build-isolation
+uv pip install -c pip-constraints.txt -e '.[test]' --no-build-isolation --extra-index-url https://pypi.nvidia.com/
 
 # The resolved causal-conv1d wheel is usually usable. Some Torch nightlies can
 # expose a binary-ABI mismatch at import time; compile only in that case and
