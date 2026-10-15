@@ -51,7 +51,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
 from distributed_helpers import DistributedConfig
-from test_te_capabilities import _is_supported_blackwell
+from test_te_capabilities import _is_supported_blackwell, _module_grouped_tensor_path_supported
 
 from grouped_dcp import load_consolidated, save_consolidated
 from modeling_mixtral_te import _ensure_fused_grouped_mlp_registered
@@ -271,6 +271,8 @@ def _loss(model: nn.Module, batch: dict, mxfp8: bool) -> torch.Tensor:
 @pytest.mark.parametrize("cell", MATRIX)
 def test_compat_matrix_cell(cell: MatrixCell, tmp_path):
     """Run one matrix cell (subprocess for EP>1)."""
+    if cell.compute == "module_grouped_linear" and not _module_grouped_tensor_path_supported():
+        pytest.skip("TE native grouped-tensor path (needed for single_grouped_weight) unsupported on this GPU")
     results_path = tmp_path / "compat_matrix_results.json"
     if cell.ep_size == 1:
         _run_cell_local(cell, tmp_path)

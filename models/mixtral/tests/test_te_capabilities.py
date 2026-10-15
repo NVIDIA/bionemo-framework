@@ -46,6 +46,27 @@ requires_sm100 = pytest.mark.skipif(
 )
 
 
+def _module_grouped_tensor_path_supported() -> bool:
+    """Whether module GroupedLinear(single_grouped_weight=True) can run BF16 on this GPU.
+
+    TE 2.19+ only supports single grouped parameters on its native grouped-tensor path (Hopper or
+    datacenter Blackwell with a recent cuBLASLt); elsewhere it raises instead of falling back.
+    """
+    if not torch.cuda.is_available():
+        return False
+    try:
+        from transformer_engine.pytorch.module.grouped_linear import is_module_grouped_tensor_path_supported
+    except ImportError:
+        return True
+    return is_module_grouped_tensor_path_supported(None, torch.bfloat16)
+
+
+requires_module_grouped_tensor_path = pytest.mark.skipif(
+    not _module_grouped_tensor_path_supported(),
+    reason="TE native grouped-tensor path (needed for single_grouped_weight) unsupported on this GPU",
+)
+
+
 def test_report_environment():
     """Print TE version + device capability for the record (never fails)."""
     print("TE version:", getattr(transformer_engine, "__version__", "unknown"))
@@ -101,6 +122,7 @@ def _assert_same_tolerance_rejects_shifted(reference: torch.Tensor, actual: torc
 
 
 @requires_cuda
+@requires_module_grouped_tensor_path
 def test_single_grouped_weight_matches_discrete_forward_backward():
     """A single_grouped_weight GroupedLinear must match a discrete one numerically."""
     os.environ["NVTE_GROUPED_LINEAR_SINGLE_PARAM"] = "1"
