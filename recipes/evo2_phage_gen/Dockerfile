@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.4
 # Build from this recipe directory:
 # docker build -t evo2-phage-gen .
-FROM nvcr.io/nvidia/pytorch:26.07-py3
+FROM nvcr.io/nvidia/pytorch:26.09-py3
 
 # .ci_build.sh invokes uv before the recipe virtual environment exists.
 COPY --from=ghcr.io/astral-sh/uv:0.12.4 /uv /uvx /bin/
