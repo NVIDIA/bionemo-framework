@@ -121,6 +121,7 @@ def test_single_grouped_weight_matches_discrete_forward_backward():
             params_dtype=dtype,
             device="cuda",
             single_grouped_weight=single,
+            use_grouped_tensor=single,
         )
 
     discrete = make(False)
@@ -191,6 +192,7 @@ def test_single_grouped_weight_wraps_as_dtensor_shard0():
             params_dtype=torch.bfloat16,
             device="cuda",
             single_grouped_weight=True,
+            use_grouped_tensor=True,
         )
         ep_mesh = DeviceMesh("cuda", [0])
         local = gl.weight
@@ -233,6 +235,7 @@ def test_single_grouped_weight_dcp_roundtrip(tmp_path):
                 params_dtype=torch.bfloat16,
                 device="cuda",
                 single_grouped_weight=True,
+                use_grouped_tensor=True,
             )
 
         # model (seed 0) is the source of truth; model2 (seed 1) starts different.

@@ -155,6 +155,7 @@ class MatrixMoEBlock(nn.Module):
                 device="cuda",
                 init_method=_init,
                 single_grouped_weight=True,
+                use_grouped_tensor=True,
             )
             self.experts_down = te.GroupedLinear(
                 num_gemms=num_local_experts,
@@ -165,6 +166,7 @@ class MatrixMoEBlock(nn.Module):
                 device="cuda",
                 init_method=_init,
                 single_grouped_weight=True,
+                use_grouped_tensor=True,
             )
             self._ffn = None
         else:
@@ -413,6 +415,7 @@ def test_fp8_parameters_persist_for_grouped_experts(compute):
                 params_dtype=torch.bfloat16,
                 device="cuda",
                 single_grouped_weight=True,
+                use_grouped_tensor=True,
             )
         else:
             os.environ["NVTE_CUTEDSL_FUSED_GROUPED_MLP"] = "1"

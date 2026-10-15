@@ -106,6 +106,7 @@ class SingleGroupedWeightMoEBlock(nn.Module):
             device="cuda",
             init_method=_init_method,
             single_grouped_weight=True,
+            use_grouped_tensor=True,
         )
         self.experts_down = te.GroupedLinear(
             num_gemms=num_local_experts,
@@ -116,6 +117,7 @@ class SingleGroupedWeightMoEBlock(nn.Module):
             device="cuda",
             init_method=_init_method,
             single_grouped_weight=True,
+            use_grouped_tensor=True,
         )
         # Router is replicated across EP ranks and always covers all global experts.
         self.router = nn.Linear(hidden_size, total_num_experts, bias=False, dtype=torch.bfloat16)
