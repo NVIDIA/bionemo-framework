@@ -5,6 +5,6 @@ hydra-core
 torchao!=0.14.0
 torchmetrics
 transformer_engine[pytorch]
-transformers
+transformers<5.20  # 5.20 rejects the AMPLIFY hub config's max_length on save_pretrained
 wandb
 pytest
