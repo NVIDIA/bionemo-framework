@@ -109,6 +109,17 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
+def _adapt_tokenizer_for_generation(tokenizer: Any) -> Any:
+    """Alias ``text_to_ids``/``ids_to_text`` as ``tokenize``/``detokenize`` for the mcore static engine."""
+    if not hasattr(tokenizer, "tokenize") and hasattr(tokenizer, "text_to_ids"):
+        tokenizer.tokenize = tokenizer.text_to_ids
+    if not hasattr(tokenizer, "detokenize") and hasattr(tokenizer, "ids_to_text"):
+        tokenizer.detokenize = tokenizer.ids_to_text
+    if not hasattr(tokenizer, "bos") and hasattr(tokenizer, "bos_id"):
+        tokenizer.bos = tokenizer.bos_id
+    return tokenizer
+
+
 # =============================================================================
 # Hardware-Aware Defaults
 # =============================================================================
@@ -420,6 +431,7 @@ def setup_inference_engine(
         tokenizer = _HuggingFaceTokenizer(tokenizer_dir)
     else:
         tokenizer = _HuggingFaceTokenizer(DEFAULT_HF_TOKENIZER_MODEL_PATH)
+    tokenizer = _adapt_tokenizer_for_generation(tokenizer)
 
     model_provider.vocab_size = tokenizer.vocab_size
     model_provider.should_pad_vocab = True
