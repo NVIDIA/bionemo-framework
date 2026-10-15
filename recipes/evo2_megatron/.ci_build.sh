@@ -15,6 +15,9 @@ uv venv --python 3.12 --clear --system-site-packages
 # 2. Activate the environment
 source .venv/bin/activate
 
+# PyTorch 26.09+ requires C++20; upgrade hardcoded -std=c++17 in source-built CUDA extensions.
+source ./cxx20_build_env.sh
+
 # 3. Let subquadratic-ops select its compatible warp-lang dependency.
 # Pin warp-lang here in the future if subquadratic-ops has a verified compatibility issue.
 # Driver compatibility note: CUDA 13.x normally requires an R580+ host driver. For a temporary

@@ -29,8 +29,10 @@ RUN pip freeze | grep transformer_engine > pip-constraints.txt
 ENV CAUSAL_CONV1D_FORCE_BUILD=1
 ENV PIP_NO_BINARY=causal-conv1d
 
-# 5. Install package and dependencies
+# 5. Install package and dependencies. cxx20_build_env.sh upgrades hardcoded -std=c++17 in
+# source-built CUDA extensions, which PyTorch 26.09+ headers reject.
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=cache,target=/root/.cache/pip \
+    . ./cxx20_build_env.sh && \
     uv pip install -r build_requirements.txt --no-build-isolation && \
     uv pip install -c pip-constraints.txt -e . --no-build-isolation
