@@ -72,6 +72,7 @@ from megatron.bridge.training.checkpointing import _load_model_weights_from_chec
 from megatron.bridge.training.config import DistributedInitConfig, RNGConfig
 from megatron.bridge.training.mixed_precision import get_mixed_precision_config
 
+
 try:
     from megatron.bridge.training.tokenizers.tokenizer import _HuggingFaceTokenizer
 except ImportError:

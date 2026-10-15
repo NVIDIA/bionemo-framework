@@ -23,7 +23,7 @@ Llama 3.1 defaults are set here on top of GPTModelProvider.
 from dataclasses import dataclass
 from typing import Callable, Type
 
-import torch.nn.functional as F
+import torch.nn.functional as F  # noqa: N812
 from megatron.bridge.models.gpt_provider import GPTModelProvider
 
 
