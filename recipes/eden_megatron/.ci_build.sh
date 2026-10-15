@@ -17,5 +17,5 @@ source ./cxx20_build_env.sh
 pip freeze | grep transformer_engine > pip-constraints.txt
 uv pip install -r build_requirements.txt --no-build-isolation
 
-# 4. Install the recipe with all remaining dependencies
-uv pip install -c pip-constraints.txt -e . --no-build-isolation
+# 4. Install the recipe with all remaining dependencies, including test extras
+uv pip install -c pip-constraints.txt -e '.[test]' --no-build-isolation
