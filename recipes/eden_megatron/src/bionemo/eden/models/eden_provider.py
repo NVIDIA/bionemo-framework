@@ -20,11 +20,39 @@ by BCR (Bio-Computing Research). Megatron Bridge no longer ships named Llama pro
 Llama 3.1 defaults are set here on top of GPTModelProvider.
 """
 
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Type
 
 import torch.nn.functional as F  # noqa: N812
 from megatron.bridge.models.gpt_provider import GPTModelProvider
+
+
+def _patch_megatron_dataset_helper_compile() -> None:
+    """Skip Megatron's runtime helper build when a wheel already ships the extension."""
+    from megatron.core.datasets import utils as dataset_utils
+
+    original_compile_helpers = dataset_utils.compile_helpers
+    if getattr(original_compile_helpers, "_eden_prebuilt_helper_guard", False):
+        guarded_compile_helpers = original_compile_helpers
+    else:
+
+        def guarded_compile_helpers() -> None:
+            datasets_dir = Path(dataset_utils.__file__).resolve().parent
+            if not (datasets_dir / "Makefile").exists() and list(datasets_dir.glob("helpers_cpp*.so")):
+                return None
+            return original_compile_helpers()
+
+        guarded_compile_helpers._eden_prebuilt_helper_guard = True
+        dataset_utils.compile_helpers = guarded_compile_helpers
+
+    bridge_initialize = sys.modules.get("megatron.bridge.training.initialize")
+    if bridge_initialize is not None:
+        bridge_initialize.compile_helpers = guarded_compile_helpers
+
+
+_patch_megatron_dataset_helper_compile()
 
 
 @dataclass
