@@ -492,11 +492,14 @@ _FP8_QUANTIZED_OVERRIDES = [
 ]
 
 
-def test_checkpoint_save_and_load_single_process_ddp_fp8_quantized(recipe_path, tmp_path, fp_recipe):
+def test_checkpoint_save_and_load_single_process_ddp_fp8_quantized(recipe_path, tmp_path, fp_recipe, monkeypatch):
     """Test checkpoint save/resume for DDP with FP8 quantized model init."""
 
     if fp_recipe[0].endswith("Float8BlockScaling"):
         pytest.xfail(reason="Float8BlockScaling currently does not support quantized model init + dcp")
+
+    # TE 2.19+ refuses to unpickle DelayedScaling extra state unless opted in; this checkpoint is written by the test.
+    monkeypatch.setenv("NVTE_ALLOW_UNSAFE_PICKLE_EXTRA_STATE", "1")
 
     _run_single_process_checkpoint_test(
         recipe_path,

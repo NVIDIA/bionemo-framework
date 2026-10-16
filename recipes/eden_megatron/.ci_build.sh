@@ -10,6 +10,9 @@ uv venv --system-site-packages
 # 2. Activate the environment
 source .venv/bin/activate
 
+# PyTorch 26.09+ requires C++20; upgrade hardcoded -std=c++17 in source-built CUDA extensions.
+source ./cxx20_build_env.sh
+
 # 3. Install build requirements and pin transformer_engine
 pip freeze | grep transformer_engine > pip-constraints.txt
 uv pip install -r build_requirements.txt --no-build-isolation

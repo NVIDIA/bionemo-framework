@@ -143,7 +143,7 @@ jobs:
                 elif . == "recipes/nemotron-stitch" then
                   "svcbionemo023/bionemo-framework:nemo-rl-ci-b03da0f4-amd64@sha256:08fd971c29f8e76f0d589bc7195104231594e859707fda6fac82388770732140"
                 else
-                  "nvcr.io/nvidia/pytorch:26.07-py3"
+                  "nvcr.io/nvidia/pytorch:26.09-py3"
                 end
               )
             })
@@ -259,7 +259,7 @@ jobs:
         )
     name: "notebook-tests (evo2_megatron)"
     container:
-      image: nvcr.io/nvidia/pytorch:26.07-py3
+      image: nvcr.io/nvidia/pytorch:26.09-py3
       options: --shm-size=16G
       env:
         CI: true
