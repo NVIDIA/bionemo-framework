@@ -170,6 +170,27 @@ def test_convert_state_dict():
     assert len(te_state_dict_keys) == 0
 
 
+@pytest.mark.parametrize(
+    "device",
+    ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA"))],
+)
+def test_pad_weights_dtype_device(device):
+    """_pad_weights pads with zeros in the source embedding's dtype and on its device."""
+    from amplify.state_dict_convert import _pad_weights
+
+    ctx_mock = MagicMock()
+    ctx_mock.target.config.padded_vocab_size = 12
+    source_embed = torch.randn(10, 4, dtype=torch.bfloat16, device=device)
+
+    padded = _pad_weights(ctx_mock, source_embed)
+
+    assert padded.shape == (12, 4)
+    assert padded.dtype == torch.bfloat16
+    assert padded.device == source_embed.device
+    torch.testing.assert_close(padded[:10], source_embed)
+    assert torch.all(padded[10:] == 0)
+
+
 def test_hf_trained_model_loss(input_data):
     model = amp_hf.AMPLIFY.from_pretrained("chandar-lab/AMPLIFY_120M", revision="d918a9e8")
     model.to("cuda", dtype=torch.bfloat16)

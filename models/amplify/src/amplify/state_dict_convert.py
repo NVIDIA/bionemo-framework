@@ -87,7 +87,9 @@ def _pad_weights(ctx: io.TransformCTX, source_embed):
     target_embedding_dimension = ctx.target.config.padded_vocab_size
     hf_embedding_dimension = source_embed.size(0)
     num_padding_rows = target_embedding_dimension - hf_embedding_dimension
-    padding_rows = torch.zeros(num_padding_rows, source_embed.size(1))
+    padding_rows = torch.zeros(
+        num_padding_rows, source_embed.size(1), dtype=source_embed.dtype, device=source_embed.device
+    )
     return torch.cat((source_embed, padding_rows), dim=0)
 
 
