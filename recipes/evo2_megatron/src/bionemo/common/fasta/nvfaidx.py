@@ -71,8 +71,14 @@ class PyIndexedMmapFastaReader:
     def __init__(self, fasta_path: str | Path, ignore_existing_fai: bool = True) -> None:
         del ignore_existing_fai
         self.fasta_path = Path(fasta_path)
-        self._sequences = _read_fasta(self.fasta_path)
-        self._records = [PyFaidxRecord(name=name, length=len(seq)) for name, seq in self._sequences.items()]
+        records = _read_fasta(self.fasta_path)
+        self._records = [PyFaidxRecord(name=name, length=len(seq)) for name, seq in records]
+        # read_sequence_mmap() takes a region string, so it can only ever be
+        # keyed by name. The first record of a repeated id is the readable one;
+        # NvFaidx refuses such a file unless the caller opted in.
+        self._sequences: dict[str, str] = {}
+        for name, sequence in records:
+            self._sequences.setdefault(name, sequence)
 
     @classmethod
     def from_fasta_and_faidx(cls, fasta_path: str | Path, faidx_path: str | Path) -> "PyIndexedMmapFastaReader":
@@ -103,9 +109,14 @@ class PyIndexedMmapFastaReader:
         return str(faidx_path)
 
 
-def _read_fasta(fasta_path: Path) -> dict[str, str]:
-    sequences: dict[str, list[str]] = {}
-    current_name: str | None = None
+def _read_fasta(fasta_path: Path) -> list[tuple[str, str]]:
+    """Every record in the file, in order, one entry per header.
+
+    A repeated sequence id stays two entries here. Merging them into a dict
+    would hide the duplicate from NvFaidx, which is meant to refuse it, and
+    would disagree with the index _scan_fasta_for_fai writes.
+    """
+    sequences: list[tuple[str, list[str]]] = []
 
     with fasta_path.open() as f:
         for raw_line in f:
@@ -113,14 +124,13 @@ def _read_fasta(fasta_path: Path) -> dict[str, str]:
             if not line:
                 continue
             if line.startswith(">"):
-                current_name = line[1:].split()[0]
-                sequences.setdefault(current_name, [])
-            elif current_name is None:
+                sequences.append((line[1:].split()[0], []))
+            elif not sequences:
                 raise ValueError(f"Found sequence data before a FASTA header in {fasta_path}")
             else:
-                sequences[current_name].append(line)
+                sequences[-1][1].append(line)
 
-    return {name: "".join(parts) for name, parts in sequences.items()}
+    return [(name, "".join(parts)) for name, parts in sequences]
 
 
 def _scan_fasta_for_fai(fasta_path: Path) -> list[tuple[str, int, int, int, int]]:
