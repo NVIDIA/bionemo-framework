@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
 import sys
 from pathlib import Path
 from unittest import mock
@@ -45,6 +46,22 @@ def pytest_collection_modifyitems(items):
     stats_tests = [item for item in items if item.name in stats_test_names]
     other_tests = [item for item in items if item.name not in stats_test_names]
     items[:] = stats_tests + other_tests
+
+
+@pytest.fixture(autouse=True)
+def release_cuda_objects():
+    """Release CUDA-backed objects left behind by each test.
+
+    The session-scope `device_mesh` fixture initializes CUDA and NCCL for the whole test session, so any DDP or FSDP
+    wrapper a test leaves alive keeps a `c10d::Reducer` around with it. When a later test starts DataLoader worker
+    processes, a worker that inherits that reducer hits "CUDA error: initialization error" as soon as the inherited
+    destructor runs, and whether that happens at all comes down to when the interpreter gets around to collecting the
+    wrapper. Collecting between tests makes that deterministic instead of leaving it to GC timing.
+    """
+    yield
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 @pytest.fixture(scope="session", autouse=True)

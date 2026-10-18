@@ -43,6 +43,12 @@ class MockDistributedConfig:
         return self.rank == 0
 
 
+def get_worker_start_method(dataloader):
+    """Return the start method the dataloader uses for its worker processes, or None if it has no workers."""
+    context = dataloader.multiprocessing_context
+    return context.get_start_method() if context is not None else None
+
+
 def test_load_dataset_state_from_latest_checkpoint(tmp_path):
     dataloader_path = tmp_path / "dl_test"
     os.makedirs(dataloader_path, exist_ok=True)
@@ -889,6 +895,48 @@ def test_token_packing_dataloader():
     batch = next(iter(dataloader))
     assert batch["input_ids"].shape[1] == 8 * 1024
     assert batch["labels"].shape[1] == 8 * 1024
+
+
+@pytest.mark.parametrize("num_workers, expected_start_method", [(0, None), (1, "spawn"), (2, "spawn")])
+@pytest.mark.parametrize("use_stateful_dataloader", [False, True])
+def test_bshd_dataloader_worker_start_method(num_workers, expected_start_method, use_stateful_dataloader):
+    """Workers must be spawned, since a forked worker inherits CUDA state it cannot use."""
+    dataloader, _ = create_bshd_dataloader(
+        distributed_config=MockDistributedConfig(rank=0, local_rank=0, world_size=1),
+        tokenizer_name="facebook/esm2_t6_8M_UR50D",
+        load_dataset_kwargs={
+            "path": "parquet",
+            "split": "train",
+            "data_files": "train.parquet",
+            "streaming": True,
+        },
+        micro_batch_size=4,
+        num_workers=num_workers,
+        use_stateful_dataloader=use_stateful_dataloader,
+    )
+
+    assert get_worker_start_method(dataloader) == expected_start_method
+
+
+@pytest.mark.parametrize("num_workers, expected_start_method", [(0, None), (1, "spawn"), (2, "spawn")])
+@pytest.mark.parametrize("use_stateful_dataloader", [False, True])
+def test_thd_dataloader_worker_start_method(num_workers, expected_start_method, use_stateful_dataloader):
+    """Workers must be spawned, since a forked worker inherits CUDA state it cannot use."""
+    dataloader, _ = create_thd_dataloader(
+        distributed_config=MockDistributedConfig(rank=0, local_rank=0, world_size=1),
+        tokenizer_name="facebook/esm2_t6_8M_UR50D",
+        load_dataset_kwargs={
+            "path": "parquet",
+            "split": "train",
+            "data_files": "train.parquet",
+            "streaming": True,
+        },
+        token_micro_batch_size=8 * 1024,
+        num_workers=num_workers,
+        use_stateful_dataloader=use_stateful_dataloader,
+    )
+
+    assert get_worker_start_method(dataloader) == expected_start_method
 
 
 @requires_multi_gpu

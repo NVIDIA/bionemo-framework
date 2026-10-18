@@ -144,6 +144,9 @@ def create_bshd_dataloader(
     )
 
     # TODO(BIONEMO-3246) - remove the pin_memory=False once StatefulDataLoader supports pin_memory again.
+    # Worker processes are spawned rather than forked, because a forked worker inherits the parent's CUDA state
+    # without being able to use its CUDA context, and any inherited DDP/FSDP reducer then fails with
+    # "CUDA error: initialization error" when its destructor runs in the child.
     dataloader_class = StatefulDataLoader if use_stateful_dataloader else DataLoader
     train_dataloader = dataloader_class(
         tokenized_dataset,
@@ -223,6 +226,7 @@ def create_thd_dataloader(
     )
 
     # TODO(BIONEMO-3246) - remove the pin_memory=False once StatefulDataLoader supports pin_memory again.
+    # See create_bshd_dataloader for why worker processes are spawned instead of forked.
     dataloader_class = StatefulDataLoader if use_stateful_dataloader else DataLoader
     train_dataloader = dataloader_class(
         TokenPackingDataset(tokenized_dataset, max_tokens_per_batch=token_micro_batch_size),
