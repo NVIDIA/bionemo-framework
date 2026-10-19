@@ -801,6 +801,22 @@ def test_split_batch_by_cp_rank_bshd_3d_tensor():
     torch.testing.assert_close(labels_cp1[:, 2:4, :], labels[:, 4:6, :])
 
 
+def test_split_batch_by_cp_rank_thd_non_divisible():
+    """THD splitting raises when a padded sequence length is not divisible by 2 * cp_world_size."""
+    cu_seqlens_padded = torch.tensor([0, 8, 18], dtype=torch.int32)  # lengths 8 and 10; 10 % 4 != 0
+    input_ids = torch.arange(18, dtype=torch.int64).unsqueeze(0)
+
+    with pytest.raises(ValueError, match=r"\[10\] must be divisible by 4"):
+        _split_batch_by_cp_rank(
+            cu_seqlens_padded=cu_seqlens_padded,
+            input_ids_padded=input_ids,
+            labels_padded=input_ids.clone(),
+            qvk_format="thd",
+            cp_rank=0,
+            cp_world_size=2,
+        )
+
+
 def test_bshd_and_thd_equivalence(tokenizer):
     """Test that BSHD and THD formats produce equivalent CP shards for real protein sequences.
 

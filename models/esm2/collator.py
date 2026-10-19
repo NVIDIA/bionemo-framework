@@ -973,7 +973,15 @@ def _split_batch_by_cp_rank(
 
         # Calculate the chunk sizes for each sequence
         total_slices_of_any_sequence = 2 * cp_world_size
-        slice_sizes = (cu_seqlens_padded[1:] - cu_seqlens_padded[:-1]) // total_slices_of_any_sequence
+        seq_lengths = cu_seqlens_padded[1:] - cu_seqlens_padded[:-1]
+        bad_lengths = seq_lengths[seq_lengths % total_slices_of_any_sequence != 0].tolist()
+        if bad_lengths:
+            raise ValueError(
+                f"Padded sequence lengths {bad_lengths} must be divisible by {total_slices_of_any_sequence} "
+                f"(2 * cp_world_size) for THD context parallelism; "
+                f"set pad_sequences_to_be_divisible_by to a multiple of {total_slices_of_any_sequence}"
+            )
+        slice_sizes = seq_lengths // total_slices_of_any_sequence
 
         # Ensure cu_seqlens_padded[-1] is a Python int, not a 0-dim tensor
         last_elem = cu_seqlens_padded[-1]
