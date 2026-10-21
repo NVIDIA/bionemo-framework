@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import random
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import lru_cache
@@ -75,12 +76,12 @@ class ManifestFeatureDataset(torch.utils.data.Dataset):
         }
 
 
-# AutoModel 1814c6c93a66b9d59d254960ef6a99a64249b671's stock THD and NEAT
-# packers retain only LM fields, dropping external feature tensors and their
-# scatter indices. Delete this dataset when packing can preserve and rebase
-# arbitrary per-sample tensor payloads.
 class PackedManifestFeatureDataset(torch.utils.data.Dataset):
-    """Greedily group feature-backed chat samples into token-budget packs."""
+    """Greedily group feature-backed chat samples into token-budget packs.
+
+    An optional sample collator can attach additional projectors while keeping
+    the same chat tokenization and template policy used for pack planning.
+    """
 
     def __init__(
         self,
@@ -99,6 +100,7 @@ class PackedManifestFeatureDataset(torch.utils.data.Dataset):
         supervision: str = "suffix",
         truncate: bool = False,
         extra_fields: list[str] | tuple[str, ...] = (),
+        collate_fn: str | Callable[[list[dict[str, Any]]], dict[str, Any]] | None = None,
     ) -> None:
         if tokenizer is None:
             raise ValueError("a tokenizer is required to build packed samples")
@@ -122,6 +124,14 @@ class PackedManifestFeatureDataset(torch.utils.data.Dataset):
             supervision=supervision,
             truncate=truncate,
         )
+        if isinstance(collate_fn, str | type):
+            from nemo_automodel.components.datasets.loader import CollatorConfig, make_collate_fn
+
+            configured = make_collate_fn(
+                collate_fn, {"max_length": max_length, "chat_template_kwargs": chat_template_kwargs}
+            )
+            collate_fn = configured.build(tokenizer=tokenizer) if isinstance(configured, CollatorConfig) else configured
+        self.collate_fn = collate_fn or self.collator
         self.max_tokens = int(max_tokens)
         self.packing_strategy = packing_strategy
         self.padding_token_id = tokenizer.pad_token_id
@@ -168,51 +178,22 @@ class PackedManifestFeatureDataset(torch.utils.data.Dataset):
     def __getitem__(self, index: int) -> dict[str, Any]:
         pack = self.packs[index]
         examples = [self.dataset[row_index] for row_index, _, _ in pack]
-        input_ids = torch.tensor([token for _, ids, _ in pack for token in ids[:-1]], dtype=torch.long)
-        labels = torch.tensor([token for _, _, row_labels in pack for token in row_labels[1:]], dtype=torch.long)
-        seq_lens = [len(ids) - 1 for _, ids, _ in pack]
-        position_ids = torch.cat([torch.arange(length) for length in seq_lens])
-        positions = input_ids.eq(self.collator.placeholder_token_id).nonzero().flatten()
-
-        attention_mask = None
-        if self.packing_strategy == "neat":
-            token_count = input_ids.numel()
-            pad_tokens = self.max_tokens - token_count
-            attention_mask = torch.cat(
-                [
-                    *(torch.full((length,), sequence, dtype=torch.long) for sequence, length in enumerate(seq_lens, 1)),
-                    torch.zeros(pad_tokens, dtype=torch.long),
-                ]
+        samples = []
+        for example in examples:
+            batch = self.collate_fn([example])
+            samples.append(
+                {
+                    "input_ids": batch["input_ids"].squeeze(0),
+                    "labels": batch["labels"].squeeze(0),
+                    **{key: value for key, value in batch.items() if key.startswith("mm_")},
+                }
             )
-            input_ids = torch.cat([input_ids, torch.full((pad_tokens,), int(self.padding_token_id), dtype=torch.long)])
-            labels = torch.cat([labels, torch.full((pad_tokens,), -100, dtype=torch.long)])
-            position_ids = torch.cat([position_ids, torch.zeros(pad_tokens, dtype=torch.long)])
-
-        feature_rows = [torch.as_tensor(np.asarray(example["features"]), dtype=torch.float32) for example in examples]
-        if not all(features.ndim == 2 for features in feature_rows):
-            raise ValueError("feature packing requires rank-2 feature tensors")
-        if positions.numel() != sum(features.shape[0] for features in feature_rows):
-            raise ValueError(
-                f"pack has {positions.numel()} placeholder slots for "
-                f"{sum(features.shape[0] for features in feature_rows)} feature rows"
-            )
-        name = self.collator.projector_name
-        result: dict[str, Any] = {
-            "input_ids": input_ids,
-            "labels": labels,
-            "position_ids": position_ids,
-            f"mm_features__{name}": torch.cat(feature_rows),
-            f"mm_token_indices__{name}": positions,
-        }
-        if attention_mask is not None:
-            result["attention_mask"] = attention_mask
-        else:
-            result.update(
-                seq_lens=torch.tensor(seq_lens, dtype=torch.long),
-                seq_lens_padded=torch.tensor(seq_lens, dtype=torch.long),
-                qkv_format="thd",
-            )
-        return result
+        return _merge_feature_pack(
+            samples,
+            max_tokens=self.max_tokens if self.packing_strategy == "neat" else sum(len(ids) - 1 for _, ids, _ in pack),
+            pad_token_id=int(self.padding_token_id or 0),
+            packing_format=self.packing_strategy,
+        )
 
 
 def _assistant_text(message: dict[str, Any]) -> str:
@@ -269,7 +250,7 @@ class FeatureCollator:
         prompt: list[dict[str, str]] = []
         if row.get("system_prompt"):
             prompt.append({"role": "system", "content": str(row["system_prompt"])})
-        prompt.append({"role": "user", "content": str(row["prompt"])})
+        prompt.extend(row.get("messages", [{"role": "user", "content": str(row["prompt"])}]))
         full = [*prompt, self._assistant_message(str(row["target"]), row.get("reasoning_content"))]
         for turn in row.get("turns", ()):
             full.append({"role": "user", "content": str(turn["question"])})
@@ -280,30 +261,38 @@ class FeatureCollator:
 
     def _encode(self, row: dict[str, Any]) -> tuple[list[int], list[int]]:
         prompt_messages, full_messages = self._messages(row)
+        text_tokenizer: Any = getattr(self.tokenizer, "tokenizer", self.tokenizer)
+        # AutoModel 1814c6c exposes only one collator-level template policy.
+        # Merge an explicit row policy so one deterministic loader can retain
+        # native rendering for heterogeneous supervision. Delete after U-79.
+        row_template_kwargs = row.get("chat_template_kwargs")
+        if row_template_kwargs is not None and not isinstance(row_template_kwargs, dict):
+            raise TypeError("row chat_template_kwargs must be a mapping")
+        template_kwargs = {**self.chat_template_kwargs, **(row_template_kwargs or {})}
         prompt_text = self.tokenizer.apply_chat_template(
             prompt_messages,
             tokenize=False,
             add_generation_prompt=True,
-            **self.chat_template_kwargs,
+            **template_kwargs,
         )
         full_text = self.tokenizer.apply_chat_template(
             full_messages,
             tokenize=False,
             add_generation_prompt=False,
-            **self.chat_template_kwargs,
+            **template_kwargs,
         )
-        prompt_ids = list(self.tokenizer(prompt_text, add_special_tokens=False).input_ids)
-        full_ids = list(self.tokenizer(full_text, add_special_tokens=False).input_ids)
+        prompt_ids = list(text_tokenizer(prompt_text, add_special_tokens=False).input_ids)
+        full_ids = list(text_tokenizer(full_text, add_special_tokens=False).input_ids)
         if full_ids[: len(prompt_ids)] != prompt_ids:
             # Transformers 5.12.1 has no prompt-preserving continuation API:
             # full-text tokenization may merge across the generation boundary.
             # Delete this fallback when the pinned public API meets U-34.
             if self.supervision != "suffix" or not full_text.startswith(prompt_text):
                 raise ValueError("chat template is not prefix-stable between prompt and full rendering")
-            continuation = self.tokenizer(full_text[len(prompt_text) :], add_special_tokens=False).input_ids
+            continuation = text_tokenizer(full_text[len(prompt_text) :], add_special_tokens=False).input_ids
             full_ids = prompt_ids + list(continuation)
             for ids, text in ((prompt_ids, prompt_text), (full_ids, full_text)):
-                if self.tokenizer.decode(ids, skip_special_tokens=False, clean_up_tokenization_spaces=False) != text:
+                if text_tokenizer.decode(ids, skip_special_tokens=False, clean_up_tokenization_spaces=False) != text:
                     raise ValueError("chat continuation encoding does not preserve the native rendered text")
         if self.supervision == "suffix":
             labels = [-100] * len(prompt_ids) + full_ids[len(prompt_ids) :]
@@ -314,10 +303,10 @@ class FeatureCollator:
                 if message.get("role") != "assistant":
                     continue
                 text = _assistant_text(message)
-                tokens = list(self.tokenizer(text, add_special_tokens=False).input_ids)
+                tokens = list(text_tokenizer(text, add_special_tokens=False).input_ids)
                 start, end = _find_pattern(full_ids, tokens, search_start)
                 if start < 0 and text != text.lstrip():
-                    tokens = list(self.tokenizer(text.lstrip(), add_special_tokens=False).input_ids)
+                    tokens = list(text_tokenizer(text.lstrip(), add_special_tokens=False).input_ids)
                     start, end = _find_pattern(full_ids, tokens, search_start)
                 if start < 0 and text.strip():
                     raise ValueError(f"assistant content is absent from the rendered chat template: {text!r}")

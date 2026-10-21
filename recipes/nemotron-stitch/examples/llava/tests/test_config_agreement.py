@@ -115,13 +115,15 @@ def test_colocated_grpo_keeps_both_workers_resident(name):
     generation = run["policy"]["generation"]
     assert generation["keep_vllm_on_gpu"] is True
     assert generation["colocated"]["enabled"] is True
-    assert generation["vllm_kwargs"]["kv_cache_memory_bytes"] == 4 * 1024**3
+    assert generation["vllm_kwargs"]["kv_cache_memory_bytes"] == (8 if name == "grpo-lightning.yaml" else 4) * 1024**3
     assert generation["vllm_cfg"]["enforce_eager"] is False
     assert generation["vllm_kwargs"]["compilation_config"] == {
         "mode": "none",
         "cudagraph_mode": "full_decode_only",
     }
-    assert generation["vllm_kwargs"]["max_num_seqs"] == "${policy.generation_batch_size}"
+    assert generation["vllm_kwargs"]["max_num_seqs"] == (
+        128 if name == "grpo-lightning.yaml" else "${policy.generation_batch_size}"
+    )
     # U-70: never inherit vLLM 0.25.1's async_scheduling default on colocated rollouts.
     assert generation["vllm_kwargs"]["async_scheduling"] is False
 

@@ -38,7 +38,7 @@ def test_discovery():
 def test_checkout_references():
     """All required recipe entrypoints named by the locator exist."""
     instructions = (SKILL_ROOT / "SKILL.md").read_text()
-    references = re.findall(r"`(recipes/nemotron-stitch/[^`]+)`", instructions)
+    references = re.findall(r"`\$BIONEMO_RECIPES/(recipes/nemotron-stitch/[^`]+)`", instructions)
     assert references
     for reference in references:
         path = (REPO_ROOT / reference).resolve()

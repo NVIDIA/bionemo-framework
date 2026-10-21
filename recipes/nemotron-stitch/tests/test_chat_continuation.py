@@ -53,7 +53,7 @@ def _collator(tokenizer=None, **kwargs):
 
 def _render(collator, row):
     prompt, full = collator._messages(row)
-    kwargs = collator.chat_template_kwargs
+    kwargs = {**collator.chat_template_kwargs, **(row.get("chat_template_kwargs") or {})}
     return (
         collator.tokenizer.apply_chat_template(prompt, tokenize=False, add_generation_prompt=True, **kwargs),
         collator.tokenizer.apply_chat_template(full, tokenize=False, add_generation_prompt=False, **kwargs),
@@ -92,6 +92,60 @@ def test_prefix_stable_rows_keep_exact_ids_and_labels(supervision):
     if supervision == "assistant_content":
         expected_labels[-1] = -100
     assert collator._encode(row) == (full_ids, expected_labels)
+
+
+def test_row_chat_template_kwargs_preserve_mixed_native_rendering():
+    class ThinkingTokenizer(_BoundaryTokenizer):
+        def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=False, enable_thinking=False):
+            prompt = messages[0]["content"] + "<assistant>"
+            if add_generation_prompt:
+                return prompt + ("<think>\n" if enable_thinking else "")
+            assistant = messages[-1]
+            if enable_thinking:
+                return (
+                    prompt
+                    + "<think>\n"
+                    + assistant["reasoning_content"]
+                    + "</think>\n"
+                    + assistant["content"]
+                    + "<eos>"
+                )
+            return prompt + assistant["content"] + "<eos>"
+
+    collator = _collator(ThinkingTokenizer(), chat_template_kwargs={"enable_thinking": True})
+    traced = {
+        "prompt": "question",
+        "target": "answer",
+        "reasoning_content": "reasoning",
+        "chat_template_kwargs": {"enable_thinking": True},
+        "features": np.zeros((0, 4)),
+    }
+    empty = {
+        "prompt": "question",
+        "target": "answer",
+        "reasoning_content": "",
+        "chat_template_kwargs": {"enable_thinking": False},
+        "features": np.zeros((0, 4)),
+    }
+    traced_ids, traced_labels = collator._encode(traced)
+    empty_ids, empty_labels = collator._encode(empty)
+    decode = lambda ids: collator.tokenizer.decode(  # noqa: E731 - compact assertion helper
+        [token for token in ids if token != -100],
+        skip_special_tokens=False,
+        clean_up_tokenization_spaces=False,
+    )
+    assert decode(traced_labels) == "reasoning</think>\nanswer<eos>"
+    assert decode(empty_labels) == "answer<eos>"
+    batch = collator([traced, empty])
+    assert batch["input_ids"].shape[0] == 2
+    assert batch["labels"][0].ne(-100).sum() == sum(token != -100 for token in traced_labels[1:])
+    assert batch["labels"][1].ne(-100).sum() == sum(token != -100 for token in empty_labels[1:])
+    assert traced_ids != empty_ids
+
+
+def test_row_chat_template_kwargs_reject_non_mapping():
+    with pytest.raises(TypeError, match="must be a mapping"):
+        _collator()._encode({"prompt": "question", "target": "answer", "chat_template_kwargs": False})
 
 
 def test_non_prefix_rendering_still_fails_closed():

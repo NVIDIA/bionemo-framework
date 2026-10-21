@@ -1,0 +1,17 @@
+**
+!pyproject.toml
+!README.md
+!src/
+!src/**
+!tests/
+!tests/**
+!examples/
+!examples/README.md
+!examples/genetics/
+!examples/genetics/**
+!examples/chemistry/
+!examples/chemistry/**
+**/__pycache__/
+**/artifacts/
+**/outputs/
+**/*.egg-info/

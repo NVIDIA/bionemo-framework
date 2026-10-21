@@ -167,7 +167,7 @@ def prepare_features(
         revision=str(encoder.get("revision", "")),
         implementation_revision=str(encoder.get("implementation_revision", "")),
         layer=int(encoder.get("layer", -1)),
-        max_context_units=max_context_units,
+        max_context_units=max(1, max_context_units),
         dtype=dtype,
         source_release=str(dataset.get("revision", "")),
     )

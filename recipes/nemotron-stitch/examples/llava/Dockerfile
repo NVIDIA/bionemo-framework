@@ -32,6 +32,7 @@ RUN mkdir -p /opt/llava-example/third_party && ln -sfn /opt/nemo-rl /opt/llava-e
 RUN \
     for py in /opt/nemo_rl_venv/bin/python /opt/ray_venvs/*/bin/python; do \
         uv pip install --python "$py" --no-deps /opt/nemotron-stitch; \
+        uv pip install --python "$py" --no-deps /opt/llava-example; \
     done
 
 # Self-check the default training environment and direct vLLM registration.
@@ -48,6 +49,8 @@ assert vllm.__version__ == '0.25.1'; \
 llava_example.register_vllm(); \
 llava_qwen.register_vllm(); \
 llava_qwen.register_moe_vllm(); \
+from importlib.metadata import entry_points; \
+assert {'llava_example', 'llava_qwen', 'llava_qwen_moe'} <= {e.name for e in entry_points(group='vllm.general_plugins')}; \
 print('vllm worker venv ok')"
 
 WORKDIR /opt/llava-example

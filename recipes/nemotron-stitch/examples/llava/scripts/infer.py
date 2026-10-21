@@ -193,7 +193,10 @@ def main() -> None:
         llm = LLM(
             model=str(merged),
             dtype="bfloat16",
-            enforce_eager=True,
+            enforce_eager=False,
+            compilation_config={"mode": "none", "cudagraph_mode": "full_decode_only"},
+            max_num_seqs=128,
+            kv_cache_memory_bytes=8589934592,
             gpu_memory_utilization=0.45,
             max_model_len=512,
             enable_mm_embeds=True,

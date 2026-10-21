@@ -1,0 +1,119 @@
+# Training settings: nemotron-kermt/configs/indexed-full/alignment.yaml.
+# THD input wiring stays local; qualification data and launchers live in the demos repository.
+recipe: nemotron_stitch.automodel.recipe.ProjectorFinetuneRecipe
+step_scheduler:
+  global_batch_size: 8
+  local_batch_size: 1
+  num_epochs: 1
+  max_steps: 705
+  ckpt_every_steps: 705
+  val_every_steps: 706
+  log_remote_every_steps: 1
+dist_env:
+  backend: nccl
+  timeout_minutes: 60
+rng:
+  _target_: nemo_automodel.components.training.rng.StatefulRNG
+  seed: 43
+  ranked: true
+model:
+  _target_: nemo_automodel.NeMoAutoModelForCausalLM.from_pretrained
+  pretrained_model_name_or_path: artifacts/models/lightning-30b-bf16
+  local_files_only: true
+  trust_remote_code: false
+  torch_dtype: torch.bfloat16
+  architectures:
+  - ChemistryExampleNemotronForCausalLM
+  num_nextn_predict_layers: 0
+  mm_training_stage: 1
+  mm_projector_ownership: module
+  mm_projectors:
+  - name: chem_molecule
+    kind: mlp2x_gelu
+    mm_hidden_size: 3200
+  - name: chem_atom
+    kind: mlp2x_gelu
+    mm_hidden_size: 1600
+  - name: chem_bond
+    kind: mlp2x_gelu
+    mm_hidden_size: 3200
+  mm_placeholder_token_ids:
+    chem_molecule: 33
+    chem_atom: 32
+    chem_bond: 34
+  backend:
+    _target_: nemo_automodel.components.models.common.BackendConfig
+    attn: te
+    experts: torch_mm
+    dispatcher: deepep
+  output_hidden_states: true
+peft: null
+checkpoint:
+  enabled: false
+  model_save_format: safetensors
+  save_consolidated: final
+  checkpoint_dir: outputs/alignment/checkpoints
+distributed:
+  strategy: fsdp2
+  tp_size: 1
+  cp_size: 1
+  pp_size: 1
+  ep_size: 8
+  sequence_parallel: false
+  activation_checkpointing: false
+loss_fn:
+  _target_: nemo_automodel.components.loss.linear_ce.FusedLinearCrossEntropy
+packed_sequence:
+  packed_sequence_size: ${oc.env:STITCH_PACK_TOKENS,16384}
+  packing_strategy: thd
+  prepacked: true
+dataset:
+  _target_: nemotron_stitch.automodel.data.PackedManifestFeatureDataset
+  tokenizer:
+    _target_: chemistry_example.load_processor
+    path: artifacts/models/lightning-30b-bf16
+  max_tokens: ${oc.env:STITCH_PACK_TOKENS,16384}
+  projector_name: chem_molecule
+  placeholder_token_id: 33
+  collate_fn: chemistry_example.ChemistryCollator
+  max_length: 16384
+  manifest_path: artifacts/data/manifest.jsonl
+  stage: alignment
+  split: train
+  cache_root: artifacts/data/feature-cache
+  extra_fields:
+  - messages
+  - molecule_count
+  - atom_count
+  - directed_bond_count
+  - bond_representation
+  - reasoning_content
+  - chat_template_kwargs
+dataloader:
+  _target_: torchdata.stateful_dataloader.StatefulDataLoader
+  batch_size: 1
+  num_workers: 0
+  shuffle: true
+  collate_fn: nemotron_stitch.automodel.data.packed_collate_fn
+  drop_last: true
+optimizer:
+  _target_: nemotron_stitch.automodel.optim.ProjectorAdamWConfig
+  lr: 0.003
+  weight_decay: 0.0
+  betas:
+  - 0.9
+  - 0.95
+lr_scheduler:
+  lr_warmup_steps: 21
+  lr_decay_steps: 705
+  lr_decay_style: cosine
+  init_lr: 0.0
+  max_lr: 0.003
+  min_lr: 0.00030000000000000003
+wandb:
+  mode: disabled
+projector:
+  model_registry_callback: chemistry_example.register_models
+  train_projector: true
+  artifact_dir: outputs/alignment/projector
+  trainability_manifest: outputs/alignment/trainability.json

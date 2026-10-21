@@ -142,8 +142,10 @@ policy:
       compilation_config:
         mode: none
         cudagraph_mode: full_decode_only
-      max_num_seqs: ${policy.generation_batch_size}
-      kv_cache_memory_bytes: 4294967296
+      # KERMT dedicated-engine benchmark (2026-10-04): 128 removes the
+      # second decode wave; 8 GiB covers the long-context KV envelope.
+      max_num_seqs: 128
+      kv_cache_memory_bytes: 8589934592
       moe_backend: triton
       # Lightning's mamba SSM cache stays in fp32 because bf16 states
       # accumulate policy/rollout divergence over the generation.

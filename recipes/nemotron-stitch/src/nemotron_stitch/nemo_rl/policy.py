@@ -419,7 +419,11 @@ try:
             supplied_weights = kwargs.get("weights_path")
             if len(positional) > 1:
                 supplied_weights = positional[1]
-            initial_sft_adapter = bool(initial_adapter) and supplied_weights is None
+            initial_sft_adapter = (
+                bool(initial_adapter)
+                and bool((config.get("dtensor_cfg") or {}).get("lora_cfg", {}).get("enabled", False))
+                and supplied_weights is None
+            )
             if initial_sft_adapter:
                 validate_initial_adapter_provenance(
                     initial_adapter,
@@ -529,7 +533,8 @@ try:
             self._ensure_projector_param_group()
             # Fail closed on contract violations instead of auditing softly:
             # the projector's trainability must match the configured contract
-            # exactly, and nothing outside LoRA and the projector may train.
+            # exactly. LoRA mode excludes decoder base weights; full-parameter
+            # mode follows upstream's trainability and optimizer setup.
             observed_trainable = any(parameter.requires_grad for parameter in projector_parameters)
             if observed_trainable != projector_trainable:
                 raise RuntimeError(
@@ -547,7 +552,7 @@ try:
                 for name, parameter in self.model.named_parameters()
                 if parameter.requires_grad and "lora_" not in name and not name.startswith(PROJECTOR_STATE_PREFIX)
             ]
-            if unexpected_trainable:
+            if self.lora_enabled and unexpected_trainable:
                 raise RuntimeError(
                     f"policy has trainable parameters outside LoRA and the projector: {unexpected_trainable[:4]}"
                 )

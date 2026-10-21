@@ -33,11 +33,50 @@ from nemotron_stitch.nemo_rl.policy import (
     validate_initial_adapter_provenance,
 )
 from nemotron_stitch.nemo_rl.vllm_worker import (
+    _EncoderVllmWorkerMixin,
     _merge_encoder_hf_overrides,
     _select_vllm_executor_backend,
     require_generation_topology,
 )
 from nemotron_stitch.projector import MultimodalProjector
+
+
+def test_encoder_construction_seam_preserves_upstream_engine_and_deferred_loading(monkeypatch):
+    from nemotron_stitch.nemo_rl import transport
+
+    registered = []
+    monkeypatch.setattr(transport, "resolve_callback", lambda _: lambda: registered.append(True))
+
+    class UpstreamWorker:
+        def __init__(self, config, *, defer_model_load):
+            self.deferred = defer_model_load
+
+        def _create_engine(self, kwargs):
+            return kwargs
+
+    class Worker(_EncoderVllmWorkerMixin, UpstreamWorker):
+        pass
+
+    worker = Worker(
+        {
+            "mm_plugin_callback": "consumer.register",
+            "mm_architecture": "ConsumerProjected",
+            "vllm_cfg": {"async_engine": True},
+            "colocated": {"enabled": False},
+            "vllm_kwargs": {"hf_overrides": {"mm_encoder_max_tokens": 49}},
+        },
+        defer_model_load=True,
+    )
+    assert registered == [True]
+    assert worker.deferred
+    quantization = {"quant_method": "fp8"}
+    kwargs = {"hf_overrides": {"architectures": ["ConsumerTraining"], "quantization_config": quantization}}
+    assert worker._create_engine(kwargs) is kwargs
+    assert kwargs["hf_overrides"] == {
+        "architectures": ["ConsumerProjected"],
+        "quantization_config": quantization,
+        "mm_encoder_max_tokens": 49,
+    }
 
 
 def test_dtensor_refit_inventory_excludes_frozen_extra_parameters():
@@ -65,6 +104,57 @@ def test_dtensor_refit_inventory_excludes_frozen_extra_parameters():
 
     names = {name for name, _ in dtensor_params_generator(_Model(), torch.bfloat16)}
     assert names == {"backbone"}
+
+
+@pytest.mark.parametrize(
+    "lora_enabled,projector_trainable,projector_in_optimizer,error",
+    [
+        (False, False, False, None),
+        (True, False, False, "outside LoRA"),
+        (False, True, False, "projector trainability"),
+        (False, False, True, "projector parameters entered"),
+    ],
+)
+def test_full_parameter_policy_admission_preserves_projector_checks(
+    monkeypatch, lora_enabled, projector_trainable, projector_in_optimizer, error
+):
+    pytest.importorskip("nemo_automodel", reason="policy construction requires AutoModel")
+    from nemo_rl.models.policy.workers.dtensor_policy_worker_v2 import DTensorPolicyWorkerV2Impl
+
+    from nemotron_stitch.nemo_rl import policy
+
+    model = nn.Linear(2, 2)
+    projector = nn.Linear(2, 2).requires_grad_(projector_trainable)
+    object.__setattr__(model, "mm_projector", projector)
+
+    def initialize(worker, config):
+        worker.model = model
+        worker.lora_enabled = config["dtensor_cfg"]["lora_cfg"]["enabled"]
+        parameters = list(model.parameters())
+        if projector_in_optimizer:
+            parameters += list(projector.parameters())
+        worker.optimizer = torch.optim.AdamW(parameters)
+        worker.reference_model_state_dict = None
+        worker.rank = 1
+
+    monkeypatch.setattr(DTensorPolicyWorkerV2Impl, "__init__", initialize)
+    monkeypatch.setattr(policy, "resolve_callback", lambda _: lambda: None)
+    monkeypatch.setattr(policy, "materialize_mm_projector", lambda _: None)
+    monkeypatch.setattr(policy, "load_projector_artifact", lambda *a, **k: None)
+    config = {
+        "model_registry_callback": "consumer.register",
+        "projector_artifact_path": "/unused/projector",
+        "hf_config_overrides": {"mm_projector_trainable": False, "mm_projector_ownership": "sidecar"},
+        "dtensor_cfg": {
+            "lora_cfg": {"enabled": lora_enabled, "restore_from": None if lora_enabled else "/unused/adapter"}
+        },
+    }
+    cls = policy.EncoderDTensorPolicyWorkerV2.__ray_metadata__.modified_class
+    if error:
+        with pytest.raises(RuntimeError, match=error):
+            cls(config)
+    else:
+        cls(config)
 
 
 def test_initial_adapter_provenance_resolves_the_upstream_layout(tmp_path):

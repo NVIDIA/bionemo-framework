@@ -239,6 +239,23 @@ only through a KL spike. The worker logs `ENCODER_PROJECTOR_DRIFT` (relative
 L2 against the warm start) before every update as the direct signal; watch it
 alongside NeMo RL's reported KL.
 
+### Warm-starting GRPO from the SFT LoRA adapter
+
+Stage 3 restores stage 2's adapter tensors instead of starting from a fresh
+adapter: each GRPO model config sets
+`policy.dtensor_cfg.lora_cfg.restore_from` to the SFT checkpoint's exported
+PEFT directory and `initial_adapter_expected_config` to the donor fields the
+package's provenance gate checks before any placement group is allocated.
+NeMo RL additionally fails closed unless the donor's `adapter_config.json`
+carries this run's `lora_cfg` rank and alpha and its tensors cover exactly
+the LoRA parameters this run creates, so the GRPO `target_modules` list must
+restate the SFT donor's set verbatim — the configs do, and the exclusions on
+both sides are documented in the `sft-*.yaml` files (U-29, U-30).
+
+Warm start is an alternative to the merged-base path (fold the adapter into
+the base weights for serving, train a fresh adapter); `restore_from`
+continues the same adapter's optimization.
+
 The single-GPU GRPO configs use a resident-weight policy:
 policy and vLLM base weights stay in HBM after the mandatory
 startup handoff, vLLM gets an explicit 4 GiB KV cache, and synchronous
@@ -502,3 +519,45 @@ pytest examples/llava/tests            # CPU: application contracts
 LLAVA_EXAMPLE_HUB_TEST=1 pytest examples/llava/tests -k hub   # opt-in pinned-Hub check
 pyrefly check                          # types: package + this example (from the repo root)
 ```
+
+## Distributed and asynchronous Lightning GRPO
+
+The following configurations extend the Lightning control. Launch from this
+example directory on a joined Ray cluster; all nodes need the same image,
+model snapshot, prepared data, and SFT artifacts at identical paths.
+
+- [`grpo-lightning-distributed.yaml`](configs/grpo-lightning-distributed.yaml)
+  allocates one eight-GPU EP8 policy node and one eight-GPU TP1/EP8 generation
+  node, using native collective refit and grouped-weight reload.
+- [`grpo-lightning-async.yaml`](configs/grpo-lightning-async.yaml) uses the
+  native asynchronous worker with TP8/EP8 generation, importance sampling
+  correction, and trajectories at most one update old. Register its interpreter
+  with `ENCODER_GENERATION_WORKER_FQN` as shown below.
+- [`grpo-lightning-async-dp.yaml`](configs/grpo-lightning-async-dp.yaml) selects
+  TP1/DP8/EP8 async generation. It requires the external-DP async backport;
+  the default pinned CI image rejects this configuration.
+- [`grpo-lightning-fullparam.yaml`](configs/grpo-lightning-fullparam.yaml)
+  disables LoRA and adapter restoration, starts from base Lightning weights,
+  and keeps the SFT projector frozen. It requires two eight-GPU policy nodes
+  and one eight-GPU generation node.
+
+```bash
+export NCCL_NVLS_ENABLE=0 NCCL_IB_DISABLE=0 OMP_NUM_THREADS=4
+python -m nemotron_stitch.nemo_rl.runner --config configs/grpo-lightning-distributed.yaml
+ENCODER_GENERATION_WORKER_FQN=nemotron_stitch.nemo_rl.vllm_worker.EncoderVllmAsyncGenerationWorker \
+  python -m nemotron_stitch.nemo_rl.runner --config configs/grpo-lightning-async.yaml
+```
+
+Dedicated generation allocations use upstream's lifecycle; keep
+`keep_vllm_on_gpu` and `keep_policy_on_gpu` false. Async engines keep vLLM's
+separate `async_scheduling: false` setting explicit on the pinned stack.
+The TP8 async configuration disables custom all-reduce after a startup failure
+in upstream qualification (U-73).
+
+Upstream's bounded two-node sync/async runs and three-node full-parameter run
+exercised finite updates and refit. They do not qualify model quality or
+checkpoint resume. Full-parameter qualification subsequently exposed native
+reload/source-storage races and corrupt outputs (U-75). See
+[`docs/upstream-gaps.md`](../../docs/upstream-gaps.md) and the
+[upstream qualification notes](https://github.com/NVIDIA-dev/nemotron-stitch/blob/ef60c9ec64f24aa11613c5e1dcba417084547e78/examples/llava/README.md#qualification-evidence)
+for candidate image requirements and the limits of those measurements.

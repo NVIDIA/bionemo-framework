@@ -8,12 +8,12 @@ description: Add or adapt a Nemotron Stitch example for an external encoder and 
 ## Locate the recipe checkout
 
 Prefer the BioNeMo Recipes checkout supplied by the user, then a compatible
-nearby checkout. The selected checkout must contain:
+nearby checkout. Let `$BIONEMO_RECIPES` denote its root. It must contain:
 
-- `recipes/nemotron-stitch/AGENTS.md`;
-- `recipes/nemotron-stitch/examples/llava/README.md`;
-- `recipes/nemotron-stitch/examples/llava/quickstart.md`; and
-- `recipes/nemotron-stitch/src/nemotron_stitch/contracts.py`.
+- `$BIONEMO_RECIPES/recipes/nemotron-stitch/AGENTS.md`;
+- `$BIONEMO_RECIPES/recipes/nemotron-stitch/examples/llava/README.md`;
+- `$BIONEMO_RECIPES/recipes/nemotron-stitch/examples/llava/quickstart.md`; and
+- `$BIONEMO_RECIPES/recipes/nemotron-stitch/src/nemotron_stitch/contracts.py`.
 
 If no compatible checkout is available, acquire
 `https://github.com/NVIDIA-BioNeMo/bionemo-recipes` without overwriting existing
@@ -25,6 +25,15 @@ Read the selected recipe's `AGENTS.md`, LLaVA README, and quickstart before
 editing. Resolve the paths below from the selected recipe root. Check the
 current recipe implementation and image pins before applying version-specific
 recommendations; they can differ from the snapshot described here.
+
+For DNA or molecular inputs, also read
+`$BIONEMO_RECIPES/recipes/nemotron-stitch/examples/README.md` and the selected
+`$BIONEMO_RECIPES/recipes/nemotron-stitch/examples/genetics/README.md` or
+`$BIONEMO_RECIPES/recipes/nemotron-stitch/examples/chemistry/README.md`.
+These examples use perception endpoints and typed chat blocks, packed
+alignment/SFT, and full decoder SFT. LLaVA remains the LoRA and inference
+reference. Each example is an independently installed vLLM plugin; install it
+in every generation-worker interpreter, including executor subprocesses.
 
 ## Build the application boundary
 
@@ -50,6 +59,25 @@ evaluation, and the requested RL or inference stage. Match only the parts of
 LLaVA that the use case needs. Start with one runnable configuration and state
 its model, data, framework revisions, and hardware assumptions.
 
+Keep typed input blocks in chat order, including multiple inputs, histories,
+and text-only records. DNA spans derive from sequence length and the configured
+pooling window; use a matching cache and encoder width. Chemistry preserves
+canonical atom/bond indices and separate molecule, atom, and bond projectors.
+Per-record `chat_template_kwargs` override collator defaults for native
+reasoning/direct-answer mixtures. `PackedManifestFeatureDataset` accepts a
+sample `collate_fn` for multiple projectors and rebases their scatter indices.
+`projected_span_processor` retains per-input rollout items in chat order.
+The projected vLLM plugin admits explicitly empty start/end sentinel strings;
+its placeholder string must remain nonempty. Keep policy spans and rollout
+placeholder counts aligned.
+
+The domain examples use production optimization settings and multinode GRPO
+topologies. Their eight synthetic records only exercise integration; bounded
+runs require explicit step/data overrides. Do not present them as quality
+measurements or launch production configs on an undersized local allocation.
+Super has a separate runtime with AutoModel 0.8.0, Transformers 5.18, and the
+NeMo RL U-80 compatibility patch; the default CI image does not qualify Super.
+
 For GRPO the projector is frozen by default. Joint projector training requires
 module ownership, `mm_projector_trainable: true`, and an admitted policy mesh.
 Use the LLaVA trainable-projector configs as the reference. The pinned stack
@@ -59,6 +87,13 @@ dense replication and expert parallelism is rejected. Module-owned projectors us
 refit are rejected even when the projector is frozen. Keep colocated external
 DP generation's `async_scheduling: false` explicit for vLLM 0.25.1.
 
+Full-parameter GRPO disables LoRA and adapter restoration and uses native
+consolidated decoder weights with frozen projectors. Async generation selects
+`EncoderVllmAsyncGenerationWorker` and its matching frozen interpreter through
+`ENCODER_GENERATION_WORKER_FQN`. External-DP async generation requires a
+separate framework backport; native reload correctness and resume remain
+qualification targets. Do not infer those results from finite smoke updates.
+
 ## Keep framework fixes in the integration layer
 
 An example owns domain normalization, encoder semantics, token geometry, and
@@ -67,7 +102,7 @@ and general training or generation fixes belong in Stitch or upstream.
 
 When a needed public capability is missing, record the framework and pinned
 revision, a minimal reproduction, and the required behavior in
-`docs/upstream-gaps.md` only when an open issue is explicitly cited by `U-`
+`$BIONEMO_RECIPES/recipes/nemotron-stitch/docs/upstream-gaps.md` only when an open issue is explicitly cited by `U-`
 identifier in implementation, example configuration, or build files. Package
 bugs do not belong in this tracker. Continue independent example work. Do not hide a
 framework monkey patch or compatibility shim in an application helper.
@@ -77,7 +112,7 @@ framework monkey patch or compatibility shim in an application helper.
 Run tests and training inside the image pinned by the example Dockerfile,
 using the driver, AutoModel worker, or vLLM worker interpreter appropriate to
 the seam. When testing U-41 memory fixes, use the optional
-`examples/llava/Dockerfile.candidates` overlay and report it as a candidate
+`$BIONEMO_RECIPES/recipes/nemotron-stitch/examples/llava/Dockerfile.candidates` overlay and report it as a candidate
 stack separately from default-image results. Cover feature alignment, placeholder geometry, masking, trainability,
 and artifact handoffs. Host static checks supplement container tests.
 

@@ -21,7 +21,7 @@ The application's vLLM plugin registration and architecture name are config-driv
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 
 class ResidentVllmLifecycle:
@@ -130,58 +130,65 @@ def _select_vllm_executor_backend(llm_kwargs: dict[str, Any], requested: str | N
     llm_kwargs["distributed_executor_backend"] = requested
 
 
+class _EncoderVllmWorkerMixin:
+    """Apply the encoder plugin and architecture seam to either upstream engine."""
+
+    def __init__(self, config: dict[str, Any], *args: Any, **kwargs: Any) -> None:
+        from nemotron_stitch.nemo_rl.transport import resolve_callback
+
+        plugin_callback = config.get("mm_plugin_callback")
+        if not plugin_callback:
+            raise ValueError("generation.mm_plugin_callback is required")
+        resolve_callback(str(plugin_callback))()
+        require_generation_topology(config)
+        # GRPO deliberately copies policy.hf_config_overrides over vLLM's
+        # hf_overrides immediately before constructing the generation
+        # worker.  The training-side architecture is an AutoModel class,
+        # whereas vLLM needs the architecture registered by our plugin.
+        # Own that backend translation here instead of making either
+        # implementation pretend to be the other.
+        architecture = config.get("mm_architecture")
+        if not architecture:
+            raise ValueError("generation.mm_architecture is required")
+        self.mm_architecture = str(architecture)
+        configured_hf_overrides = (config.get("vllm_kwargs") or {}).get("hf_overrides", {})
+        if not isinstance(configured_hf_overrides, dict):
+            raise TypeError("generation.vllm_kwargs.hf_overrides must be a mapping")
+        if "quantization_config" in configured_hf_overrides:
+            raise ValueError("encoder generation leaves quantization_config to NeMo RL")
+        self.encoder_hf_overrides = dict(configured_hf_overrides)
+        requested_executor = config.get("vllm_executor_backend")
+        self.vllm_executor_backend = None if requested_executor is None else str(requested_executor)
+        _select_vllm_executor_backend({}, self.vllm_executor_backend)
+
+        cast(Any, super()).__init__(config, *args, **kwargs)
+
+    def _create_engine(self, llm_kwargs: dict[str, Any]) -> Any:
+        # U-18: NeMo RL 4d969c93268fda1687fed8ca38668da4087ce76b accepts
+        # generation.vllm_kwargs.hf_overrides, but GRPO replaces them with
+        # the training policy's architecture. Apply only the rollout
+        # architecture at engine construction while preserving upstream's
+        # quantization config. Delete this after GRPO merges user overrides.
+        _merge_encoder_hf_overrides(
+            llm_kwargs,
+            self.encoder_hf_overrides,
+            self.mm_architecture,
+        )
+        _select_vllm_executor_backend(llm_kwargs, self.vllm_executor_backend)
+        return cast(Any, super())._create_engine(llm_kwargs)
+
+
 try:
     import ray
     from nemo_rl.distributed.worker_group_utils import get_nsight_config_if_pattern_matches
     from nemo_rl.models.generation.vllm.vllm_worker import VllmGenerationWorkerImpl
 
     @ray.remote(runtime_env={**get_nsight_config_if_pattern_matches("encoder_vllm_generation_worker")})
-    class EncoderVllmGenerationWorker(VllmGenerationWorkerImpl):
-        def __init__(self, config, *args, **kwargs):
-            from nemotron_stitch.nemo_rl.transport import resolve_callback
-
-            plugin_callback = config.get("mm_plugin_callback")
-            if not plugin_callback:
-                raise ValueError("generation.mm_plugin_callback is required")
-            resolve_callback(str(plugin_callback))()
-            require_generation_topology(config)
-            # GRPO deliberately copies policy.hf_config_overrides over vLLM's
-            # hf_overrides immediately before constructing the generation
-            # worker.  The training-side architecture is an AutoModel class,
-            # whereas vLLM needs the architecture registered by our plugin.
-            # Own that backend translation here instead of making either
-            # implementation pretend to be the other.
-            architecture = config.get("mm_architecture")
-            if not architecture:
-                raise ValueError("generation.mm_architecture is required")
-            self.mm_architecture = str(architecture)
-            configured_hf_overrides = (config.get("vllm_kwargs") or {}).get("hf_overrides", {})
-            if not isinstance(configured_hf_overrides, dict):
-                raise TypeError("generation.vllm_kwargs.hf_overrides must be a mapping")
-            if "quantization_config" in configured_hf_overrides:
-                raise ValueError("encoder generation leaves quantization_config to NeMo RL")
-            self.encoder_hf_overrides = dict(configured_hf_overrides)
-            requested_executor = config.get("vllm_executor_backend")
-            self.vllm_executor_backend = None if requested_executor is None else str(requested_executor)
-            _select_vllm_executor_backend({}, self.vllm_executor_backend)
+    class EncoderVllmGenerationWorker(_EncoderVllmWorkerMixin, VllmGenerationWorkerImpl):
+        def __init__(self, config: dict[str, Any], *args: Any, **kwargs: Any) -> None:
             self.keep_vllm_on_gpu = bool(config.get("keep_vllm_on_gpu", False))
             self._resident_lifecycle = ResidentVllmLifecycle(self.keep_vllm_on_gpu)
-
-            super().__init__(config, *args, **kwargs)
-
-        def _create_engine(self, llm_kwargs):
-            # U-18: NeMo RL 4d969c93268fda1687fed8ca38668da4087ce76b accepts
-            # generation.vllm_kwargs.hf_overrides, but GRPO replaces them with
-            # the training policy's architecture. Apply only the rollout
-            # architecture at engine construction while preserving upstream's
-            # quantization config. Delete this after GRPO merges user overrides.
-            _merge_encoder_hf_overrides(
-                llm_kwargs,
-                self.encoder_hf_overrides,
-                self.mm_architecture,
-            )
-            _select_vllm_executor_backend(llm_kwargs, self.vllm_executor_backend)
-            return super()._create_engine(llm_kwargs)
+            cast(Any, super()).__init__(config, *args, **kwargs)
 
         def sleep(self):
             # U-9: NeMo RL e983576 unconditionally sleeps colocated vLLM after
@@ -213,3 +220,16 @@ try:
 
 except ImportError:
     EncoderVllmGenerationWorker = None
+
+
+try:
+    import ray
+    from nemo_rl.distributed.worker_group_utils import get_nsight_config_if_pattern_matches
+    from nemo_rl.models.generation.vllm.vllm_worker_async import VllmAsyncGenerationWorkerImpl
+
+    @ray.remote(runtime_env={**get_nsight_config_if_pattern_matches("encoder_vllm_async_generation_worker")})
+    class EncoderVllmAsyncGenerationWorker(_EncoderVllmWorkerMixin, VllmAsyncGenerationWorkerImpl):
+        """Encoder construction seam; upstream owns async generation and refit."""
+
+except ImportError:
+    EncoderVllmAsyncGenerationWorker = None

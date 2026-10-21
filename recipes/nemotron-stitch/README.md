@@ -22,8 +22,12 @@ prompt format, and evaluation logic.
   using a frozen CLIP encoder and a text-only Nemotron model.
 - [`examples/llava/quickstart.md`](examples/llava/quickstart.md) explains how to
   replace the image-specific pieces with your own encoder and paired data.
+- [`examples/genetics/`](examples/genetics/README.md) and
+  [`examples/chemistry/`](examples/chemistry/README.md) show alignment and full
+  decoder SFT plus GRPO configurations, with bundled raw DNA/SMILES inputs and
+  endpoint-based Evo2/KERMT cache preparation. See [example setup](examples/README.md).
 
-The example is intentionally small enough to read as one application module,
+Each example is small enough to read as one application module,
 while exercising the same package paths used by larger training jobs.
 
 ## The model in one minute
@@ -297,7 +301,7 @@ test matrix, and the rule for documenting framework workarounds. Current
 upstream limitations are tracked in [`docs/upstream-gaps.md`](docs/upstream-gaps.md).
 
 This recipe imports upstream Stitch commit
-`c3f389af8316eacaec1906637afe6da81fe99bf0`,
+`ef60c9ec64f24aa11613c5e1dcba417084547e78`,
 with BioNeMo-specific CI, packaging, documentation, and topology/refit
 admission fixes.
 

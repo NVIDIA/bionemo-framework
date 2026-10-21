@@ -34,7 +34,13 @@ dev = [
 ]
 
 [tool.uv.build-backend]
-source-include = ["tests/**"]
+# Domain tests load the independently installable examples from the source tree.
+source-include = ["tests/**", "examples/**"]
+source-exclude = [
+  "**/__pycache__/**", "**/*.egg-info/**",
+  "examples/*/artifacts/**", "examples/*/outputs/**",
+  "examples/*/third_party/**", "examples/*/.venv/**",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -53,8 +59,10 @@ project-includes = [
   "examples/llava/llava_example.py",
   "examples/llava/llava_qwen.py",
   "examples/llava/scripts/**/*.py",
+  "examples/genetics/*.py",
+  "examples/chemistry/*.py",
 ]
-search-path = ["src", "examples/llava"]
+search-path = ["src", "examples/llava", "examples/genetics", "examples/chemistry"]
 python-version = "3.10"
 ignore-missing-imports = [
   "torch", "torch.*",
@@ -71,6 +79,8 @@ ignore-missing-imports = [
   "nemo_automodel", "nemo_automodel.*",
   "nemo_rl", "nemo_rl.*",
   "vllm", "vllm.*",
+  "bionemo_perception", "bionemo_perception.*",
+  "rdkit", "rdkit.*",
 ]
 
 # Recipe formatting and lint configuration.

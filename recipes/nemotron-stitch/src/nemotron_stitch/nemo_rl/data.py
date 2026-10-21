@@ -59,7 +59,7 @@ class ChatTemplateKwargsProxy:
         # non-PreTrainedTokenizerBase wrappers through
         # get_multimodal_keys_from_processor and expects processor.tokenizer.
         # Delete with this proxy when upstream carries per-datum template kwargs.
-        return self._tokenizer
+        return getattr(self._tokenizer, "tokenizer", self._tokenizer)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._tokenizer, name)
@@ -224,6 +224,94 @@ def encoder_rl_processor(
     }
 
 
+def projected_span_processor(
+    datum_dict: dict[str, Any],
+    task_data_spec: Any,
+    tokenizer: Any,
+    max_seq_length: int,
+    idx: int,
+    *,
+    features: dict[str, torch.Tensor],
+    specs: tuple[PlaceholderSpec, ...],
+    modality: str,
+) -> dict[str, Any]:
+    """Transport prepared soft-token spans in text order, using frozen projectors.
+
+    Feature rows are ordered within each projector. Each start/placeholder/end
+    span becomes one rollout item, retaining variable-length input boundaries.
+    """
+    import re
+
+    from nemo_rl.data.llm_message_utils import get_formatted_message_log
+    from nemo_rl.data.multimodal_utils import PackedTensor
+
+    from nemotron_stitch.nemo_rl.transport import project_features
+
+    tokenizer = ChatTemplateKwargsProxy(tokenizer, datum_dict.get("chat_template_kwargs") or {})
+    messages = list(datum_dict.get("messages", [{"role": "user", "content": datum_dict["prompt"]}]))
+    if datum_dict.get("system_prompt") and not any(message["role"] == "system" for message in messages):
+        messages.insert(0, {"role": "system", "content": datum_dict["system_prompt"]})
+    log = get_formatted_message_log(
+        messages, tokenizer, task_data_spec, add_bos_token=True, add_eos_token=False, add_generation_prompt=True
+    )
+    projected, offsets, patterns = {}, {}, []
+    if not specs or {spec.name for spec in specs} != set(features):
+        raise ValueError("span specs must name every projector exactly once")
+    if len({spec.placeholder_token for spec in specs}) != len(specs) or len(features) != len(specs):
+        raise ValueError("span specs must have distinct names and placeholder tokens")
+    for spec in specs:
+        array = features[spec.name]
+        token = tokenizer.tokenizer.convert_tokens_to_ids(spec.placeholder_token)
+        counts = [int(message["token_ids"].eq(token).sum()) for message in log]
+        if array.ndim != 2 or sum(counts) != len(array):
+            raise ValueError(f"policy slots disagree with {spec.name} feature rows")
+        offset = 0
+        for message, count in zip(log, counts, strict=True):
+            if count:
+                message[POLICY_PREFIX + spec.name] = PackedTensor(array[offset : offset + count], dim_to_pack=0)
+            offset += count
+        projected[spec.name] = (
+            project_features(array, datum_dict["encoder_loader_kwargs"]["artifact_dir"], spec.name)
+            if len(array)
+            else array
+        )
+        if projected[spec.name].ndim != 2 or len(projected[spec.name]) != len(array):
+            raise ValueError("span transport requires projectors that preserve feature row counts")
+        offsets[spec.name] = 0
+        patterns.append(
+            re.escape(spec.start_token) + "((?:" + re.escape(spec.placeholder_token) + ")+)" + re.escape(spec.end_token)
+        )
+    items = []
+
+    def replace_span(match: re.Match) -> str:
+        assert match.lastindex is not None
+        spec = specs[match.lastindex - 1]
+        count = len(match[match.lastindex]) // len(spec.placeholder_token)
+        start = offsets[spec.name]
+        items.append(projected[spec.name][start : start + count].clone())
+        offsets[spec.name] += count
+        return f"<{modality}>"
+
+    policy_content = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    content = re.sub("|".join(patterns), replace_span, policy_content)
+    if offsets != {name: len(array) for name, array in features.items()}:
+        raise ValueError("every feature requires a start/placeholder/end span")
+    if content.count(f"<{modality}>") != len(items):
+        raise ValueError("rollout sentinel count disagrees with projected items")
+    length = sum(len(message["token_ids"]) for message in log)
+    return dict(
+        message_log=log,
+        length=length,
+        idx=idx,
+        task_name=datum_dict["task_name"],
+        loss_multiplier=float(length <= max_seq_length),
+        stop_strings=None,
+        extra_env_info=task_reward_metadata(datum_dict),
+        vllm_content=prepend_bos_if_needed(content, tokenizer, True),
+        vllm_multi_modal_data={modality: items} if items else {},
+    )
+
+
 def encoder_preference_processor(
     datum_dict: dict[str, Any],
     task_data_spec: Any,
@@ -301,7 +389,7 @@ class EncoderRLDataset:
                 "system_prompt": system_prompt,
                 # The rollout prompt bypasses NeMo RL's normal message renderer,
                 # so explicitly preserve the policy template mode.
-                "chat_template_kwargs": dict(chat_template_kwargs or {}),
+                "chat_template_kwargs": {**(chat_template_kwargs or {}), **(row.get("chat_template_kwargs") or {})},
                 "task_name": self.task_name,
             }
             for row in rows

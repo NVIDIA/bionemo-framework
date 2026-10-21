@@ -41,6 +41,21 @@
       ],
       "expected_skill": "nemotron-stitch-extend-example",
       "expected_script": null
+    },
+    {
+      "id": "stitch-004-domain-examples",
+      "prompt": "Adapt the Stitch genetics and chemistry examples to my DNA and molecular question-answer data, including mixed reasoning and direct answers. Can I use their eight bundled rows and default GRPO configs on one GPU to measure quality?",
+      "expected_output": "Use the domain examples with typed chats, matching encoder/cache geometry, explicit training handoffs, and appropriately bounded integration checks.",
+      "assertions": [
+        "Read the shared examples README and selected domain README from the located BioNeMo Recipes checkout.",
+        "Preserve typed input order, histories, and text-only records; derive DNA spans from pooling and keep canonical chemistry indices.",
+        "Use per-record chat_template_kwargs and packed sample collation rather than a new training framework.",
+        "Install the selected example plugin in every generation-worker interpreter.",
+        "Explain that production optimization and multinode GRPO defaults need explicit sanity overrides and eight synthetic rows do not measure quality.",
+        "Keep Super runtime requirements and external-DP async backports separate from the default pinned image."
+      ],
+      "expected_skill": "nemotron-stitch-extend-example",
+      "expected_script": null
     }
   ]
 }

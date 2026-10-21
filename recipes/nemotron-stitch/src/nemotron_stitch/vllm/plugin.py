@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class SentinelAttrs:
-    """HF-config attribute names carrying the modality's sentinel token strings."""
+    """HF-config attributes for sentinel strings; start/end may explicitly be empty."""
 
     start: str
     placeholder: str
@@ -402,7 +402,7 @@ def build_mm_plugin(
                         start = getattr(config, sentinels.start, None)
                         placeholder = getattr(config, sentinels.placeholder, None)
                         end = getattr(config, sentinels.end, None)
-                        if not all(isinstance(value, str) and value for value in (start, placeholder, end)):
+                        if not all(isinstance(value, str) for value in (start, placeholder, end)) or not placeholder:
                             raise ValueError(
                                 f"vLLM config must define {sentinels.start}/{sentinels.placeholder}/{sentinels.end}"
                             )

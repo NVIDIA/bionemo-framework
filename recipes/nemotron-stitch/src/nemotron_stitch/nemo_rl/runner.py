@@ -32,9 +32,11 @@ import sys
 from pathlib import Path
 
 _DEFAULT_POLICY_FQN = "nemotron_stitch.nemo_rl.policy.EncoderDTensorPolicyWorkerV2"
+_ASYNC_VLLM_FQN = "nemotron_stitch.nemo_rl.vllm_worker.EncoderVllmAsyncGenerationWorker"
 _DEFAULT_VLLM_FQN = "nemotron_stitch.nemo_rl.vllm_worker.EncoderVllmGenerationWorker"
 # NeMo RL's stock worker FQNs: the frozen worker venvs are keyed by them.
 _STOCK_POLICY_FQN = "nemo_rl.models.policy.workers.dtensor_policy_worker_v2.DTensorPolicyWorkerV2"
+_STOCK_ASYNC_VLLM_FQN = "nemo_rl.models.generation.vllm.vllm_worker_async.VllmAsyncGenerationWorker"
 _STOCK_VLLM_FQN = "nemo_rl.models.generation.vllm.vllm_worker.VllmGenerationWorker"
 
 
@@ -87,7 +89,12 @@ def install_extensions(
         PY_EXECUTABLES.SYSTEM if unified_runtime else frozen_worker_python(_STOCK_POLICY_FQN, PY_EXECUTABLES.AUTOMODEL)
     )
     vllm_python = generation_worker_python or (
-        PY_EXECUTABLES.SYSTEM if unified_runtime else frozen_worker_python(_STOCK_VLLM_FQN, PY_EXECUTABLES.VLLM)
+        PY_EXECUTABLES.SYSTEM
+        if unified_runtime
+        else frozen_worker_python(
+            _STOCK_ASYNC_VLLM_FQN if vllm_fqn == _ASYNC_VLLM_FQN else _STOCK_VLLM_FQN,
+            PY_EXECUTABLES.VLLM,
+        )
     )
     _register_exact(ACTOR_ENVIRONMENT_REGISTRY, policy_fqn, policy_python)
     _register_exact(ACTOR_ENVIRONMENT_REGISTRY, vllm_fqn, vllm_python)

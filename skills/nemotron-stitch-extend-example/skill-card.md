@@ -15,7 +15,8 @@ NVIDIA
 
 Locate a compatible BioNeMo Recipes checkout, identify the application-owned
 encoder, data, and prompt boundaries, and build a small example with explicit
-training and artifact handoffs. Keep the upstream-gap reference limited to open
+training and artifact handoffs. Use the genetics and chemistry examples for
+typed domain chats, perception endpoints, and packed full decoder training. Keep the upstream-gap reference limited to open
 framework issues explicitly cited in the recipe source.
 
 ## Requirements / Dependencies
@@ -50,7 +51,7 @@ results in the selected recipe checkout.
 ## Evaluation Tasks
 
 Declarative cases cover a supplied checkout, an independently installed skill,
-and joint projector GRPO constraints. Automated tests check release packaging,
+joint projector GRPO constraints, and domain-example selection. Automated tests check release packaging,
 checkout reference paths, and evaluation-case structure.
 
 ## Evaluation Results
