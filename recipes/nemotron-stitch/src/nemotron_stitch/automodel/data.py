@@ -177,14 +177,20 @@ class PackedManifestFeatureDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index: int) -> dict[str, Any]:
         pack = self.packs[index]
-        examples = [self.dataset[row_index] for row_index, _, _ in pack]
         samples = []
-        for example in examples:
+        for row_index, ids, labels in pack:
+            # Keep the metadata used during planning; the standalone dataset
+            # intentionally exposes only explicitly requested extra fields.
+            example = {**self.dataset.rows[row_index], **self.dataset[row_index]}
             batch = self.collate_fn([example])
+            input_ids = batch["input_ids"].squeeze(0)
+            row_labels = batch["labels"].squeeze(0)
+            if input_ids.tolist() != ids[:-1] or row_labels.tolist() != labels[1:]:
+                raise ValueError(f"sample {row_index} collator encoding differs from pack planning")
             samples.append(
                 {
-                    "input_ids": batch["input_ids"].squeeze(0),
-                    "labels": batch["labels"].squeeze(0),
+                    "input_ids": input_ids,
+                    "labels": row_labels,
                     **{key: value for key, value in batch.items() if key.startswith("mm_")},
                 }
             )

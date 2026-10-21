@@ -34,6 +34,8 @@ credentials depend on the requested example.
   pins before applying the snapshot's topology or scheduler guidance.
 - Encoder features and prompt slots can be misaligned: validate token geometry,
   masking, trainability, and artifact handoffs using the recipe tests.
+- Tiny packed datasets can leave distributed samplers empty: use the documented
+  repeated manifest view and explicit `--` CLI bounds for sanity runs.
 - Smoke checks do not measure model quality: report quality results with the
   dataset split, hardware, training budget, checkpoint, and metric definition.
 

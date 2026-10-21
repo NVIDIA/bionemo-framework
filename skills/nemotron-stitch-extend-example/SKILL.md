@@ -66,6 +66,9 @@ canonical atom/bond indices and separate molecule, atom, and bond projectors.
 Per-record `chat_template_kwargs` override collator defaults for native
 reasoning/direct-answer mixtures. `PackedManifestFeatureDataset` accepts a
 sample `collate_fn` for multiple projectors and rebases their scatter indices.
+Packed loading retains the complete planning metadata alongside cached features;
+the sample collator must reproduce the planned next-token IDs and labels.
+A differing encoding is rejected rather than padded to an obsolete budget.
 `projected_span_processor` retains per-input rollout items in chat order.
 The projected vLLM plugin admits explicitly empty start/end sentinel strings;
 its placeholder string must remain nonempty. Keep policy spans and rollout
@@ -73,7 +76,13 @@ placeholder counts aligned.
 
 The domain examples use production optimization settings and multinode GRPO
 topologies. Their eight synthetic records only exercise integration; bounded
-runs require explicit step/data overrides. Do not present them as quality
+runs require explicit step/data overrides. The eight-row manifest can pack
+into fewer than eight entries, leaving every rank empty under the pinned
+AutoModel sampler. Use the separate repeated manifest view documented in the
+shared example README for eight-rank sanity runs. More epochs or a loader
+`drop_last: false` setting cannot repair the sampler's dropped rank groups.
+Prefix every AutoModel dotted CLI override with `--`; bare assignments are
+silently ignored by the pinned parser. Do not present them as quality
 measurements or launch production configs on an undersized local allocation.
 Super has a separate runtime with AutoModel 0.8.0, Transformers 5.18, and the
 NeMo RL U-80 compatibility patch; the default CI image does not qualify Super.

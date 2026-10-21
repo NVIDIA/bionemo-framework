@@ -113,15 +113,13 @@ docker run --rm -it --gpus all --ipc=host --network host --cap-add SYS_PTRACE \
   -w "/opt/stitch/examples/$example" stitch-domain-examples
 ```
 
-Inside the selected example directory:
+Inside the selected example directory, prepare the cache and download the base model:
 
 ```bash
 python prepare.py
 hf download nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16 \
   --revision b3caaabed0263651a17dc1f2d4ce97e794f76c44 \
   --local-dir artifacts/models/lightning-30b-bf16
-torchrun --nproc-per-node 8 -m nemo_automodel.cli.app configs/alignment.yaml
-torchrun --nproc-per-node 8 -m nemo_automodel.cli.app configs/sft.yaml
 ```
 
 Preparation makes **eight requests**, one per raw input, then publishes one
@@ -164,14 +162,47 @@ source recipe; loss reduction, precision, scheduler, and distributed settings
 come from that source. Launch topology lives in the application, including the
 paired Super multinode launch. There is no single-node memory-tuning overlay.
 
-For the eight-row sanity data, use native CLI overrides to stop after three
-updates and allow enough epochs to repeat the tiny loader. For example:
+The eight short rows pack into fewer than eight training samples. The pinned
+AutoModel distributed sampler drops incomplete rank groups, so the original
+manifest gives empty loaders on eight ranks; more epochs cannot repair this.
+For a bounded sanity run, write a separate repeated view of the prepared
+manifest. Unique sample IDs reuse the same checksummed feature keys, so this
+makes no additional encoder requests and leaves the published cache intact.
+These repeated exposures have no interpretation as additional training data.
+
+```python
+import json
+from pathlib import Path
+
+source = Path("artifacts/data/manifest.jsonl")
+rows = [json.loads(line) for line in source.read_text().splitlines()]
+repeated = [
+    {**row, "sample_id": f"{row['sample_id']}-sanity-{copy}"}
+    for copy in range(256)
+    for row in rows
+]
+source.with_name("manifest-sanity.jsonl").write_text(
+    "".join(json.dumps(row) + "\n" for row in repeated)
+)
+```
+
+Run both stages with the repeated view and explicit three-update bounds:
 
 ```bash
-torchrun --nproc-per-node 8 -m nemo_automodel.cli.app configs/sft.yaml \
-  step_scheduler.max_steps=3 step_scheduler.num_epochs=1000 \
-  step_scheduler.ckpt_every_steps=3 step_scheduler.save_checkpoint_every_epoch=false
+for stage in alignment sft; do
+  torchrun --nproc-per-node 8 -m nemo_automodel.cli.app "configs/$stage.yaml" \
+    --dataset.manifest_path=artifacts/data/manifest-sanity.jsonl \
+    --step_scheduler.max_steps=3 --step_scheduler.num_epochs=1000 \
+    --step_scheduler.ckpt_every_steps=3 --step_scheduler.save_checkpoint_every_epoch=false
+done
 ```
+
+Keep the `--` prefix on every AutoModel override: the pinned parser silently
+ignores bare `key=value` arguments. After changing raw data, tokenizer, pack
+budget, or rank count, verify that each distributed loader has at least one
+optimizer update's worth of microbatches; the repeated view is tested at the loader boundary
+only for the bundled records and documented eight-rank settings. This does
+not qualify end-to-end training or model quality.
 
 Production dataset conversion, stage/split selection, cache publication,
 qualification launchers, and run receipts belong in the demos repository. A
