@@ -54,7 +54,7 @@ policy:
     tensor_parallel_size: 1
     context_parallel_size: 1
     expert_parallel_size: 8
-    # NeMo RL b03da0f4: U-66 rejects dense replication with EP; use the
+    # NeMo RL b03da0f4 rejects dense replication with EP; use the
     # inferred DP shard axis until upstream supports this combined mesh.
     dp_replicate_size: 1
     lora_cfg:

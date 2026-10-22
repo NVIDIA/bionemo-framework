@@ -10,7 +10,7 @@
 # (packed microbatch is 1; global batch 16 yields 2 accumulation steps at 8
 # ranks — the qualified 2026-09-03 geometry; pass
 # --step_scheduler.global_batch_size=8 for the accumulation-free 8-rank
-# geometry. Multi-pack microbatches are unsupported by the packed collator.)
+# geometry. Each microbatch contains one pack of source samples.)
 recipe: nemotron_stitch.automodel.recipe.ProjectorFinetuneRecipe
 
 step_scheduler:
@@ -63,12 +63,11 @@ peft:
   # training forward actually calls, so NeMo RL's DTensor-v2 refit folds the
   # delta into the base weight vLLM loads. Deliberately absent:
   #   - routed experts: AutoModel trains them as GroupedExpertsLoRA, which
-  #     the pinned NeMo RL refit does not merge (U-29), and their merged
+  #     the pinned NeMo RL refit does not merge, and their merged
   #     export for serving needs Automodel#3834, which the pinned AutoModel
   #     1814c6c9 predates;
   #   - mixer.out_proj: the fused mamba training path passes its base weight
-  #     directly to the scan kernel, so a LoRA wrapper is silently inert
-  #     (U-30);
+  #     directly to the scan kernel, so a LoRA wrapper is silently inert;
   #   - conv1d/A/D, embeddings, norms, lm_head: no LinearLoRA form.
   target_modules:
     - "*.mixer.q_proj"

@@ -1,4 +1,4 @@
-# Unsupported while U-75 remains unresolved. Reproduce reload failures only;
+# Unsupported pending resolution of upstream refit corruption. Reproduce reload failures only;
 # do not use this configuration for training.
 # Full decoder training with a frozen SFT projector, without LoRA or resume.
 # Three 8xH100 nodes: two EP8 DTensor policy nodes + one TP1/DP8/EP8

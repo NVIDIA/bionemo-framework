@@ -4,7 +4,7 @@
 defaults: grpo-lightning.yaml
 
 grpo:
-  # U-72: NeMo RL b03da0f4 normalizes against leave-one-out variance;
+  # NeMo RL b03da0f4 normalizes against leave-one-out variance;
   # one successful response among identical siblings can get a huge
   # advantage from roundoff. Use the public full-group baseline setting.
   use_leave_one_out_baseline: false
@@ -31,7 +31,7 @@ policy:
         gpus_per_node: ${cluster.gpus_per_node}
     vllm_cfg:
       expert_parallel_size: 8
-      # NeMo RL b03da0f4 supports grouped MoE refit through the
+      # NeMo RL supports grouped MoE refit through the
       # native reload API. Use the public switch on the collective path.
       refit_with_reload_api: true
 

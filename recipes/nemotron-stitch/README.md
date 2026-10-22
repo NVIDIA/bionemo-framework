@@ -225,7 +225,7 @@ uv sync --locked  # installs the package and development tools into .venv
 Base dependencies are PyTorch, safetensors, NumPy, and PyYAML. The framework
 extras are intentionally unpinned because NeMo AutoModel, NeMo RL, and vLLM
 must come from one mutually compatible runtime stack. The
-[`LLaVA Dockerfile`](examples/llava/Dockerfile) is the qualified reference
+[`shared example Dockerfile`](examples/Dockerfile) is the qualified reference
 environment.
 
 ## Package layout
@@ -270,8 +270,8 @@ its framework dependencies.
 ### CI image
 
 Recipe CI uses a public mirror of NVIDIA's multi-platform NeMo RL nightly
-image at `svcbionemo023/bionemo-framework:nemo-rl-ci-b03da0f4-amd64`, pinned
-to digest `sha256:08fd971c29f8e76f0d589bc7195104231594e859707fda6fac82388770732140`.
+image at `svcbionemo023/bionemo-framework:nemo-rl-ci-9a842983-amd64`, pinned
+to digest `sha256:b246d90d969277441bbce418bd895c3f9a4ef5e0ab47587b6f4e0c91ad84af48`.
 It contains the qualified NeMo RL, AutoModel, and vLLM environments, so CI
 only installs the checked-out package. The mirror is copied verbatim from
 `gitlab-master.nvidia.com/dl/joc/nemo-ci/main/rl:latest` to make it accessible
@@ -284,7 +284,7 @@ Once published, run the same folder-scoped path as CI from the repository root:
 ```
 
 The framework seam tests must also run in the pinned environment from
-[`examples/llava/Dockerfile`](examples/llava/Dockerfile):
+[`examples/Dockerfile`](examples/Dockerfile):
 
 ```bash
 docker run --rm \
@@ -292,16 +292,17 @@ docker run --rm \
   -w /opt/nemotron-stitch \
   -e PYTHONPATH=/opt/nemotron-stitch/src \
   -e PYTHONDONTWRITEBYTECODE=1 \
-  svcbionemo023/bionemo-framework:nemo-rl-ci-b03da0f4-amd64 \
+  svcbionemo023/bionemo-framework:nemo-rl-ci-9a842983-amd64 \
   /opt/nemo_rl_venv/bin/python -m pytest tests/ -q -p no:cacheprovider
 ```
 
 See [`AGENTS.md`](AGENTS.md) for repository conventions, the full worker-venv
-test matrix, and the rule for documenting framework workarounds. Current
+test matrix, and the rule for documenting framework workarounds. Package
+contracts are documented in [the design reference](docs/design.md). Current
 upstream limitations are tracked in [`docs/upstream-gaps.md`](docs/upstream-gaps.md).
 
 This recipe imports upstream Stitch commit
-`7076e3c277df8b16992cce84a6436be19f180beb`,
+`f7d5bea4230807b62d99f026753c079674df1946`,
 with BioNeMo-specific CI, packaging, documentation, and topology/refit
 admission fixes.
 

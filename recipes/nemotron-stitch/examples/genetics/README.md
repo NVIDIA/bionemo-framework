@@ -42,19 +42,15 @@ the demo's cached training path already carries those features in the dataset.
 
 Follow the [setup, local endpoint, training, and test commands](../README.md).
 
-Production-default mean-loss alignment requires the U-45 AutoModel fix
-(`6a44c5f49323db7b5d555e982423474e652a09c4`); the shared Dockerfile's stock
-base rejects that loss configuration. The Lepton-qualified runtime includes
-that fix and policy PEFT 0.21.0. To rebuild the current examples on that runtime,
-add this argument to the shared Docker build command:
-
-```bash
---build-arg BASE_IMAGE=nvcr.io/1015084509601350/stitch-examples-e2e@sha256:dc80ef2800cc0f9b6e36b863421fc9994ad82888ecee94e82fd344be0ea76fd7
-```
+Production-default mean-loss alignment requires AutoModel equal-pack loss normalization support; the
+shared Dockerfile's stock CI base rejects that loss configuration. Supply a
+compatible base carrying the fix through `--build-arg BASE_IMAGE=...`. The base
+must use the current `AutomodelPolicyWorker` interpreter layout; historical
+`DTensorPolicyWorkerV2` campaign images cannot be substituted directly.
 
 The 32-GPU Lightning GRPO layout uses EP8 and an inferred four-way DP shard
 axis (`dp_replicate_size: 1`). NeMo RL `b03da0f4` rejects EP combined with dense
-DP replication (U-66); the older reference's `dp_replicate_size: 4` is unsupported.
+DP replication; the older reference's `dp_replicate_size: 4` is unsupported.
 For a short smoke starting from a barely trained SFT donor, override
 `grpo.use_dynamic_sampling=false`: uniform rewards can otherwise keep sampling
 without reaching an optimizer step. The production default remains enabled;
@@ -135,20 +131,20 @@ wraps AutoModel's `NemotronOmniForConditionalGeneration`; generation wraps
 vLLM's native `NemotronH_Nano_VL_V2`. The vLLM config disables image/video/audio inputs with zero modality limits,
 so the native profiler handles DNA without custom profiling subclasses.
 
-Use the separately qualified Super runtime rather than the default Lightning
-base. From `recipes/nemotron-stitch`, build the same Dockerfile with this base
-(requires NVIDIA registry access):
+The public Super snapshot requires AutoModel 0.8.0 and Transformers 5.18.0.
+The default CI base carries AutoModel 0.6.1, so it is not a qualified Super
+runtime. The same Dockerfile has a `super` target that selects Transformers
+5.18.0 in every interpreter; supply a compatible AutoModel base using the current
+`AutomodelPolicyWorker` layout:
 
 ```bash
 docker build -f examples/Dockerfile --target super \
   --build-context perception=../bionemo-perception-containers \
-  --build-arg BASE_IMAGE=nvcr.io/1015084509601350/nemotron-gene-async-grpo@sha256:3839e0ca88752a78f17bdc53c1bcfd2584931d245b04445ba710a4109c755b29 \
-  -t stitch-domain-examples:super .
+  --build-arg BASE_IMAGE=your-registry/super-base:tag \
+  -t stitch-examples:super .
 ```
 
-This runtime carries AutoModel 0.8.0, Transformers 5.18.0 in the driver, policy,
-and generation interpreters, and the U-80 NeMo RL compatibility patch. It is separate from the
-normal demo's pinned framework matrix. In a shell launched from that image
+In a shell launched from that image
 using the shared mount/GPU instructions, download the Super checkpoint and run:
 
 ```bash

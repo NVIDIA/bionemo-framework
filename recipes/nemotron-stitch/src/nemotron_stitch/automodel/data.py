@@ -191,6 +191,11 @@ class PackedManifestFeatureDataset(torch.utils.data.Dataset):
                 {
                     "input_ids": input_ids,
                     "labels": row_labels,
+                    **(
+                        {"loss_token_weights": batch["loss_token_weights"].squeeze(0)}
+                        if "loss_token_weights" in batch
+                        else {}
+                    ),
                     **{key: value for key, value in batch.items() if key.startswith("mm_")},
                 }
             )
@@ -268,9 +273,6 @@ class FeatureCollator:
     def _encode(self, row: dict[str, Any]) -> tuple[list[int], list[int]]:
         prompt_messages, full_messages = self._messages(row)
         text_tokenizer: Any = getattr(self.tokenizer, "tokenizer", self.tokenizer)
-        # AutoModel 1814c6c exposes only one collator-level template policy.
-        # Merge an explicit row policy so one deterministic loader can retain
-        # native rendering for heterogeneous supervision. Delete after U-79.
         row_template_kwargs = row.get("chat_template_kwargs")
         if row_template_kwargs is not None and not isinstance(row_template_kwargs, dict):
             raise TypeError("row chat_template_kwargs must be a mapping")
@@ -292,7 +294,8 @@ class FeatureCollator:
         if full_ids[: len(prompt_ids)] != prompt_ids:
             # Transformers 5.12.1 has no prompt-preserving continuation API:
             # full-text tokenization may merge across the generation boundary.
-            # Delete this fallback when the pinned public API meets U-34.
+            # Delete this fallback when the pinned public API provides
+            # prompt-preserving continuation encoding.
             if self.supervision != "suffix" or not full_text.startswith(prompt_text):
                 raise ValueError("chat template is not prefix-stable between prompt and full rendering")
             continuation = text_tokenizer(full_text[len(prompt_text) :], add_special_tokens=False).input_ids
@@ -626,6 +629,9 @@ def _merge_feature_pack(
             ]
         ),
     }
+    weights = _loss_token_weights(samples)
+    if weights is not None:
+        result["loss_token_weights"] = torch.cat([*weights, weights[0].new_zeros(pad_tokens)])
     if packing_format == "neat":
         result.update(
             position_ids=torch.cat(
@@ -886,11 +892,30 @@ def collate_fn(
     )(batch)
 
 
+def _loss_token_weights(samples: list[dict[str, Any]]) -> list[torch.Tensor] | None:
+    """Retain label-aligned weights, rejecting ambiguous mixed supervision."""
+    if not any("loss_token_weights" in sample for sample in samples):
+        return None
+    weights = []
+    for sample in samples:
+        if "loss_token_weights" not in sample:
+            raise ValueError("loss_token_weights must be present in every sample of a weighted pack")
+        value = torch.as_tensor(sample["loss_token_weights"])
+        labels = torch.as_tensor(sample["labels"])
+        if value.shape != labels.shape:
+            raise ValueError("loss_token_weights must have the same shape as labels")
+        if not torch.isfinite(value).all() or (value < 0).any():
+            raise ValueError("loss_token_weights must be finite and nonnegative")
+        weights.append(value.masked_fill(labels == -100, 0))
+    return weights
+
+
 def packed_collate_fn(batch: list[dict[str, Any]]) -> dict[str, Any]:
     """Collate one feature-preserving THD or indexed pack."""
     if len(batch) != 1:
         raise ValueError(f"feature packs require dataloader batch_size=1, got {len(batch)}")
     item = batch[0]
+    weights = _loss_token_weights(batch)
     if item.get("qkv_format") != "thd":
         result = {
             key: value.unsqueeze(0)
@@ -898,6 +923,8 @@ def packed_collate_fn(batch: list[dict[str, Any]]) -> dict[str, Any]:
             if key in ("input_ids", "labels", "position_ids", "attention_mask")
         }
         result.update({key: value for key, value in item.items() if key.startswith("mm_")})
+        if weights is not None:
+            result["loss_token_weights"] = weights[0].unsqueeze(0)
         return result
     from nemo_automodel.components.datasets.utils import packed_sequence_thd_collater
 
@@ -905,4 +932,6 @@ def packed_collate_fn(batch: list[dict[str, Any]]) -> dict[str, Any]:
         [{key: item[key].tolist() for key in ("input_ids", "labels", "position_ids", "seq_lens", "seq_lens_padded")}]
     )
     result.update({key: value for key, value in item.items() if key.startswith("mm_")})
+    if weights is not None:
+        result["loss_token_weights"] = weights[0].unsqueeze(0)
     return result

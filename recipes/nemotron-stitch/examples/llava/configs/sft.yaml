@@ -50,7 +50,7 @@ peft:
   # hybrid: attention plus the mamba input projection, which the training
   # forward calls as a module on every path. mixer.out_proj is excluded —
   # the mamba fast path passes its weight directly to the fused scan kernel,
-  # so a LoRA wrapper would be silently inert (U-30) — and this model has no
+  # so a LoRA wrapper would be silently inert — and this model has no
   # experts. conv1d/A/D, embeddings, norms, and lm_head have no LinearLoRA
   # form.
   target_modules:

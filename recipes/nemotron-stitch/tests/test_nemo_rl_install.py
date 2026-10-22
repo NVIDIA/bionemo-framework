@@ -50,7 +50,7 @@ from nemo_rl.environments.utils import ENV_REGISTRY
 from nemo_rl.models.generation.vllm import utils, vllm_generation
 from nemo_rl.models.policy import lm_policy
 
-# Native extension support: the worker FQNs travel in the config
+# Worker FQNs travel in the config
 # (policy.worker_extension_cls_fqn and generation.worker_extension_cls_fqn),
 # so the bootstrap must only register runtimes — no Policy or resolver patch.
 assert grpo.Policy.__module__ == 'nemo_rl.models.policy.lm_policy'

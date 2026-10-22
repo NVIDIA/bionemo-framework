@@ -29,15 +29,15 @@
     },
     {
       "id": "stitch-003-joint-grpo",
-      "prompt": "In the supplied Stitch checkout pinned to NeMo RL b03da0f4 and vLLM 0.25.1, add a GRPO variant that trains both LoRA and the projector. I want a warmup schedule, combined dense replication plus expert parallelism, and colocated external-DP generation.",
+      "prompt": "In the supplied Stitch checkout pinned to NeMo RL 9a842983 and vLLM 0.29.0, add a GRPO variant that trains both LoRA and the projector. I want a warmup schedule, combined dense replication plus expert parallelism, and colocated external-DP generation.",
       "expected_output": "Explain the pinned stack limitations and choose a supported configuration without a demo-local framework workaround.",
       "assertions": [
         "Inspect the trainable-projector examples and current admission guards.",
         "Require module ownership and explicit projector trainability.",
         "Explain that this snapshot admits the constant-only scheduler and rejects combined replication and EP.",
-        "Keep async_scheduling false explicit for colocated external DP on vLLM 0.25.1.",
+        "Keep async_scheduling false explicit for colocated external DP on the maintained vLLM 0.29.0 stack pending GPU qualification.",
         "Use the pinned container tests and distinguish smoke checks from quality qualification.",
-        "Keep docs/upstream-gaps.md limited to open framework issues explicitly cited in implementation, example configuration, or build files; exclude package bugs."
+        "Keep $BIONEMO_RECIPES/recipes/nemotron-stitch/docs/upstream-gaps.md limited to substantive open custom-modality integration gaps with evidence and deletion conditions; exclude package bugs and general backend or qualification concerns."
       ],
       "expected_skill": "nemotron-stitch-extend-example",
       "expected_script": null
@@ -59,7 +59,7 @@
         "Save native processors through wrapper delegation and reconstruct wrappers from YAML; select the documented candidate runtime for gene mean-loss alignment.",
         "Use dp_replicate_size 1 with EP8 and disable dynamic sampling explicitly for uniform-reward bounded smokes.",
         "Verify wrapper pickle/deepcopy transport, isolate GRPO variant checkpoints alongside logs, and retain one recent gene SFT checkpoint by default.",
-        "Mark the LLaVA full-parameter Lightning control unsupported while U-75 remains unresolved; keep it for failure reproduction and do not recommend it for training."
+        "Mark the LLaVA full-parameter Lightning control unsupported pending resolution of upstream refit corruption; keep it for failure reproduction and do not recommend it for training."
       ],
       "expected_skill": "nemotron-stitch-extend-example",
       "expected_script": null

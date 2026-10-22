@@ -109,18 +109,18 @@ def require_replicated_projector_policy_config(config: dict[str, Any]) -> None:
     if dimensions["tensor_parallel_size"] != 1 or dimensions["context_parallel_size"] != 1:
         raise NotImplementedError(f"encoder policy requires TP=1 and CP=1: {dimensions}")
     if dimensions["dp_replicate_size"] > 1 and dimensions["expert_parallel_size"] > 1:
-        # U-66: NeMo RL b03da0f4's setup_distributed derives
+        # NeMo RL b03da0f4's setup_distributed derives
         # dp_size = world_size // (tp*cp*ep) and requires dp_replicate |
         # dp_size, so a fused expert-parallel mesh leaves no dense DP axis to
         # replicate over and every rank dies in setup before this package's
         # projector machinery runs; on meshes with leftover DP ranks the
-        # combined mesh has never been qualified for the projector contract
-        # . Reject the combination at admission instead of deep in setup.
-        # Delete when U-66 closes and the combined mesh is qualified.
+        # combined mesh has never been qualified for the projector contract.
+        # Reject the combination at admission instead of deep in setup.
+        # Delete when upstream supports this mesh and the combination is qualified.
         raise NotImplementedError(
             "dp_replicate_size > 1 with expert_parallel_size > 1 is not admitted: dense "
             "replication inside fused expert-parallel ranks is inexpressible on this stack "
-            "(U-66), and the combined mesh is unqualified for the projector contract. "
+            "and the combined mesh is unqualified for the projector contract. "
             f"Mesh dimensions: {dimensions}"
         )
     if config.get("keep_policy_on_gpu") and dtensor.get("cpu_offload"):
@@ -274,7 +274,7 @@ def patch_reference_projector_state(
     prefix: str = PROJECTOR_STATE_PREFIX,
     shard_geometry: dict[str, Any] | None = None,
 ) -> int:
-    """Copy the warm-started projector into the KL reference state snapshot.
+    """Copy warm-started projector artifact state into the KL reference snapshot.
 
     NeMo RL 4d969c93 captures ``setup_reference_model_state(self.model)`` — a
     CPU copy of the model state dict — before this worker loads the projector
@@ -282,7 +282,9 @@ def patch_reference_projector_state(
     values. Without this patch the reference policy would score rollouts under
     embeddings it never had, and a KL penalty could not see projector drift at
     all. Sidecar-owned projectors never appear in the model state dict, so the
-    caller skips this entirely on that path.
+    caller skips projector tensors on that path. Model-registered artifact
+    extras still need anchoring under either ownership mode; pass their full
+    parameter/buffer names with ``prefix=""``.
 
     Under an expert-parallel mesh the snapshot holds rank-local shards — NeMo
     RL copies it through ``to_local_if_dtensor`` — so a full warm-start tensor
@@ -296,19 +298,15 @@ def patch_reference_projector_state(
         key = prefix + name
         target = reference_state_dict.get(key)
         if target is None:
-            raise KeyError(f"module-owned projector state {key!r} is missing from the KL reference snapshot")
+            raise KeyError(f"artifact state {key!r} is missing from the KL reference snapshot")
         if hasattr(tensor, "full_tensor"):
             tensor = tensor.full_tensor()
         if not isinstance(target, torch.Tensor):
             raise TypeError(f"KL reference snapshot entry {key!r} is not a tensor")
-        if tuple(tensor.shape) != tuple(target.shape):
-            live = (shard_geometry or {}).get(name)
-            if live is None or not hasattr(live, "placements"):
-                raise ValueError(
-                    f"the KL reference snapshot holds a rank-local projector shard for {key!r} "
-                    "(expert-parallel policy mesh); shard_geometry must supply a live DTensor "
-                    "per projector tensor"
-                )
+        live = (shard_geometry or {}).get(name)
+        if live is not None and hasattr(live, "placements"):
+            # Geometry, not local shape, must select the collective on every
+            # rank: a short tensor can have one full-sized and one empty shard.
             from torch.distributed.tensor import distribute_tensor
 
             tensor = distribute_tensor(
@@ -316,6 +314,12 @@ def patch_reference_projector_state(
                 device_mesh=live.device_mesh,
                 placements=live.placements,
             ).to_local()
+        elif tuple(tensor.shape) != tuple(target.shape):
+            raise ValueError(
+                f"the KL reference snapshot holds a rank-local projector shard for {key!r} "
+                "(expert-parallel policy mesh); shard_geometry must supply a live DTensor "
+                "per projector tensor"
+            )
         target.copy_(tensor.detach().cpu())
         patched += 1
     return patched
@@ -387,10 +391,10 @@ def restore_checkpoint_projector(model: Any, weights_path: str | Path) -> bool:
 try:
     import ray
     from nemo_rl.models.policy.utils import get_runtime_env_for_policy_worker
-    from nemo_rl.models.policy.workers.dtensor_policy_worker_v2 import DTensorPolicyWorkerV2Impl
+    from nemo_rl.models.policy.workers.automodel_policy_worker import AutomodelPolicyWorkerImpl
 
     @ray.remote(runtime_env=get_runtime_env_for_policy_worker("encoder_dtensor_policy_worker_v2"))
-    class EncoderDTensorPolicyWorkerV2(DTensorPolicyWorkerV2Impl):
+    class EncoderDTensorPolicyWorkerV2(AutomodelPolicyWorkerImpl):
         """Add projector warm-start provenance and encoder payloads to NeMo RL's policy worker.
 
         NeMo RL 4d969c93 owns the compact-PEFT warm start and the worker
@@ -526,6 +530,17 @@ try:
                     self.model,
                     self._projector_artifact_path,
                     expected=dict(expected_provenance) if expected_provenance else None,
+                )
+            if self.reference_model_state_dict is not None:
+                # NeMo RL b03da0f4 captures reference state before the artifact
+                # load, including host extras under either ownership mode.
+                # Retain the donor anchor across resume. Delete this repair
+                # when the warm-start finalization hook in U-77 is adopted.
+                patch_reference_projector_state(
+                    self.reference_model_state_dict,
+                    read_projector_artifact(self._projector_artifact_path).extra_state,
+                    prefix="",
+                    shard_geometry=self.model.state_dict(),
                 )
             projector_parameters = list(self.model.mm_projector.parameters())
             if not projector_parameters:
@@ -683,7 +698,7 @@ try:
             )
 
         def prepare_for_lp_inference(self, *args, **kwargs) -> None:
-            # U-9: NeMo RL e983576 always follows its offload lifecycle. This
+            # NeMo RL e983576 always follows its offload lifecycle. This
             # opt-in GB300 path keeps the policy resident because policy + vLLM
             # fit together. Delete these overrides when upstream supports a
             # colocated residency policy. af0a11f added keep_train_buffers;
@@ -737,26 +752,26 @@ try:
             The rollout engine never owns projector weights: it receives
             already-projected soft tokens, so a projector tensor in the refit
             payload can only fail the generation-side load. NeMo RL
-            b03da0f469cdb2882bda83c0f04317c6159ed266 skips only LoRA tensors in
+            9a8429833cdc27aec46c7daa00f4dd7729ba9a35 skips only LoRA tensors in
             its refit enumeration, and a remote-code host without a family
             state-dict adapter has no projector exclusion that would filter
             these keys earlier. Delete after adopting U-61.
             """
-            from nemo_rl.models.policy.workers.dtensor_policy_worker_v2 import dtensor_params_generator
+            from nemo_rl.models.policy.workers.automodel_policy_worker import automodel_params_generator
 
-            for name, tensor in dtensor_params_generator(self.model, self.dtype):
+            for name, tensor in automodel_params_generator(self.model, self.dtype, draft_model=self.draft_model):
                 if name.startswith(PROJECTOR_STATE_PREFIX):
                     continue
                 yield name, tensor
 
         @torch.no_grad()
-        def prepare_refit_info(self, *, refit_payload_mode: Any = "hf_export"):
-            # U-61: NeMo RL b03da0f4 exposes no refit exclusion for co-trained
+        def prepare_refit_info(self):
+            # U-61: NeMo RL 9a842983 exposes no refit exclusion for co-trained
             # state outside LoRA, so a module-owned projector would enter the
             # refit manifest and fail the generation-side load. The manifest
             # and both refit streams below must agree on the same key set.
             # Delete this override when an upstream exclusion seam lands.
-            info = super().prepare_refit_info(refit_payload_mode=refit_payload_mode)
+            info = super().prepare_refit_info()
             return {name: value for name, value in info.items() if not name.startswith(PROJECTOR_STATE_PREFIX)}
 
         @torch.no_grad()
@@ -794,6 +809,7 @@ try:
             *,
             buffer_size_bytes: int | None = None,
             num_buffers: int | None = None,
+            use_legacy_packing: bool = False,
         ) -> None:
             # U-61: the non-colocated NCCL refit. The base watchdog wrapper
             # stays upstream's; this mirrors only the pinned broadcast body
@@ -820,6 +836,7 @@ try:
                 post_iter_func=lambda item: item[1],
                 buffer_size_bytes=buffer_size_bytes,
                 num_buffers=num_buffers,
+                use_legacy_packing=use_legacy_packing,
             )
 
             # Manually move model to cpu for cpu offload case
@@ -829,7 +846,7 @@ try:
 
         def update_weights_to_sglang_colocated(self, *args: Any, **kwargs: Any) -> None:
             # U-61: SGLang's colocated refit is a fourth enumeration site
-            # upstream (dtensor_policy_worker_v2.py, dtensor_params_generator)
+            # upstream (automodel_policy_worker.py, automodel_params_generator)
             # that this variant does not cover with the projector exclusion.
             # Fail closed rather than streaming tensors the rollout engine
             # cannot own. Delete this guard with the U-61 overrides.
@@ -857,7 +874,8 @@ try:
             weights_path: str,
             optimizer_path: str | None = None,
             tokenizer_path: str | None = None,
-            checkpointing_cfg: dict[str, Any] | None = None,
+            *,
+            is_final_checkpoint: bool,
         ) -> None:
             """Save the policy checkpoint; the trained projector lands at finalize time.
 
@@ -874,7 +892,7 @@ try:
                 weights_path,
                 optimizer_path=optimizer_path,
                 tokenizer_path=tokenizer_path,
-                checkpointing_cfg=checkpointing_cfg,
+                is_final_checkpoint=is_final_checkpoint,
             )
             if self._projector_trainable:
                 self._projector_checkpoint_weights_path = Path(weights_path)
@@ -890,7 +908,7 @@ try:
             collective full-tensor collection inside save_projector_artifact;
             writing it in save_checkpoint instead would leave a tmp_step_N
             holding an authoritative-looking projector with no shards when
-            an async finalize fails (U-52's failure mode).
+            an async finalize fails.
             """
             super().finalize_async_save()
             pending = self._projector_checkpoint_weights_path

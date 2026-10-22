@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""U-34: preserve inference tokens when BPE merges across the chat boundary."""
+"""Preserve inference tokens when BPE merges across the chat boundary."""
 
 from __future__ import annotations
 
@@ -235,7 +235,7 @@ def test_continuations_preserve_ragged_padded_and_packed_feature_indices(monkeyp
 
 
 def test_native_qwen_empty_reasoning_continuation():
-    """Optional offline qualification against U-34's pinned tokenizer snapshot."""
+    """Optional offline qualification against the pinned tokenizer snapshot."""
     path = os.environ.get("STITCH_TEST_QWEN_TOKENIZER")
     if not path:
         pytest.skip("set STITCH_TEST_QWEN_TOKENIZER to Qwen3.6 tokenizer revision 995ad96e")

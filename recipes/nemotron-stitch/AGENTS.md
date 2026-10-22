@@ -26,15 +26,15 @@ Use **projector** for the encoder-to-LM module, **adapter** for LoRA,
 
 ## Framework workarounds
 
-Track open framework limitations in [`docs/upstream-gaps.md`](docs/upstream-gaps.md).
-Workaround comments should explain the affected revision and state what
-upstream capability would let us delete the code. Cite an open `U-` identifier
-while the framework issue remains open. For merged fixes awaiting a runtime pin
-bump, retain the deletion condition in the comment without a tracker row.
-Keep only open framework issues explicitly cited by `U-` identifier in
-implementation, example configuration, or build files. Documentation and test
-mentions alone do not qualify. Package bugs do not belong in this tracker.
-Remove closed or unreferenced entries; never reuse an identifier. When adopting an upstream fix, delete the workaround.
+Track concrete framework bugs or missing capabilities that obstruct adding a
+custom modality in [`docs/upstream-gaps.md`](docs/upstream-gaps.md). Each row
+needs evidence, an affected integration path, and an upstream fix that would
+delete a local workaround. General training/backend bugs, performance tuning,
+minor API inconveniences, and qualification reminders stay outside this tracker.
+Workaround comments should name the affected revision and deletion condition.
+Cite the stable `U-` identifier for tracked modality integration gaps. Package
+bugs do not belong in this tracker. Remove closed entries; never reuse an identifier.
+When adopting an upstream fix, delete the workaround.
 
 Preserve numerical parity during refactors. Changes to forward kwargs, index
 geometry, or artifact manifests require a schema version change and converter.
@@ -51,7 +51,7 @@ The repositories have independent histories; do not use a bidirectional subtree.
 ## Verification
 
 Run framework seam tests in the pinned image declared by
-`examples/llava/Dockerfile`. From the BioNeMo repository root, the driver suite is:
+`examples/Dockerfile`. From the BioNeMo repository root, the driver suite is:
 
 ```bash
 ./ci/scripts/recipes_local_test.py recipes/nemotron-stitch
@@ -63,7 +63,7 @@ worker interpreters. Mount this recipe at `/opt/nemotron-stitch`, set
 `python -m pytest tests/ examples/llava/tests/ -q -p no:cacheprovider` with each
 interpreter. The worker paths in the pinned image are:
 
-- `/opt/ray_venvs/nemo_rl.models.policy.workers.dtensor_policy_worker_v2.DTensorPolicyWorkerV2/bin/python`
+- `/opt/ray_venvs/nemo_rl.models.policy.workers.automodel_policy_worker.AutomodelPolicyWorker/bin/python`
 - `/opt/ray_venvs/nemo_rl.models.generation.vllm.vllm_worker.VllmGenerationWorker/bin/python`
 
 Install pytest into a throwaway test container if those environments lack it.

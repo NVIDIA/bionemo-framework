@@ -35,7 +35,7 @@ _DEFAULT_POLICY_FQN = "nemotron_stitch.nemo_rl.policy.EncoderDTensorPolicyWorker
 _ASYNC_VLLM_FQN = "nemotron_stitch.nemo_rl.vllm_worker.EncoderVllmAsyncGenerationWorker"
 _DEFAULT_VLLM_FQN = "nemotron_stitch.nemo_rl.vllm_worker.EncoderVllmGenerationWorker"
 # NeMo RL's stock worker FQNs: the frozen worker venvs are keyed by them.
-_STOCK_POLICY_FQN = "nemo_rl.models.policy.workers.dtensor_policy_worker_v2.DTensorPolicyWorkerV2"
+_STOCK_POLICY_FQN = "nemo_rl.models.policy.workers.automodel_policy_worker.AutomodelPolicyWorker"
 _STOCK_ASYNC_VLLM_FQN = "nemo_rl.models.generation.vllm.vllm_worker_async.VllmAsyncGenerationWorker"
 _STOCK_VLLM_FQN = "nemo_rl.models.generation.vllm.vllm_worker.VllmGenerationWorker"
 

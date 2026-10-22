@@ -26,6 +26,8 @@ from typing import Any, cast
 
 import torch
 
+from nemotron_stitch.projector.tensors import full_tensor_for_export
+
 
 def normalized_checkpoint_name(name: str) -> str:
     """Strip activation-checkpoint wrapper segments from a state-dict FQN.
@@ -107,13 +109,12 @@ def collect_portable_states(
     adapter: dict[str, torch.Tensor] = {}
     for raw_name, parameter in model.named_parameters():
         name = normalized_checkpoint_name(raw_name)
-        tensor = parameter.full_tensor() if hasattr(parameter, "full_tensor") else parameter
         if name.startswith(projector_prefix):
-            projector[name.removeprefix(projector_prefix)] = tensor.detach().cpu()
+            projector[name.removeprefix(projector_prefix)] = full_tensor_for_export(parameter)
         elif name in extra_names:
-            extra[name] = tensor.detach().cpu()
+            extra[name] = full_tensor_for_export(parameter)
         elif lora_marker in name:
-            adapter[name] = tensor.detach().cpu()
+            adapter[name] = full_tensor_for_export(parameter)
     return projector, extra, adapter
 
 

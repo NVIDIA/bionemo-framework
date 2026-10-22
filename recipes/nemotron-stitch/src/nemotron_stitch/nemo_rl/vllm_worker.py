@@ -25,7 +25,7 @@ from typing import Any, cast
 
 
 class ResidentVllmLifecycle:
-    """Retain vLLM only after its startup sleep and first complete wake (U-9)."""
+    """Retain vLLM only after its startup sleep and first complete wake."""
 
     def __init__(self, enabled: bool):
         self.enabled = enabled
@@ -65,7 +65,7 @@ def require_generation_topology(config: dict[str, Any]) -> None:
             raise ValueError("keep_vllm_on_gpu requires colocated.enabled=true")
         if vllm.get("async_engine"):
             raise ValueError("keep_vllm_on_gpu is incompatible with vllm_cfg.async_engine")
-    # U-70: vLLM 0.25.1 async scheduling stalls between request completion
+    # vLLM 0.25.1 async scheduling stalls between request completion
     # and the dummy-batch DP collectives on colocated external-DP engines
     # (coordinate_batch_across_dp -> _synchronize_dp_ranks -> gloo
     # all_reduce, surfacing as an 1800 s gloo recv timeout). Require the
@@ -85,7 +85,7 @@ def require_generation_topology(config: dict[str, Any]) -> None:
             raise ValueError(
                 "colocated generation with external DP width "
                 f"{external_dp_width} must pin "
-                "generation.vllm_kwargs.async_scheduling: false (U-70); got "
+                "generation.vllm_kwargs.async_scheduling: false; got "
                 f"{vllm_kwargs.get('async_scheduling')!r}"
             )
 
@@ -116,7 +116,7 @@ def _merge_encoder_hf_overrides(
 def _select_vllm_executor_backend(llm_kwargs: dict[str, Any], requested: str | None) -> None:
     """Apply an explicit vLLM executor after NeMo RL selects its default.
 
-    U-38: NeMo RL 4d969c93268fda1687fed8ca38668da4087ce76b overwrites the
+    NeMo RL 4d969c93268fda1687fed8ca38668da4087ce76b overwrites the
     public vLLM kwarg with Ray for multi-rank model parallelism. Some inference
     artifacts were qualified with vLLM's local multiprocessing executor, whose
     collective and kernel launch order can be numerically significant for long
@@ -191,7 +191,7 @@ try:
             cast(Any, super()).__init__(config, *args, **kwargs)
 
         def sleep(self):
-            # U-9: NeMo RL e983576 unconditionally sleeps colocated vLLM after
+            # NeMo RL e983576 unconditionally sleeps colocated vLLM after
             # every phase and exposes no lifecycle policy callback. Delete this
             # override when upstream supports a colocated residency policy.
             if self._resident_lifecycle.should_sleep:

@@ -7,6 +7,8 @@
 !tests/**
 !examples/
 !examples/README.md
+!examples/llava/
+!examples/llava/**
 !examples/genetics/
 !examples/genetics/**
 !examples/chemistry/
@@ -15,3 +17,5 @@
 **/artifacts/
 **/outputs/
 **/*.egg-info/
+**/third_party/
+**/.pytest_cache/

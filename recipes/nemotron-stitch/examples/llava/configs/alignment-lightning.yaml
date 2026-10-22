@@ -13,7 +13,7 @@
 # Batch geometry: the packed microbatch is 1, so global batch 16 yields 2
 # accumulation steps at 8 ranks (the qualified 2026-09-03 geometry); pass
 # --step_scheduler.global_batch_size=8 for the accumulation-free 8-rank
-# geometry. Multi-pack microbatches are unsupported by the packed collator.
+# geometry. Each microbatch contains one pack of source samples.
 recipe: nemotron_stitch.automodel.recipe.ProjectorFinetuneRecipe
 
 step_scheduler:

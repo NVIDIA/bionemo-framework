@@ -124,7 +124,7 @@ def test_colocated_grpo_keeps_both_workers_resident(name):
     assert generation["vllm_kwargs"]["max_num_seqs"] == (
         128 if name == "grpo-lightning.yaml" else "${policy.generation_batch_size}"
     )
-    # U-70: never inherit vLLM 0.25.1's async_scheduling default on colocated rollouts.
+    # never inherit vLLM 0.25.1's async_scheduling default on colocated rollouts.
     assert generation["vllm_kwargs"]["async_scheduling"] is False
 
 

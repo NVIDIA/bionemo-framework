@@ -327,7 +327,7 @@ Bad names fail during model construction, collation, or soft-token scatter.
 
 Build and start the qualified container as described in the
 [`README`](README.md#setup). These commands run the image example from its
-`/opt/llava-example` working directory; substitute your module and config paths
+`/opt/stitch/examples/llava` working directory; substitute your module and config paths
 for another application.
 
 Prepare the bounded dataset snapshot and feature cache:

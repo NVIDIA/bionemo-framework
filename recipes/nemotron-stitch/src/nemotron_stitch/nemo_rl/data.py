@@ -38,7 +38,7 @@ class ChatTemplateKwargsProxy:
     — there is no channel for flags like ``enable_thinking``. Policy and
     rollout prompts must tokenize identically, so the processor applies the
     datum's template kwargs uniformly through this proxy. Explicit call-site
-    kwargs (``add_generation_prompt`` etc.) win. U-21: delete when upstream
+    kwargs (``add_generation_prompt`` etc.) win. Delete when upstream
     threads chat_template_kwargs through TaskDataSpec / llm_message_utils.
     """
 

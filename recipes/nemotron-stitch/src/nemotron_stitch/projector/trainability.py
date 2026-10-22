@@ -38,6 +38,8 @@ from typing import Any
 import torch
 from torch import nn
 
+from nemotron_stitch.projector.tensors import full_tensor_for_export
+
 PROJECTOR = "projector"
 EXTRA = "extra"
 LORA = "lora"
@@ -129,8 +131,7 @@ def collect_extra_state(model: nn.Module, policy: TrainabilityPolicy) -> dict[st
     for name, parameter, family in _iter_family_parameters(model, policy):
         if family != EXTRA:
             continue
-        tensor = parameter.full_tensor() if hasattr(parameter, "full_tensor") else parameter
-        state[name] = tensor.detach().cpu()
+        state[name] = full_tensor_for_export(parameter)
     return state
 
 

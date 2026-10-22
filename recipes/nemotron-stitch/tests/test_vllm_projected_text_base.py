@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import pytest
+from test_vllm_encode_plugin import _SentinelTokenizer
 
 from nemotron_stitch.vllm.plugin import SentinelAttrs, build_mm_plugin
 
@@ -71,14 +72,18 @@ def test_projected_items_can_leave_boundaries_in_prompt_text(monkeypatch, start,
     monkeypatch.setattr(MULTIMODAL_REGISTRY, "register_processor", capture)
     _register()()
     config = SimpleNamespace(toyc_start=start, toyc_placeholder="<slot>", toyc_end=end, toyc_num_tokens=1)
-    processor = SimpleNamespace(info=SimpleNamespace(get_hf_config=lambda: config))
+    tokenizer = _SentinelTokenizer(["<toyc>", "<slot>", "<start>", "<end>"])
+    processor = SimpleNamespace(info=SimpleNamespace(get_hf_config=lambda: config, get_tokenizer=lambda: tokenizer))
 
     class Items(dict):
         def get_items(self, modality, cls):
             return SimpleNamespace(get_feature_size=lambda index: 1)
 
     updates = captured[-1]._get_prompt_updates(processor, Items(toyc=True), {}, {})
-    assert updates[0].replacement(0).full == start + "<slot>" + end
+    detail = updates[0].replacement(0)
+    assert updates[0].target == [0]
+    assert detail.full == ([2, 1, 3] if start else [1])
+    assert detail.is_embed(detail.full).tolist() == ([False, True, False] if start else [True])
     config.toyc_placeholder = ""
     with pytest.raises(ValueError, match="vLLM config must define"):
         updates[0].replacement(0)

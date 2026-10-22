@@ -60,6 +60,16 @@ class SentinelAttrs:
 PROJECTED_GEOMETRIES = frozenset({"fixed", "variable"})
 
 
+def _prompt_replacement(tokenizer: Any, text: str, placeholder: str) -> Any:
+    from vllm.multimodal.processing import PromptUpdateDetails
+
+    token_ids = tokenizer.encode(text, add_special_tokens=False)
+    placeholder_ids = tokenizer.encode(placeholder, add_special_tokens=False)
+    if len(placeholder_ids) != 1:
+        raise ValueError("soft-token placeholder must encode to exactly one token")
+    return PromptUpdateDetails.select_token_id(token_ids, placeholder_ids[0])
+
+
 def load_token_embedding_overrides(
     artifact_path: str | Path,
     declarations: Mapping[int | str, str],
@@ -288,7 +298,7 @@ def build_mm_plugin(
         from vllm.multimodal import MULTIMODAL_REGISTRY
         from vllm.multimodal.inputs import MultiModalFieldConfig
         from vllm.multimodal.parse import EmbeddingItems, MultiModalDataParser
-        from vllm.multimodal.processing.processor import PromptReplacement, PromptUpdateDetails
+        from vllm.multimodal.processing.processor import PromptReplacement
 
         base_model = _import(base_model_cls)
         base_info = _import(base_processing_info_cls)
@@ -407,12 +417,12 @@ def build_mm_plugin(
                                 f"vLLM config must define {sentinels.start}/{sentinels.placeholder}/{sentinels.end}"
                             )
                         text = start + placeholder * count + end
-                        return PromptUpdateDetails.select_text(text, embed_text=placeholder)
+                        return _prompt_replacement(self.info.get_tokenizer(), text, placeholder)
 
                     updates.append(
                         PromptReplacement(
                             modality=modality,
-                            target=placeholder_text,
+                            target=self.info.get_tokenizer().encode(placeholder_text, add_special_tokens=False),
                             replacement=replacement,
                         )
                     )
@@ -677,7 +687,6 @@ def _build_encode_plugin(
         BaseMultiModalProcessor,
         BaseProcessingInfo,
         PromptReplacement,
-        PromptUpdateDetails,
     )
 
     class ModalityProcessorItems(ProcessorBatchItems):
@@ -747,16 +756,14 @@ def _build_encode_plugin(
                 if count <= 0:
                     raise ValueError(f"{modality} item {item_idx} has no soft tokens")
                 full = sentinel_start + sentinel_placeholder * count + sentinel_end
-                # Only the placeholder positions consume soft-token embeddings;
-                # start/end are vocabulary-only boundary markers. select_text
-                # keeps vLLM's feature-count assertion aligned with the
-                # encoder's soft-token count.
-                return PromptUpdateDetails.select_text(seq=full, embed_text=sentinel_placeholder)
+                # Boundary markers retain vocabulary embeddings; only the
+                # placeholder token consumes an encoder soft token.
+                return _prompt_replacement(self.info.get_tokenizer(), full, sentinel_placeholder)
 
             return [
                 PromptReplacement(
                     modality=modality,
-                    target=placeholder_text,
+                    target=self.info.get_tokenizer().encode(placeholder_text, add_special_tokens=False),
                     replacement=replacement,
                 )
             ]

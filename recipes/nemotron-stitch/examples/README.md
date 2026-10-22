@@ -31,11 +31,16 @@ training path; the same eight records are used in every stage. Training defaults
 now follow the production recipes; use bounded step/data overrides for sanity
 checks. The bundled records are not evaluation datasets.
 
+Keep genetics and chemistry application Python within a combined budget of
+600 nonblank lines, excluding tests. Use package and upstream APIs for training,
+configuration, artifacts, and transport.
+
 ## Build the training environment
 
-The shared [Dockerfile](Dockerfile) installs Stitch, both example plugins,
-pytest, and the typed BioNeMo perception client into the pinned NeMo framework
-interpreters. It does not reinstall training frameworks. The default base uses BioNeMo's public mirror of the pinned NeMo RL image.
+The single [Dockerfile](Dockerfile) builds one image for LLaVA, genetics, and
+chemistry. It installs Stitch, all three example plugins, pytest, RDKit, and
+the typed BioNeMo perception client into the pinned NeMo framework interpreters.
+It does not reinstall training frameworks. The default base uses BioNeMo's public mirror.
 From the BioNeMo `recipes/nemotron-stitch` directory:
 
 ```bash
@@ -43,8 +48,15 @@ git clone https://github.com/NVIDIA-dev/bionemo-perception-containers.git ../bio
 git -C ../bionemo-perception-containers checkout aa831c731f30e9f7bb878e9e29c0e61848f36e1d
 docker build -f examples/Dockerfile \
   --build-context perception=../bionemo-perception-containers \
-  -t stitch-domain-examples .
+  -t stitch-examples .
 ```
+
+Select an example with `-w /opt/stitch/examples/llava`,
+`-w /opt/stitch/examples/genetics`, or `-w /opt/stitch/examples/chemistry` when
+running the image. LLaVA uses local CLIP; genetics and chemistry use encoder
+services. The optional `super` build target selects Transformers 5.18 in every
+worker and requires a compatible AutoModel base supplied through `BASE_IMAGE`.
+The image applies no framework source patches.
 
 The perception repository supplies the client and encoder services; no other
 application repository or prebuilt dataset is needed. For an existing compatible
@@ -112,7 +124,7 @@ docker run --rm -it --gpus all --ipc=host --network host --cap-add SYS_PTRACE \
   -e EVO2_URL -e EVO2_TOKEN -e KERMT_URL -e KERMT_TOKEN \
   -v "$PWD/examples/$example/artifacts:/opt/stitch/examples/$example/artifacts" \
   -v "$PWD/examples/$example/outputs:/opt/stitch/examples/$example/outputs" \
-  -w "/opt/stitch/examples/$example" stitch-domain-examples
+  -w "/opt/stitch/examples/$example" stitch-examples
 ```
 
 Inside the selected example directory, prepare the cache and download the base model:

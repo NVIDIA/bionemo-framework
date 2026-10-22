@@ -103,8 +103,7 @@ four-way DP shard axis on 32 GPUs. For a bounded smoke from a barely trained
 donor, disable `grpo.use_dynamic_sampling` to avoid uniform-reward resampling
 that never reaches an update; production sampling remains unchanged.
 
-Super has a separate runtime with AutoModel 0.8.0, Transformers 5.18, and the
-NeMo RL U-80 compatibility patch; the default CI image does not qualify Super.
+Super has a separate runtime with AutoModel 0.8.0, Transformers 5.18, and compatible NeMo RL APIs; the default CI image does not qualify Super.
 
 For GRPO the projector is frozen by default. Joint projector training requires
 module ownership, `mm_projector_trainable: true`, and an admitted policy mesh.
@@ -113,7 +112,7 @@ admits a constant-only `ConstantLR(factor=1.0, total_iters=0)` schedule for late
 projector parameter groups; milestone schedules fail at construction. Combined
 dense replication and expert parallelism is rejected. Module-owned projectors use vLLM IPC or NCCL refit; SGLang and checkpoint-engine
 refit are rejected even when the projector is frozen. Keep colocated external
-DP generation's `async_scheduling: false` explicit for vLLM 0.25.1.
+DP generation's `async_scheduling: false` explicit for vLLM 0.29.0 pending GPU qualification.
 
 Full-parameter GRPO disables LoRA and adapter restoration and uses native
 consolidated decoder weights with frozen projectors. Async generation selects
@@ -121,7 +120,7 @@ consolidated decoder weights with frozen projectors. Async generation selects
 `ENCODER_GENERATION_WORKER_FQN`. External-DP async generation requires a
 separate framework backport; native reload correctness and resume remain
 qualification targets. The LLaVA full-parameter Lightning control is unsupported
-while U-75 remains unresolved; retain it for failure reproduction and do not
+pending resolution of upstream refit corruption; retain it for failure reproduction and do not
 use it for training. Do not infer qualification from finite smoke updates.
 
 ## Keep framework fixes in the integration layer
@@ -130,21 +129,24 @@ An example owns domain normalization, encoder semantics, token geometry, and
 evaluation. Feature transport, artifacts, registration, distributed runtime,
 and general training or generation fixes belong in Stitch or upstream.
 
-When a needed public capability is missing, record the framework and pinned
-revision, a minimal reproduction, and the required behavior in
-`$BIONEMO_RECIPES/recipes/nemotron-stitch/docs/upstream-gaps.md` only when an open issue is explicitly cited by `U-`
-identifier in implementation, example configuration, or build files. Package
-bugs do not belong in this tracker. Continue independent example work. Do not hide a
-framework monkey patch or compatibility shim in an application helper.
+When a concrete upstream bug or missing capability obstructs adding a custom
+modality, record the affected revision, reproduction, integration path, and
+required behavior in
+`$BIONEMO_RECIPES/recipes/nemotron-stitch/docs/upstream-gaps.md`. Cite its stable
+`U-` identifier in the workaround. General backend bugs, performance tuning,
+minor API inconveniences, qualification reminders, and package bugs stay outside
+this tracker. Continue independent example work. Do not hide a framework monkey
+patch or compatibility shim in an application helper.
 
 ## Verify and explain the recipe
 
-Run tests and training inside the image pinned by the example Dockerfile,
-using the driver, AutoModel worker, or vLLM worker interpreter appropriate to
-the seam. When testing U-41 memory fixes, use the optional
-`$BIONEMO_RECIPES/recipes/nemotron-stitch/examples/llava/Dockerfile.candidates` overlay and report it as a candidate
-stack separately from default-image results. Cover feature alignment, placeholder geometry, masking, trainability,
-and artifact handoffs. Host static checks supplement container tests.
+Run tests and training inside the image pinned by
+`$BIONEMO_RECIPES/recipes/nemotron-stitch/examples/Dockerfile`, using the driver,
+AutoModel worker, and sync/async vLLM worker interpreters appropriate to the seam.
+The maintained stack uses NeMo RL `9a842983`, AutoModel `b916107a`, and vLLM
+`0.29.0`, with `AutomodelPolicyWorker` environments. Cover feature alignment,
+placeholder geometry, masking, packed loss weights, KL-reference donor state,
+and CPU-offloaded artifact export. Host static checks supplement container tests.
 
 The README should give runnable commands and explain stage handoffs, shapes,
 trainable state, and supported topology. Report measured results with the

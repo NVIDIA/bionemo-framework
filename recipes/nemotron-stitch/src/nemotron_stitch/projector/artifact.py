@@ -51,6 +51,7 @@ from nemotron_stitch.contracts import (
     SCHEMA_VERSION,
 )
 from nemotron_stitch.projector import MultimodalProjector
+from nemotron_stitch.projector.tensors import full_tensor_for_export
 from nemotron_stitch.projector.trainability import TrainabilityPolicy, extra_parameter_names
 from nemotron_stitch.provenance import canonical_json, require_provenance, sha256_file
 
@@ -169,9 +170,7 @@ def _portable_registry_state(registry) -> dict[str, torch.Tensor]:
     """
     state = {}
     for key, value in registry.state_dict().items():
-        if hasattr(value, "full_tensor"):
-            value = value.full_tensor()
-        state[key] = value.detach().cpu().contiguous()
+        state[key] = full_tensor_for_export(value)
     return state
 
 

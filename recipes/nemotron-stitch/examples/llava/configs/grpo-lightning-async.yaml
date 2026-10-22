@@ -19,7 +19,7 @@ policy:
   generation:
     worker_extension_cls_fqn: nemotron_stitch.nemo_rl.vllm_worker.EncoderVllmAsyncGenerationWorker
     vllm_kwargs:
-      # U-73: vLLM 0.25.1's custom all-reduce kernel failed at TP8 startup.
+      # vLLM 0.25.1's custom all-reduce kernel failed at TP8 startup.
       # Use the public NCCL fallback; recheck when the pinned kernel is fixed.
       disable_custom_all_reduce: true
     vllm_cfg:
