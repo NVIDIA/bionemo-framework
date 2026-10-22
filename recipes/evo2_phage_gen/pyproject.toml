@@ -17,7 +17,6 @@ dependencies = [
     "nvidia-modelopt[torch]>=0.37.0",
     "megatron-bridge",
     "causal_conv1d",
-    "nv-grouped-gemm",
     "megatron-core",
     # nvidia-resiliency-ext is pulled transitively by megatron-bridge.
     "emerging_optimizers",
@@ -157,13 +156,13 @@ version = { file = "VERSION" }
 cache-keys = [{ git = true }]
 prerelease = "allow"
 
-# Learning: This list matches the official Megatron-Bridge config.
+# Learning: This list matches the official Megatron-Bridge config, minus nv-grouped-gemm, which this
+# recipe does not install (Hyena has no MoE layers that would use the legacy GroupedMLP).
 # These packages must be built against the SYSTEM PyTorch (no isolation).
 no-build-isolation-package = [
     "flash_mla",
     "flash-linear-attention",
     "causal-conv1d",
-    "nv-grouped-gemm",
     "mamba-ssm",
     "transformer-engine",
     "transformer-engine-torch",
@@ -189,7 +188,6 @@ override-dependencies = [
 # External dependencies with specific git tags/commits
 # 1.6.1 fixes a custom-op no-storage failure in no-grad/frozen forward paths.
 causal_conv1d = { git = "https://github.com/Dao-AILab/causal-conv1d.git", tag = "v1.6.1" }
-nv-grouped-gemm = { git = "https://github.com/fanshiqing/grouped_gemm", tag = "v1.1.4.post6" }
 # ARM64 fallback paired with the commented dependency above. PyPI's 1.2.2
 # aarch64 sdist reported version 0.0.0 in the validated 2026-08-21 build:
 # biotraj = { git = "https://github.com/biotite-dev/biotraj.git", rev = "75ff7be1325b549f1ff5510ecb3982822c835ee4" }

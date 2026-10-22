@@ -16,25 +16,74 @@
 """Eden (Llama 3.1 variant) model providers for the Eden recipe.
 
 Eden models are Llama 3.1 architecture variants
-by BCR (Bio-Computing Research). They inherit from Megatron Bridge's
-Llama31ModelProvider and override architecture-specific defaults.
+by BCR (Bio-Computing Research). Megatron Bridge no longer ships named Llama providers, so the
+Llama 3.1 defaults are set here on top of GPTModelProvider.
 """
 
+import sys
 from dataclasses import dataclass
-from typing import Type
+from pathlib import Path
+from typing import Callable, Type
 
-from megatron.bridge.models.llama.llama_provider import Llama31ModelProvider
+import torch.nn.functional as F  # noqa: N812
+from megatron.bridge.models.gpt_provider import GPTModelProvider
+from megatron.bridge.utils.instantiate_utils import register_allowed_target_prefix
+
+
+def _patch_megatron_dataset_helper_compile() -> None:
+    """Skip Megatron's runtime helper build when a wheel already ships the extension."""
+    from megatron.core.datasets import utils as dataset_utils
+
+    original_compile_helpers = dataset_utils.compile_helpers
+    if getattr(original_compile_helpers, "_eden_prebuilt_helper_guard", False):
+        guarded_compile_helpers = original_compile_helpers
+    else:
+
+        def guarded_compile_helpers() -> None:
+            datasets_dir = Path(dataset_utils.__file__).resolve().parent
+            if not (datasets_dir / "Makefile").exists() and list(datasets_dir.glob("helpers_cpp*.so")):
+                return None
+            return original_compile_helpers()
+
+        guarded_compile_helpers._eden_prebuilt_helper_guard = True
+        dataset_utils.compile_helpers = guarded_compile_helpers
+
+    bridge_initialize = sys.modules.get("megatron.bridge.training.initialize")
+    if bridge_initialize is not None:
+        bridge_initialize.compile_helpers = guarded_compile_helpers
+
+
+_patch_megatron_dataset_helper_compile()
+register_allowed_target_prefix("bionemo.eden.")
 
 
 @dataclass
-class EdenModelProvider(Llama31ModelProvider):
+class EdenModelProvider(GPTModelProvider):
     """Eden base provider (~8B params, Llama 3.1 architecture).
 
-    Inherits from Llama31ModelProvider which sets rope_scaling=True and
-    rope_scaling_factor=8.0. Eden overrides seq_length to 8192 (training
-    context) and sets the standard Eden defaults.
+    Uses Llama 3.1 RoPE scaling (rope_scaling=True, rope_scaling_factor=8.0). Eden overrides
+    seq_length to 8192 (training context) and sets the standard Eden defaults.
     """
 
+    # Llama 3.1 architecture defaults
+    normalization: str = "RMSNorm"
+    activation_func: Callable = F.silu
+    gated_linear_unit: bool = True
+    position_embedding_type: str = "rope"
+    add_bias_linear: bool = False
+    attention_dropout: float = 0.0
+    hidden_dropout: float = 0.0
+    layernorm_epsilon: float = 1.0e-05
+    rotary_percent: float = 1.0
+    rope_scaling: bool = True
+    rope_scaling_factor: float = 8.0
+    bias_activation_fusion: bool = True
+    masked_softmax_fusion: bool = True
+    persist_layer_norm: bool = True
+    bias_dropout_fusion: bool = True
+    apply_rope_fusion: bool = True
+
+    # Eden defaults
     rotary_base: int = 500_000
     seq_length: int = 8192
     num_layers: int = 32
