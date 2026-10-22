@@ -162,16 +162,31 @@ def _collate_tensors(
         return torch.cat(tensors, dim=0)
 
     max_seq_len = max(t.size(seq_dim) for t in tensors)
-    padded_tensors = []
-
-    for tensor in tensors:
-        pad_amount = max_seq_len - tensor.size(seq_dim)
-        if pad_amount > 0:
-            pad_spec = [0] * (2 * tensor.ndim)
-            pad_spec[2 * (tensor.ndim - 1 - seq_dim) + 1] = pad_amount
-            padded_tensor = torch.nn.functional.pad(tensor, tuple(pad_spec))
-        else:
-            padded_tensor = tensor
-        padded_tensors.append(padded_tensor)
-
+    padded_tensors = [_pad_sequence(tensor, max_seq_len, seq_dim) for tensor in tensors]
     return torch.cat(padded_tensors, dim=batch_dim)
+
+
+def _pad_sequence(tensor: Tensor, length: int, seq_dim: int) -> Tensor:
+    """Right-pad a tensor's sequence dimension with zeros to the requested length.
+
+    Args:
+        tensor: Tensor to pad; other dimensions, dtype, and device are preserved.
+        length: Target sequence length, at least the current sequence length.
+        seq_dim: Non-negative dimension containing the sequence.
+
+    Returns:
+        Padded tensor, or the original tensor when no padding is needed.
+
+    Raises:
+        ValueError: If length is smaller than the current sequence length.
+    """
+    pad_amount = length - tensor.size(seq_dim)
+    if pad_amount < 0:
+        raise ValueError("Target length must be at least the current sequence length")
+    if pad_amount == 0:
+        return tensor
+
+    # F.pad expects pairs of (left, right) padding starting with the last dimension.
+    pad_spec = [0] * (2 * tensor.ndim)
+    pad_spec[2 * (tensor.ndim - 1 - seq_dim) + 1] = pad_amount
+    return torch.nn.functional.pad(tensor, tuple(pad_spec))
