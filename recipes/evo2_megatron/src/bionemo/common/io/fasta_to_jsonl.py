@@ -30,6 +30,7 @@ This module is used by multiple recipes via ``bionemo.common``.
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -44,7 +45,13 @@ def fasta_to_jsonl(input_path: Path, output_path: Path, *, uppercase: bool = Fal
 
     Returns:
         Number of records written.
+
+    Raises:
+        ValueError: If input and output refer to the same file, including links.
     """
+    if os.path.exists(output_path) and os.path.samefile(input_path, output_path):
+        raise ValueError("Input and output must be different files")
+
     count = 0
     current_id: str | None = None
     sequence_parts: list[str] = []
