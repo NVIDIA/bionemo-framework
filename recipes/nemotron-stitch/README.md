@@ -301,7 +301,7 @@ test matrix, and the rule for documenting framework workarounds. Current
 upstream limitations are tracked in [`docs/upstream-gaps.md`](docs/upstream-gaps.md).
 
 This recipe imports upstream Stitch commit
-`ef60c9ec64f24aa11613c5e1dcba417084547e78`,
+`7076e3c277df8b16992cce84a6436be19f180beb`,
 with BioNeMo-specific CI, packaging, documentation, and topology/refit
 admission fixes.
 

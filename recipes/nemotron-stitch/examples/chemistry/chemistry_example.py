@@ -125,6 +125,10 @@ class KERMTProcessor(ProcessorMixin):
         self.molecule_processor = molecule_processor
         self.tokenizer = getattr(base_processor, "tokenizer", base_processor)
 
+    def save_pretrained(self, *args: Any, **kwargs: Any) -> Any:
+        """Save native processor files; loaders reconstruct this wrapper from YAML."""
+        return self.base_processor.save_pretrained(*args, **kwargs)
+
     def __call__(self, text: Any = None, *, molecules: Any = None, **kwargs: Any) -> Any:
         inputs = self.base_processor(text=text, **kwargs)
         if molecules is not None:

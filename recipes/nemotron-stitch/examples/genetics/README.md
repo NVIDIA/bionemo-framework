@@ -41,24 +41,48 @@ can supply feature fields through `processor(text=..., sequences=..., **kwargs)`
 the demo's cached training path already carries those features in the dataset.
 
 Follow the [setup, local endpoint, training, and test commands](../README.md).
-Set `EVO2_URL` and optionally `EVO2_TOKEN`, then run `python prepare.py` from
-this folder. The client requests `decoder.layers.12` with mean pooling in
-64-base windows by default. `STITCH_POOLING_WINDOW` configures the window in
-both preparation and all alignment/SFT/GRPO configs; preparation also accepts
-`--pooling-window`. Features must be finite
-`[ceil(bases / pooling_window), encoder_width]`. Changing the pooling window
-requires a matching encoder request and a new cache, not editing dataset rows.
-The collator and GRPO transport still reject spans that disagree with actual
-cached feature rows. The default
-width is 1,920 for Evo2-1B. To use the production Evo2-20B endpoint, set
-`export STITCH_ENCODER_WIDTH=8192` before both preparation and training.
-Preparation also accepts `--encoder-width`; the YAML projector dimensions read
-the same environment variable. Use a new cache/output directory when switching
-encoders, and align the model/layer/pooling provenance with your endpoint. The final partial window contains only valid
-bases.
+
+Production-default mean-loss alignment requires the U-45 AutoModel fix
+(`6a44c5f49323db7b5d555e982423474e652a09c4`); the shared Dockerfile's stock
+base rejects that loss configuration. The Lepton-qualified runtime includes
+that fix and policy PEFT 0.21.0. To rebuild the current examples on that runtime,
+add this argument to the shared Docker build command:
+
+```bash
+--build-arg BASE_IMAGE=nvcr.io/1015084509601350/stitch-examples-e2e@sha256:dc80ef2800cc0f9b6e36b863421fc9994ad82888ecee94e82fd344be0ea76fd7
+```
+
+The 32-GPU Lightning GRPO layout uses EP8 and an inferred four-way DP shard
+axis (`dp_replicate_size: 1`). NeMo RL `b03da0f4` rejects EP combined with dense
+DP replication (U-66); the older reference's `dp_replicate_size: 4` is unsupported.
+For a short smoke starting from a barely trained SFT donor, override
+`grpo.use_dynamic_sampling=false`: uniform rewards can otherwise keep sampling
+without reaching an optimizer step. The production default remains enabled;
+the all-uniform generation-cap failure is recorded in the demos campaign.
+
+Set `EVO2_URL` and optionally `EVO2_TOKEN`, then run:
+
+```bash
+python prepare.py --config configs/alignment.yaml
+```
+
+Preparation reads encoder width from `model.mm_projectors[0].mm_hidden_size`
+and pooling width from `dataset.chat_template_kwargs.pooling_window`. The
+shipped YAMLs use production Evo2-20B defaults: **8192** features and **64** bases
+per mean-pooling window. The client requests `decoder.layers.12`; features must
+be finite `[ceil(bases / pooling_window), encoder_width]`. The processor derives
+span lengths from this pooling configuration; counts are not dataset fields.
+
+For an Evo2-1B endpoint, set `mm_hidden_size: 1920` in the selected stage YAMLs.
+Keep alignment, SFT, and GRPO settings consistent. GRPO's corresponding fields
+are `policy.hf_config_overrides.mm_projectors[0].mm_hidden_size` and
+`policy.tokenizer.chat_template_kwargs.pooling_window`. No encoder environment
+variables are required. Use a new cache/output directory when changing encoder
+or pooling settings, and retain matching endpoint/cache provenance. Collation
+and GRPO transport reject spans that disagree with actual cached features.
 
 [genetics_example.py](genetics_example.py) registers a Lightning host with a
-`mlp2x_gelu_norm` projector (`1920 → 4096 → 2688`). DNA features replace token
+`mlp2x_gelu_norm` projector (`8192 → 4096 → 2688`). DNA features replace token
 ID 32 between start/end IDs 30/31. As in chemistry, alignment freezes the
 language model; SFT trains its native vocabulary embeddings along with the
 rest of the decoder, so boundary tokens learn directly. GRPO uses those saved
@@ -128,7 +152,7 @@ using the shared mount/GPU instructions, download the Super checkpoint and run:
 hf download nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16 \
   --revision a1ccf94d69377bf82c4db39798aac28447d9c16f \
   --local-dir artifacts/models/super-vl-bf16
-# Reuse the prepared DNA cache, with STITCH_ENCODER_WIDTH matching its encoder.
+# Reuse the prepared DNA cache, with YAML encoder settings matching that cache.
 torchrun --nproc-per-node 8 -m nemo_automodel.cli.app configs/alignment-super.yaml
 torchrun --nproc-per-node 8 -m nemo_automodel.cli.app configs/sft-super.yaml
 python -m nemotron_stitch.nemo_rl.runner --config configs/grpo-super.yaml

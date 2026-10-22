@@ -54,7 +54,9 @@ policy:
     tensor_parallel_size: 1
     context_parallel_size: 1
     expert_parallel_size: 8
-    dp_replicate_size: 4
+    # NeMo RL b03da0f4: U-66 rejects dense replication with EP; use the
+    # inferred DP shard axis until upstream supports this combined mesh.
+    dp_replicate_size: 1
     lora_cfg:
       target_modules:
       - '*.mixer.q_proj'
@@ -150,7 +152,7 @@ policy:
     name: artifacts/models/lightning-30b-bf16
     chat_template_kwargs:
       enable_thinking: true
-      pooling_window: ${oc.env:STITCH_POOLING_WINDOW,64}
+      pooling_window: 64
     tokenizer_kwargs:
       fix_mistral_regex: false
   hf_config_overrides:
@@ -161,7 +163,7 @@ policy:
     mm_projectors:
     - name: dna
       kind: mlp2x_gelu_norm
-      mm_hidden_size: ${oc.env:STITCH_ENCODER_WIDTH,1920}
+      mm_hidden_size: 8192
       hidden_size: 4096
     mm_placeholder_token_ids:
       dna: 32

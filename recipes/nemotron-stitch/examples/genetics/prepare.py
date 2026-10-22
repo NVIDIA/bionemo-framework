@@ -39,7 +39,7 @@ def prepare(
     source: str | Path = "data/sanity.jsonl",
     output: str | Path = "artifacts/data",
     *,
-    encoder_width: int = 1920,
+    encoder_width: int,
     pooling_window: int = POOLING_WINDOW,
 ) -> dict[str, Any]:
     """Publish cached features and alignment/SFT/GRPO views of the tiny dataset."""
@@ -105,18 +105,21 @@ def prepare(
 
 def main() -> None:
     from bionemo_perception import Evo2Client
+    from omegaconf import OmegaConf
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", default="data/sanity.jsonl")
     parser.add_argument("--output", default="artifacts/data")
-    parser.add_argument("--encoder-width", type=int, default=int(os.environ.get("STITCH_ENCODER_WIDTH", "1920")))
-    parser.add_argument(
-        "--pooling-window", type=int, default=int(os.environ.get("STITCH_POOLING_WINDOW", POOLING_WINDOW))
-    )
+    parser.add_argument("--config", default="configs/alignment.yaml")
     args = parser.parse_args()
+    config = OmegaConf.load(args.config)
     client = Evo2Client(os.environ["EVO2_URL"], token=os.environ.get("EVO2_TOKEN") or None, timeout=900)
     result = prepare(
-        client, args.input, args.output, encoder_width=args.encoder_width, pooling_window=args.pooling_window
+        client,
+        args.input,
+        args.output,
+        encoder_width=int(config.model.mm_projectors[0].mm_hidden_size),
+        pooling_window=int(config.dataset.chat_template_kwargs.pooling_window),
     )
     print(json.dumps(result, indent=2))
 

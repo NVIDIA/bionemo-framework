@@ -16,7 +16,8 @@ NVIDIA
 Locate a compatible BioNeMo Recipes checkout, identify the application-owned
 encoder, data, and prompt boundaries, and build a small example with explicit
 training and artifact handoffs. Use the genetics and chemistry examples for
-typed domain chats, perception endpoints, and packed full decoder training. Keep the upstream-gap reference limited to open
+typed domain chats, YAML-owned encoder settings, native-processor checkpoint
+saves, and packed full decoder training. Keep the upstream-gap reference limited to open
 framework issues explicitly cited in the recipe source.
 
 ## Requirements / Dependencies

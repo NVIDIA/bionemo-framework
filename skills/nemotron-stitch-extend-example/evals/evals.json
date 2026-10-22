@@ -54,7 +54,10 @@
         "Explain that production optimization and multinode GRPO defaults need explicit sanity overrides and eight synthetic rows do not measure quality.",
         "Keep Super runtime requirements and external-DP async backports separate from the default pinned image.",
         "Use the documented repeated prepared-manifest view so all eight rank samplers have data; do not propose loader drop_last false as a sampler fix.",
-        "Prefix every AutoModel dotted CLI override with --, and preserve planned next-token IDs and labels in custom packed sample collators."
+        "Prefix every AutoModel dotted CLI override with --, and preserve planned next-token IDs and labels in custom packed sample collators.",
+        "Read gene encoder width and pooling from the selected training YAML via prepare.py --config; do not recommend removed encoder environment variables.",
+        "Save native processors through wrapper delegation and reconstruct wrappers from YAML; select the documented candidate runtime for gene mean-loss alignment.",
+        "Use dp_replicate_size 1 with EP8 and disable dynamic sampling explicitly for uniform-reward bounded smokes."
       ],
       "expected_skill": "nemotron-stitch-extend-example",
       "expected_script": null

@@ -22,6 +22,7 @@ import json
 import os
 import struct
 import threading
+from functools import partial
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -43,6 +44,8 @@ def _preparation(domain):
     with pytest.MonkeyPatch.context() as patch:
         patch.syspath_prepend(str(ROOT / "examples" / domain))
         spec.loader.exec_module(module)
+    if domain == "genetics":
+        module.prepare = partial(module.prepare, encoder_width=1920)  # Geometry of the mock endpoint.
     return module
 
 
@@ -670,3 +673,51 @@ def test_gene_span_length_comes_from_configured_pooling_not_dataset(endpoint, tm
     assert default_prompt.count("<SPECIAL_32>") == 2
     with pytest.raises(ValueError, match="placeholder slots"):
         FeatureCollator(processor, projector_name="dna", placeholder_token_id=32)([data[0]])
+
+
+def test_gene_preparation_reads_encoder_settings_from_training_yaml(endpoint, tmp_path, monkeypatch, capsys):
+    import yaml
+
+    url, requests, _ = endpoint
+    config = tmp_path / "alignment.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "model": {"mm_projectors": [{"mm_hidden_size": 1920}]},
+                "dataset": {"chat_template_kwargs": {"pooling_window": 16}},
+            }
+        )
+    )
+    source = tmp_path / "input.jsonl"
+    source.write_text(
+        json.dumps(
+            {
+                "sample_id": "configured",
+                "answer": "A",
+                "messages": [{"role": "user", "content": [{"type": "dna", "sequence": "A" * 65}]}],
+            }
+        )
+        + "\n"
+    )
+    output = tmp_path / "prepared"
+    monkeypatch.setenv("EVO2_URL", url)
+    monkeypatch.setenv("STITCH_ENCODER_WIDTH", "999")
+    monkeypatch.setenv("STITCH_POOLING_WINDOW", "999")
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "prepare.py",
+            "--config",
+            str(config),
+            "--input",
+            str(source),
+            "--output",
+            str(output),
+        ],
+    )
+    _preparation("genetics").main()
+    assert json.loads(capsys.readouterr().out)["records"] == 3
+    assert requests[0][2]["outputs"][0]["pooling"]["window"] == 16
+    row = json.loads((output / "manifest.jsonl").read_text().splitlines()[0])
+    cache = open_feature_cache(output / "feature-cache")
+    assert cache.get(row["feature_key"]).shape == (5, 1920)

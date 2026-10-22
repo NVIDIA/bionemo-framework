@@ -174,6 +174,9 @@ def test_grpo_upstream_config_composes_with_sft_contract(domain, monkeypatch):
     cfg = OmegaConf.to_container(load_config(root / "grpo.yaml"), resolve=True)
     sft = OmegaConf.to_container(OmegaConf.load(root / "sft.yaml"), resolve=True)
     policy = cfg["policy"]
+    from nemotron_stitch.nemo_rl.policy import require_replicated_projector_policy_config
+
+    require_replicated_projector_policy_config(policy)
     for key in ("architectures", "mm_projectors", "mm_placeholder_token_ids"):
         assert policy["hf_config_overrides"][key] == sft["model"][key]
     assert policy["model_name"] == "/tmp/example-sft"

@@ -171,6 +171,14 @@ def test_demo_processor_loads_through_native_from_pretrained(domain, tmp_path, m
     messages = [dict(role="user", content=[dict(type="text", text="Before "), block, dict(type="text", text=" after")])]
     assert processor.apply_chat_template(messages, tokenize=False) == "user:Before " + expected + " after"
 
+    # AutoModel checkpoints save the native processor; YAML restores our wrapper.
+    checkpoint = tmp_path / "checkpoint"
+    processor.save_pretrained(checkpoint)
+    restored = app.load_processor(str(checkpoint))
+    assert type(restored.base_processor) is type(processor.base_processor)
+    assert restored.tokenizer.get_vocab() == processor.tokenizer.get_vocab()
+    assert restored.apply_chat_template(messages, tokenize=False) == "user:Before " + expected + " after"
+
 
 def test_collator_uses_native_text_tokenizer_after_chat_rendering(monkeypatch):
     from pathlib import Path

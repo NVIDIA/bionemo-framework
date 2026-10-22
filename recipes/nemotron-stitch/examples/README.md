@@ -74,9 +74,11 @@ Build and launch instructions are in the upstream
 [Evo2 service](https://github.com/NVIDIA-dev/bionemo-perception-containers/tree/main/models/evo2)
 and [KERMT service](https://github.com/NVIDIA-dev/bionemo-perception-containers/tree/main/models/kermt)
 documentation. Both can run on the same machine as the training container.
-The genetics client requires the **1B profile**, exposing `decoder.layers.12`
-with 1,920-wide features and window-64 mean pooling, on one GPU. Other feature
-widths are rejected. KERMT must expose unpooled molecule, atom, and both bond branches.
+The local genetics service below uses the **1B profile**, exposing `decoder.layers.12`
+with 1,920-wide features and window-64 mean pooling, on one GPU. Set the gene
+YAML projector widths to 1920 for that service; the shipped defaults use the
+production Evo2-20B width of 8192. KERMT must expose unpooled molecule, atom,
+and both bond branches.
 Example local launch commands, after provisioning those images and weights:
 
 ```bash
@@ -152,11 +154,12 @@ three-projector `ChemistryCollator` through the upstream collator loader.
 The gene SFT source runs used padded samples; these examples deliberately use
 THD packs in both supervised stages. The per-update token exposure changes;
 this is a recipe with production optimization settings, not bit-exact replay.
-Use `STITCH_ENCODER_WIDTH=8192` for production Evo2-20B features (the bundled
-Evo2-1B endpoint/cache uses the configurable 1920-wide default).
-`STITCH_POOLING_WINDOW` selects Evo2 mean-pooling width in preparation and
-all gene training configs (default 64 bases); token counts are not dataset
-fields. Use a matching cache when changing that encoder setting. The Dockerfile
+Gene YAMLs directly configure the production Evo2-20B feature width (8192)
+and pooling window (64). Preparation reads those same values with
+`python prepare.py --config configs/alignment.yaml`; no encoder environment
+variables are needed. For a local Evo2-1B endpoint set the stage YAML projector
+input widths to 1920. Use a matching/new cache when changing encoder settings;
+span lengths are derived by the processor and are not dataset fields. The Dockerfile
 pins the production fused cross-entropy implementation. Each config cites its
 source recipe; loss reduction, precision, scheduler, and distributed settings
 come from that source. Launch topology lives in the application, including the

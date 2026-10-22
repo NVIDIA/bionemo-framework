@@ -10,7 +10,7 @@ comments stay stable and must not be reused.
 
 These findings apply to the pinned example stack: NeMo RL `b03da0f4`,
 AutoModel `1814c6c9`, PyTorch `2.11.0+cu130`, and vLLM `0.25.1`.
-The imported snapshot is Stitch `ef60c9ec` (2026-10-21). New entries retain
+The imported snapshot is Stitch `7076e3c` (2026-10-22). New entries retain
 upstream snapshot findings; existing linked NeMo RL PR statuses were last
 checked on 2026-10-02. A fix must also reach the runtime pin before a
 workaround can be deleted.

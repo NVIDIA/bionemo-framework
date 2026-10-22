@@ -38,7 +38,7 @@ model:
   mm_projectors:
   - name: dna
     kind: mlp2x_gelu_norm
-    mm_hidden_size: ${oc.env:STITCH_ENCODER_WIDTH,1920}
+    mm_hidden_size: 8192
     hidden_size: 4096
   mm_placeholder_token_ids:
     dna: 32
@@ -73,7 +73,7 @@ dataset:
     path: artifacts/models/super-vl-bf16
   max_tokens: ${oc.env:STITCH_PACK_TOKENS,4096}
   chat_template_kwargs:
-    pooling_window: ${oc.env:STITCH_POOLING_WINDOW,64}
+    pooling_window: 64
   projector_name: dna
   placeholder_token_id: 32
   max_length: 4096

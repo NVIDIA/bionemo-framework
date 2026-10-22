@@ -61,7 +61,13 @@ its model, data, framework revisions, and hardware assumptions.
 
 Keep typed input blocks in chat order, including multiple inputs, histories,
 and text-only records. DNA spans derive from sequence length and the configured
-pooling window; use a matching cache and encoder width. Chemistry preserves
+pooling window; use a matching cache and encoder width. Gene preparation uses
+`python prepare.py --config configs/alignment.yaml`: YAML supplies
+`model.mm_projectors[0].mm_hidden_size` (8192) and
+`dataset.chat_template_kwargs.pooling_window` (64). Set stage YAML widths to
+1920 for Evo2-1B and keep supervised/GRPO settings aligned; the removed
+`STITCH_ENCODER_WIDTH` and `STITCH_POOLING_WINDOW` variables no longer configure
+them. New caches are required when geometry changes. Chemistry preserves
 canonical atom/bond indices and separate molecule, atom, and bond projectors.
 Per-record `chat_template_kwargs` override collator defaults for native
 reasoning/direct-answer mixtures. `PackedManifestFeatureDataset` accepts a
@@ -84,6 +90,15 @@ shared example README for eight-rank sanity runs. More epochs or a loader
 Prefix every AutoModel dotted CLI override with `--`; bare assignments are
 silently ignored by the pinned parser. Do not present them as quality
 measurements or launch production configs on an undersized local allocation.
+Domain processor wrappers delegate `save_pretrained` to their native base
+processor; reconstruct the wrapper from YAML when loading checkpoints. The
+gene mean-loss alignment defaults require the AutoModel fix identified by its
+README and qualified candidate image; the stock CI image does not admit that
+configuration. Gene GRPO uses EP8 with `dp_replicate_size: 1` and an inferred
+four-way DP shard axis on 32 GPUs. For a bounded smoke from a barely trained
+donor, disable `grpo.use_dynamic_sampling` to avoid uniform-reward resampling
+that never reaches an update; production sampling remains unchanged.
+
 Super has a separate runtime with AutoModel 0.8.0, Transformers 5.18, and the
 NeMo RL U-80 compatibility patch; the default CI image does not qualify Super.
 
