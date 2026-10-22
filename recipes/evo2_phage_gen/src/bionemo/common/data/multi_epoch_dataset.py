@@ -148,7 +148,8 @@ class MultiEpochDatasetResampler(Dataset[T_co]):
         """Convert a global index to an epoch index."""
         epoch = index // len(self.dataset)
         idx = index % len(self.dataset)
-        if self.shuffle:
+        # A singleton has only the identity permutation; permute requires length > 1.
+        if self.shuffle and len(self.dataset) > 1:
             idx = permute(idx, len(self.dataset), self.epoch_seeds[epoch])
         return EpochIndex(epoch, idx)
 
