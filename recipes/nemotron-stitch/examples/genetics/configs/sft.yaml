@@ -45,6 +45,7 @@ checkpoint:
   enabled: true
   model_save_format: safetensors
   save_consolidated: final
+  max_recent_checkpoints: 1
   checkpoint_dir: outputs/sft/checkpoints
 distributed:
   strategy: fsdp2

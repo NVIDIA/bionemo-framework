@@ -91,7 +91,11 @@ Prefix every AutoModel dotted CLI override with `--`; bare assignments are
 silently ignored by the pinned parser. Do not present them as quality
 measurements or launch production configs on an undersized local allocation.
 Domain processor wrappers delegate `save_pretrained` to their native base
-processor; reconstruct the wrapper from YAML when loading checkpoints. The
+processor; reconstruct the wrapper from YAML when loading checkpoints. Verify
+that wrappers survive pickle and deepcopy for worker transport. Keep GRPO
+variant checkpoint directories separate from each other, alongside their log
+directories. Gene SFT retains one recent checkpoint plus checkpoints referenced
+by native pointers such as `LATEST` and `LOWEST_VAL`. The
 gene mean-loss alignment defaults require the AutoModel fix identified by its
 README and qualified candidate image; the stock CI image does not admit that
 configuration. Gene GRPO uses EP8 with `dp_replicate_size: 1` and an inferred
@@ -116,7 +120,9 @@ consolidated decoder weights with frozen projectors. Async generation selects
 `EncoderVllmAsyncGenerationWorker` and its matching frozen interpreter through
 `ENCODER_GENERATION_WORKER_FQN`. External-DP async generation requires a
 separate framework backport; native reload correctness and resume remain
-qualification targets. Do not infer those results from finite smoke updates.
+qualification targets. The LLaVA full-parameter Lightning control is unsupported
+while U-75 remains unresolved; retain it for failure reproduction and do not
+use it for training. Do not infer qualification from finite smoke updates.
 
 ## Keep framework fixes in the integration layer
 

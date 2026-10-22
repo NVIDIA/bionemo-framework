@@ -96,6 +96,9 @@ against the original run, or regenerate alignment/SFT outputs with this demo.
 
 The configs are [alignment](configs/alignment.yaml), [SFT](configs/sft.yaml),
 and [GRPO](configs/grpo.yaml), with production training budgets; use native overrides for a bounded sanity run.
+SFT retains one recent checkpoint, plus checkpoints referenced by native pointers
+such as `LATEST` and `LOWEST_VAL`. GRPO variants use separate checkpoint and log
+directories under `outputs/<variant>/`.
 Stitch owns the manifest dataset, tokenization, slot validation, projection,
 scatter, optimizer selection, and artifact handoffs. Both supervised stages use THD packing. The same eight records serve every
 stage; two include short `reasoning_content` fields and enable thinking.

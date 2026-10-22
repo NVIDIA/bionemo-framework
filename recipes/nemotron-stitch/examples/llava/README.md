@@ -536,10 +536,12 @@ model snapshot, prepared data, and SFT artifacts at identical paths.
 - [`grpo-lightning-async-dp.yaml`](configs/grpo-lightning-async-dp.yaml) selects
   TP1/DP8/EP8 async generation. It requires the external-DP async backport;
   the default pinned CI image rejects this configuration.
-- [`grpo-lightning-fullparam.yaml`](configs/grpo-lightning-fullparam.yaml)
+- **Unsupported while U-75 remains unresolved:**
+  [`grpo-lightning-fullparam.yaml`](configs/grpo-lightning-fullparam.yaml)
   disables LoRA and adapter restoration, starts from base Lightning weights,
   and keeps the SFT projector frozen. It requires two eight-GPU policy nodes
-  and one eight-GPU generation node.
+  and one eight-GPU generation node. Retain it only to reproduce the reload
+  failure; do not use it for training.
 
 ```bash
 export NCCL_NVLS_ENABLE=0 NCCL_IB_DISABLE=0 OMP_NUM_THREADS=4

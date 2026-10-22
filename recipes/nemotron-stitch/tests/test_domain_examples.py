@@ -260,6 +260,35 @@ def test_full_parameter_grpo_keeps_projectors_frozen(domain, monkeypatch):
     assert config.policy.hf_config_overrides.mm_projector_ownership == "sidecar"
 
 
+@pytest.mark.parametrize("domain", ["genetics", "chemistry"])
+def test_grpo_variants_isolate_checkpoint_paths(domain, monkeypatch):
+    pytest.importorskip("nemo_rl")
+    from nemo_rl.utils.config import load_config
+
+    monkeypatch.setenv("NEMO_RL_ROOT", "/opt/nemo-rl")
+    root = Path(__file__).resolve().parents[1] / "examples" / domain / "configs"
+    variants = ["grpo", "grpo-full"]
+    if domain == "genetics":
+        variants += ["grpo-super", "grpo-super-full"]
+    paths = []
+    for variant in variants:
+        config = load_config(root / f"{variant}.yaml")
+        assert config.checkpointing.checkpoint_dir == f"outputs/{variant}/checkpoints"
+        assert config.logger.log_dir == f"outputs/{variant}/logs"
+        paths.append(config.checkpointing.checkpoint_dir)
+    assert len(set(paths)) == len(variants)
+
+
+def test_genetics_sft_bounds_checkpoint_retention():
+    pytest.importorskip("nemo_automodel")
+    import yaml
+    from nemo_automodel.components.checkpoint.config import CheckpointingConfig
+
+    config = Path(__file__).resolve().parents[1] / "examples/genetics/configs/sft.yaml"
+    checkpoint = CheckpointingConfig(**yaml.safe_load(config.read_text())["checkpoint"])
+    assert checkpoint.max_recent_checkpoints == 1
+
+
 def test_super_configs_select_native_hosts_and_frozen_grpo(monkeypatch):
     pytest.importorskip("nemo_rl")
     import yaml

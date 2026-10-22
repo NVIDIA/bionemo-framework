@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import pickle
 from copy import deepcopy
 
 import pytest
@@ -170,6 +171,17 @@ def test_demo_processor_loads_through_native_from_pretrained(domain, tmp_path, m
     )
     messages = [dict(role="user", content=[dict(type="text", text="Before "), block, dict(type="text", text=" after")])]
     assert processor.apply_chat_template(messages, tokenize=False) == "user:Before " + expected + " after"
+
+    # Worker transport reconstructs wrappers before their backing fields exist.
+    empty = type(processor).__new__(type(processor))
+    for name in ("__setstate__", "base_processor", "tokenizer", "missing"):
+        with pytest.raises(AttributeError):
+            getattr(empty, name)
+    for transported in (deepcopy(processor), pickle.loads(pickle.dumps(processor))):
+        assert transported.tokenizer.get_vocab() == processor.tokenizer.get_vocab()
+        assert transported.apply_chat_template(messages, tokenize=False) == "user:Before " + expected + " after"
+        with pytest.raises(AttributeError):
+            _ = transported.missing
 
     # AutoModel checkpoints save the native processor; YAML restores our wrapper.
     checkpoint = tmp_path / "checkpoint"

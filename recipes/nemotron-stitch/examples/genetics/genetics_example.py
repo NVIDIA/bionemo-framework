@@ -174,7 +174,10 @@ class Evo2Processor(ProcessorMixin):
         return self.base_processor.model_input_names
 
     def __getattr__(self, name: str) -> Any:
-        return getattr(self.base_processor if hasattr(self.base_processor, name) else self.tokenizer, name)
+        if name.startswith("__"):
+            raise AttributeError(name)
+        base = object.__getattribute__(self, "base_processor")
+        return getattr(base if hasattr(base, name) else object.__getattribute__(self, "tokenizer"), name)
 
 
 @cache

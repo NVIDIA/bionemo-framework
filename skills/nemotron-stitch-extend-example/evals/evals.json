@@ -57,7 +57,9 @@
         "Prefix every AutoModel dotted CLI override with --, and preserve planned next-token IDs and labels in custom packed sample collators.",
         "Read gene encoder width and pooling from the selected training YAML via prepare.py --config; do not recommend removed encoder environment variables.",
         "Save native processors through wrapper delegation and reconstruct wrappers from YAML; select the documented candidate runtime for gene mean-loss alignment.",
-        "Use dp_replicate_size 1 with EP8 and disable dynamic sampling explicitly for uniform-reward bounded smokes."
+        "Use dp_replicate_size 1 with EP8 and disable dynamic sampling explicitly for uniform-reward bounded smokes.",
+        "Verify wrapper pickle/deepcopy transport, isolate GRPO variant checkpoints alongside logs, and retain one recent gene SFT checkpoint by default.",
+        "Mark the LLaVA full-parameter Lightning control unsupported while U-75 remains unresolved; keep it for failure reproduction and do not recommend it for training."
       ],
       "expected_skill": "nemotron-stitch-extend-example",
       "expected_script": null

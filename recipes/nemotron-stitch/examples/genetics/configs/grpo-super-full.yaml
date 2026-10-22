@@ -7,3 +7,5 @@ policy:
       enabled: false
 logger:
   log_dir: outputs/grpo-super-full/logs
+checkpointing:
+  checkpoint_dir: outputs/grpo-super-full/checkpoints

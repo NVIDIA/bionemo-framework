@@ -28,3 +28,5 @@ policy:
   projector_artifact_path: outputs/super-sft/projector
 logger:
   log_dir: outputs/grpo-super/logs
+checkpointing:
+  checkpoint_dir: outputs/grpo-super/checkpoints

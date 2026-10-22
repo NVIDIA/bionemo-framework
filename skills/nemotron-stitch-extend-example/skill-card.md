@@ -17,7 +17,8 @@ Locate a compatible BioNeMo Recipes checkout, identify the application-owned
 encoder, data, and prompt boundaries, and build a small example with explicit
 training and artifact handoffs. Use the genetics and chemistry examples for
 typed domain chats, YAML-owned encoder settings, native-processor checkpoint
-saves, and packed full decoder training. Keep the upstream-gap reference limited to open
+saves, worker serialization, isolated GRPO checkpoint paths, bounded SFT
+checkpoint retention, and packed full decoder training. Keep the upstream-gap reference limited to open
 framework issues explicitly cited in the recipe source.
 
 ## Requirements / Dependencies
@@ -37,6 +38,8 @@ credentials depend on the requested example.
   masking, trainability, and artifact handoffs using the recipe tests.
 - Tiny packed datasets can leave distributed samplers empty: use the documented
   repeated manifest view and explicit `--` CLI bounds for sanity runs.
+- LLaVA full-parameter Lightning reload remains unsupported under U-75: keep
+  its configuration for failure reproduction and do not use it for training.
 - Smoke checks do not measure model quality: report quality results with the
   dataset split, hardware, training budget, checkpoint, and metric definition.
 

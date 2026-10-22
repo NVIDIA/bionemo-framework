@@ -145,9 +145,7 @@ def test_full_parameter_policy_admission_preserves_projector_checks(
         "model_registry_callback": "consumer.register",
         "projector_artifact_path": "/unused/projector",
         "hf_config_overrides": {"mm_projector_trainable": False, "mm_projector_ownership": "sidecar"},
-        "dtensor_cfg": {
-            "lora_cfg": {"enabled": lora_enabled, "restore_from": None if lora_enabled else "/unused/adapter"}
-        },
+        "dtensor_cfg": {"lora_cfg": {"enabled": lora_enabled, "restore_from": None}},
     }
     cls = policy.EncoderDTensorPolicyWorkerV2.__ray_metadata__.modified_class
     if error:
