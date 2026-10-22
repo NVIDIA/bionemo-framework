@@ -49,6 +49,9 @@ All CLI tools are defined in `pyproject.toml` under `[project.scripts]`.
 
 Run any tool with `--help` for full usage details.
 
+See the [utility guide](src/bionemo/evo2/utils/README.md) for prompt preparation,
+checkpoint tools, legacy scripts, and the organization of reusable helpers.
+
 ## Quick start
 
 ### Training with mock data (Hyena)
