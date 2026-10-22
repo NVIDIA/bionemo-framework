@@ -128,7 +128,7 @@ policy:
       # the 19.7 GiB produced by percentage-based free-memory sizing.
       kv_cache_memory_bytes: 4294967296
       enable_mm_embeds: true
-      # U-70: vLLM 0.25.1's async_scheduling default stalls colocated
+      # vLLM 0.25.1's async_scheduling default stalls colocated
       # external-DP engines in the drain tail; pin the synchronous path.
       async_scheduling: false
     colocated:

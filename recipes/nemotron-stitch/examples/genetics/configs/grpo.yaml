@@ -1,0 +1,221 @@
+# Training settings: nemotron-gene/configs/reference/grpo.yaml.
+# Frozen SFT projectors; native boxed-answer reward also scores MC option letters.
+defaults:
+- ${oc.env:NEMO_RL_ROOT,/opt/nemo-rl}/examples/configs/grpo_math_1B.yaml
+grpo:
+  num_prompts_per_step: 256
+  num_generations_per_prompt: 8
+  max_num_epochs: 4
+  max_num_steps: 111
+  val_period: 0
+  val_at_start: false
+  val_at_end: false
+  seed: 42
+  use_dynamic_sampling: true
+  use_leave_one_out_baseline: true
+  adv_estimator:
+    name: grpo
+    normalize_rewards: true
+    use_leave_one_out_baseline: true
+  dynamic_sampling_max_gen_batches: 10
+  normalize_rewards: true
+  max_rollout_turns: 1
+loss_fn:
+  reference_policy_kl_penalty: 0.0001
+  force_on_policy_ratio: false
+  reference_policy_kl_type: k3
+  ratio_clip_min: 0.2
+  ratio_clip_max: 0.2
+checkpointing:
+  enabled: true
+  checkpoint_dir: outputs/grpo/checkpoints
+  keep_top_k: 12
+  save_period: 10
+  model_save_format: safetensors
+  save_consolidated: false
+  save_optimizer: true
+policy:
+  model_registry_callback: genetics_example.register_models
+  worker_extension_cls_fqn: nemotron_stitch.nemo_rl.policy.EncoderDTensorPolicyWorkerV2
+  keep_policy_on_gpu: true
+  train_global_batch_size: 2048
+  train_micro_batch_size: 1
+  generation_batch_size: 16
+  logprob_batch_size: 1
+  max_total_sequence_length: 4096
+  precision: bfloat16
+  max_grad_norm: 1.0
+  dtensor_cfg:
+    _v2: true
+    enabled: true
+    cpu_offload: false
+    sequence_parallel: false
+    activation_checkpointing: false
+    tensor_parallel_size: 1
+    context_parallel_size: 1
+    expert_parallel_size: 8
+    # NeMo RL b03da0f4 rejects dense replication with EP; use the
+    # inferred DP shard axis until upstream supports this combined mesh.
+    dp_replicate_size: 1
+    lora_cfg:
+      target_modules:
+      - '*.mixer.q_proj'
+      - '*.mixer.k_proj'
+      - '*.mixer.v_proj'
+      - '*.mixer.o_proj'
+      - '*.mixer.shared_experts.up_proj'
+      - '*.mixer.shared_experts.down_proj'
+      enabled: true
+      exclude_modules: []
+      match_all_linear: false
+      dim: 128
+      alpha: 256
+      dropout: 0.0
+      dropout_position: post
+      lora_A_init: xavier
+      use_triton: true
+      restore_from: null
+    automodel_kwargs:
+      num_nextn_predict_layers: 0
+  dynamic_batching:
+    enabled: true
+    train_mb_tokens: 4096
+    logprob_mb_tokens: 4096
+    sequence_length_round: 64
+  sequence_packing:
+    enabled: false
+  make_sequence_length_divisible_by: 1
+  optimizer:
+    name: torch.optim.AdamW
+    kwargs:
+      lr: 1.0e-06
+      weight_decay: 0.0
+      betas:
+      - 0.9
+      - 0.95
+      eps: 1.0e-08
+      foreach: false
+      fused: false
+  scheduler:
+  - name: torch.optim.lr_scheduler.LinearLR
+    kwargs:
+      start_factor: 0.01
+      end_factor: 1.0
+      total_iters: 3
+  - name: torch.optim.lr_scheduler.ConstantLR
+    kwargs:
+      factor: 1.0
+      total_iters: 10000000000
+  - milestones:
+    - 3
+  generation:
+    backend: vllm
+    worker_extension_cls_fqn: nemotron_stitch.nemo_rl.vllm_worker.EncoderVllmGenerationWorker
+    keep_vllm_on_gpu: false
+    mm_plugin_callback: genetics_example.register_vllm
+    mm_architecture: GeneticsExampleNemotronProjected
+    max_new_tokens: 512
+    ignore_eos: false
+    temperature: 1.0
+    top_p: 1.0
+    top_k: null
+    val_temperature: ${.temperature}
+    val_top_p: ${.top_p}
+    val_top_k: ${.top_k}
+    stop_token_ids: []
+    stop_strings: null
+    vllm_cfg:
+      async_engine: false
+      precision: ${policy.precision}
+      tensor_parallel_size: 1
+      pipeline_parallel_size: 1
+      expert_parallel_size: 8
+      skip_tokenizer_init: false
+      enforce_eager: false
+      gpu_memory_utilization: 0.47
+      max_model_len: ${policy.max_total_sequence_length}
+      enable_prefix_caching: false
+      use_tqdm: false
+      use_deep_gemm: false
+    vllm_kwargs:
+      async_scheduling: false
+      limit_mm_per_prompt:
+        dna: 8
+      max_num_seqs: 32
+      moe_backend: triton
+      mamba_ssm_cache_dtype: float32
+      enable_mm_embeds: true
+    colocated:
+      enabled: true
+  model_name: ${oc.env:STITCH_SFT_MODEL,outputs/sft/checkpoints/LATEST/model/consolidated}
+  tokenizer:
+    name: artifacts/models/lightning-30b-bf16
+    chat_template_kwargs:
+      enable_thinking: true
+      pooling_window: 64
+    tokenizer_kwargs:
+      fix_mistral_regex: false
+  hf_config_overrides:
+    architectures:
+    - GeneticsExampleNemotronForCausalLM
+    mm_projector_ownership: sidecar
+    mm_projector_trainable: false
+    mm_projectors:
+    - name: dna
+      kind: mlp2x_gelu_norm
+      mm_hidden_size: 8192
+      hidden_size: 4096
+    mm_placeholder_token_ids:
+      dna: 32
+    mm_encoder_start: <SPECIAL_30>
+    mm_encoder_placeholder: <SPECIAL_32>
+    mm_encoder_end: <SPECIAL_31>
+    mm_encoder_max_tokens: 2048
+    mm_projector_artifact_path: ${policy.projector_artifact_path}
+  projector_artifact_path: outputs/sft/projector
+data:
+  _override_: true
+  max_input_seq_length: ${policy.max_total_sequence_length}
+  shuffle: true
+  num_workers: 0
+  use_multiple_dataloader: false
+  train:
+    dataset_name: genetics_example.GeneticsRLDataset
+    data_path: artifacts/data/manifest-grpo-train.jsonl
+    encoder_loader: nemotron_stitch.nemo_rl.transport.load_cached_features
+    encoder_loader_kwargs:
+      cache_root: artifacts/data/feature-cache
+      artifact_dir: ${policy.projector_artifact_path}
+    task_metadata_callback: nemotron_stitch.nemo_rl.transport.ground_truth_metadata
+    task_name: genetics_exact_answer
+    chat_template_kwargs: ${policy.tokenizer.chat_template_kwargs}
+    adapter: dna
+    placeholder_token: <SPECIAL_32>
+    start_token: <SPECIAL_30>
+    end_token: <SPECIAL_31>
+    split_validation_size: 0
+    env_name: vlm
+    system_prompt: Give the final answer in \boxed{...}. For multiple-choice questions, put only the option letter
+      in the box.
+  validation: null
+  default:
+    prompt_file: null
+    system_prompt_file: null
+    processor: encoder_rl
+    env_name: vlm
+env:
+  _override_: true
+  vlm:
+    num_workers: 1
+    reward_functions:
+    - name: geo3k
+      weight: 1.0
+      kwargs:
+        format_score: 0.0
+logger:
+  log_dir: outputs/grpo/logs
+  tensorboard_enabled: false
+  wandb_enabled: false
+cluster:
+  gpus_per_node: 8
+  num_nodes: 4

@@ -1,0 +1,32 @@
+# Native Super VL hosts, frozen DNA projector, fresh LoRA by default.
+defaults:
+- grpo.yaml
+policy:
+  model_registry_callback: genetics_example.register_models
+  model_name: ${oc.env:STITCH_SFT_MODEL,outputs/super-sft/checkpoints/LATEST/model/consolidated}
+  dtensor_cfg:
+    automodel_kwargs:
+      freeze_config:
+        freeze_vision_tower: true
+        freeze_audio_tower: true
+        freeze_language_model: false
+      llm_config:
+        num_nextn_predict_layers: 0
+  tokenizer:
+    name: artifacts/models/super-vl-bf16
+  generation:
+    vllm_kwargs:
+      limit_mm_per_prompt:
+        image: 0
+        video: 0
+        audio: 0
+    mm_architecture: GeneticsExampleSuperProjected
+  hf_config_overrides:
+    architectures:
+    - GeneticsExampleSuperForCausalLM
+    - NemotronH_Omni_Reasoning_V3
+  projector_artifact_path: outputs/super-sft/projector
+logger:
+  log_dir: outputs/grpo-super/logs
+checkpointing:
+  checkpoint_dir: outputs/grpo-super/checkpoints

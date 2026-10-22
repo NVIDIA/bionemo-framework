@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nemotron-stitch-llava-example"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+# vLLM loads general plugins in the engine and every executor worker.
+[project.entry-points."vllm.general_plugins"]
+llava_example = "llava_example:register_vllm"
+llava_qwen = "llava_qwen:register_vllm"
+llava_qwen_moe = "llava_qwen:register_moe_vllm"
+
+[tool.setuptools]
+py-modules = ["llava_example", "llava_qwen"]

@@ -48,7 +48,7 @@ DOCKER_RUN_ARGS = [
 
 CUSTOM_CONTAINERS = {
     "models/amplify": "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025",
-    "recipes/nemotron-stitch": "svcbionemo023/bionemo-framework:nemo-rl-ci-b03da0f4-amd64@sha256:08fd971c29f8e76f0d589bc7195104231594e859707fda6fac82388770732140",
+    "recipes/nemotron-stitch": "svcbionemo023/bionemo-framework:nemo-rl-ci-9a842983-amd64@sha256:b246d90d969277441bbce418bd895c3f9a4ef5e0ab47587b6f4e0c91ad84af48",
 }
 
 DEFAULT_CONTAINER = "nvcr.io/nvidia/pytorch:26.09-py3"

@@ -1,0 +1,39 @@
+# Two dedicated 8xH100 nodes: EP=8 policy and EP=8 generation. Increase
+# cluster.num_nodes to 3 to exercise a two-node policy with the same rollout
+# node. Start from the qualified SFT LoRA and frozen projector artifacts.
+defaults: grpo-lightning.yaml
+
+grpo:
+  # NeMo RL b03da0f4 normalizes against leave-one-out variance;
+  # one successful response among identical siblings can get a huge
+  # advantage from roundoff. Use the public full-group baseline setting.
+  use_leave_one_out_baseline: false
+  adv_estimator:
+    use_leave_one_out_baseline: false
+
+cluster:
+  num_nodes: 2
+  gpus_per_node: 8
+
+policy:
+  keep_policy_on_gpu: false
+  dtensor_cfg:
+    expert_parallel_size: 8
+  generation:
+    # These residency switches only customize the colocated sleep lifecycle;
+    # upstream already retains dedicated engines on their generation GPUs.
+    keep_vllm_on_gpu: false
+    refit_transport: null
+    colocated:
+      enabled: false
+      resources:
+        num_nodes: 1
+        gpus_per_node: ${cluster.gpus_per_node}
+    vllm_cfg:
+      expert_parallel_size: 8
+      # NeMo RL supports grouped MoE refit through the
+      # native reload API. Use the public switch on the collective path.
+      refit_with_reload_api: true
+
+logger:
+  log_dir: outputs/grpo-lightning-distributed/logs

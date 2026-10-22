@@ -15,7 +15,7 @@ CUDA_COMPAT_DIR=${CUDA_COMPAT_DIR:-}
 run() {
   echo "=== $1 ==="
   docker exec "$CONTAINER" bash -c "
-    cd /opt/llava-example
+    cd /opt/stitch/examples/llava
     export LD_LIBRARY_PATH=${CUDA_COMPAT_DIR:+$CUDA_COMPAT_DIR:}\${LD_LIBRARY_PATH} \
            PATH=/usr/local/cuda/bin:\$PATH \
            CUDA_HOME=/usr/local/cuda \

@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import pytest
+from test_vllm_encode_plugin import _SentinelTokenizer
 
 from nemotron_stitch.vllm.plugin import SentinelAttrs, build_mm_plugin
 
@@ -52,3 +53,41 @@ def test_text_base_registration_adds_multimodal_surface():
     # embed_multimodal is implemented by the plugin, not inherited from nowhere.
     assert "embed_multimodal" in vars(model_cls)
     register()  # idempotent
+
+
+@pytest.mark.parametrize("start,end", [("", ""), ("<start>", "<end>")])
+def test_projected_items_can_leave_boundaries_in_prompt_text(monkeypatch, start, end):
+    from types import SimpleNamespace
+
+    pytest.importorskip("vllm", reason="vLLM is not installed")
+    from vllm.multimodal import MULTIMODAL_REGISTRY
+
+    captured = []
+    original = MULTIMODAL_REGISTRY.register_processor
+
+    def capture(processor, **kwargs):
+        captured.append(processor)
+        return original(processor, **kwargs)
+
+    monkeypatch.setattr(MULTIMODAL_REGISTRY, "register_processor", capture)
+    _register()()
+    config = SimpleNamespace(toyc_start=start, toyc_placeholder="<slot>", toyc_end=end, toyc_num_tokens=1)
+    tokenizer = _SentinelTokenizer(["<toyc>", "<slot>", "<start>", "<end>"])
+    processor = SimpleNamespace(info=SimpleNamespace(get_hf_config=lambda: config, get_tokenizer=lambda: tokenizer))
+
+    class Items(dict):
+        def get_items(self, modality, cls):
+            return SimpleNamespace(get_feature_size=lambda index: 1)
+
+    updates = captured[-1]._get_prompt_updates(processor, Items(toyc=True), {}, {})
+    detail = updates[0].replacement(0)
+    assert updates[0].target == [0]
+    assert detail.full == ([2, 1, 3] if start else [1])
+    assert detail.is_embed(detail.full).tolist() == ([False, True, False] if start else [True])
+    config.toyc_placeholder = ""
+    with pytest.raises(ValueError, match="vLLM config must define"):
+        updates[0].replacement(0)
+    config.toyc_placeholder = "<slot>"
+    config.toyc_start = None
+    with pytest.raises(ValueError, match="vLLM config must define"):
+        updates[0].replacement(0)

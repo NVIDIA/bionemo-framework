@@ -11,3 +11,7 @@ dist/
 .pyrefly/
 .pypirc
 third_party/
+
+# Generated domain-example data, snapshots, and training outputs.
+artifacts/
+outputs/

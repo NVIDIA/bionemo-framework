@@ -1,0 +1,230 @@
+# Training settings: nemotron-kermt/configs/indexed-full/grpo.yaml.
+# Frozen SFT projectors; native boxed-answer reward also scores MC option letters.
+defaults:
+- ${oc.env:NEMO_RL_ROOT,/opt/nemo-rl}/examples/configs/grpo_math_1B.yaml
+grpo:
+  num_prompts_per_step: 24
+  num_generations_per_prompt: 8
+  max_num_epochs: 246
+  max_num_steps: 20
+  val_period: 0
+  val_at_start: false
+  val_at_end: false
+  seed: 44
+  use_dynamic_sampling: false
+  use_leave_one_out_baseline: false
+  adv_estimator:
+    name: grpo
+    normalize_rewards: true
+    use_leave_one_out_baseline: false
+    minus_baseline: true
+  dynamic_sampling_max_gen_batches: 10
+  normalize_rewards: true
+  max_rollout_turns: 1
+loss_fn:
+  reference_policy_kl_penalty: 0.01
+  reference_policy_kl_type: k3
+  ratio_clip_min: 0.2
+  ratio_clip_max: 0.2
+  force_on_policy_ratio: true
+checkpointing:
+  enabled: true
+  is_async: false
+  checkpoint_dir: outputs/grpo/checkpoints
+  keep_top_k: null
+  save_period: 20
+  model_save_format: safetensors
+  save_consolidated: true
+  save_optimizer: true
+policy:
+  model_registry_callback: chemistry_example.register_models
+  worker_extension_cls_fqn: nemotron_stitch.nemo_rl.policy.EncoderDTensorPolicyWorkerV2
+  keep_policy_on_gpu: false
+  train_global_batch_size: 192
+  train_micro_batch_size: 1
+  generation_batch_size: 1
+  logprob_batch_size: 1
+  max_total_sequence_length: 16384
+  precision: bfloat16
+  max_grad_norm: 1.0
+  dtensor_cfg:
+    _v2: true
+    enabled: true
+    cpu_offload: false
+    sequence_parallel: false
+    activation_checkpointing: true
+    tensor_parallel_size: 1
+    context_parallel_size: 1
+    expert_parallel_size: 8
+    dp_replicate_size: 1
+    lora_cfg:
+      enabled: false
+    automodel_kwargs:
+      num_nextn_predict_layers: 0
+      backend:
+        _target_: nemo_automodel.components.models.common.BackendConfig
+        attn: te
+        experts: torch_mm
+        dispatcher: deepep
+    fsdp_output_dtype: bfloat16
+  dynamic_batching:
+    enabled: false
+    train_mb_tokens: 16384
+    logprob_mb_tokens: 16384
+    sequence_length_round: 64
+  sequence_packing:
+    enabled: false
+    train_mb_tokens: 32768
+    logprob_mb_tokens: 65536
+    algorithm: modified_first_fit_decreasing
+    microbatch_order: packer
+    sequence_length_round: 64
+  make_sequence_length_divisible_by: 1
+  optimizer:
+    name: torch.optim.AdamW
+    kwargs:
+      lr: 1.0e-06
+      weight_decay: 0.0
+      betas:
+      - 0.9
+      - 0.95
+      eps: 1.0e-08
+      foreach: false
+      fused: false
+  scheduler:
+  - name: torch.optim.lr_scheduler.ConstantLR
+    kwargs:
+      factor: 1.0
+      total_iters: 10000000000
+  - milestones: []
+  generation:
+    backend: vllm
+    worker_extension_cls_fqn: nemotron_stitch.nemo_rl.vllm_worker.EncoderVllmGenerationWorker
+    keep_vllm_on_gpu: false
+    mm_plugin_callback: chemistry_example.register_vllm
+    mm_architecture: ChemistryExampleNemotronProjected
+    max_new_tokens: 1024
+    ignore_eos: false
+    temperature: 1.0
+    top_p: 1.0
+    top_k: null
+    val_temperature: ${.temperature}
+    val_top_p: ${.top_p}
+    val_top_k: ${.top_k}
+    stop_token_ids: []
+    stop_strings: null
+    vllm_cfg:
+      async_engine: false
+      precision: bfloat16
+      kv_cache_dtype: auto
+      logprobs_mode: processed_logprobs
+      tensor_parallel_size: 2
+      pipeline_parallel_size: 1
+      expert_parallel_size: 2
+      gpu_memory_utilization: 0.95
+      max_model_len: 16384
+      enforce_eager: true
+      use_tqdm: false
+      use_deep_gemm: false
+      num_last_layers_in_bf16: 0
+      num_first_layers_in_bf16: 0
+      enable_vllm_metrics_logger: true
+      vllm_metrics_logger_interval: 0.5
+      http_refit_api_key_env_var: null
+      reset_encoder_cache_after_weight_update: false
+      http_refit_server_port: null
+      zmq_refit_server_port: null
+      skip_tokenizer_init: false
+      enable_prefix_caching: false
+    vllm_kwargs:
+      disable_custom_all_reduce: true
+      limit_mm_per_prompt:
+        chemistry: 2048
+      kv_cache_memory_bytes: 8589934592
+      moe_backend: triton
+      mamba_ssm_cache_dtype: float32
+      enable_mm_embeds: true
+      max_num_seqs: 64
+    colocated:
+      enabled: true
+  model_name: ${oc.env:STITCH_SFT_MODEL,outputs/sft/checkpoints/LATEST/model/consolidated}
+  tokenizer:
+    name: artifacts/models/lightning-30b-bf16
+    chat_template_kwargs:
+      enable_thinking: true
+    tokenizer_kwargs:
+      fix_mistral_regex: false
+  hf_config_overrides:
+    architectures:
+    - ChemistryExampleNemotronForCausalLM
+    mm_projector_ownership: sidecar
+    mm_projector_trainable: false
+    mm_projectors:
+    - name: chem_molecule
+      kind: mlp2x_gelu
+      mm_hidden_size: 3200
+    - name: chem_atom
+      kind: mlp2x_gelu
+      mm_hidden_size: 1600
+    - name: chem_bond
+      kind: mlp2x_gelu
+      mm_hidden_size: 3200
+    mm_placeholder_token_ids:
+      chem_molecule: 33
+      chem_atom: 32
+      chem_bond: 34
+    mm_encoder_start: ''
+    mm_encoder_placeholder: <SPECIAL_32>
+    mm_encoder_end: ''
+    mm_encoder_max_tokens: 1
+    mm_projector_artifact_path: ${policy.projector_artifact_path}
+  projector_artifact_path: outputs/sft/projector
+data:
+  _override_: true
+  max_input_seq_length: ${policy.max_total_sequence_length}
+  shuffle: true
+  num_workers: 0
+  use_multiple_dataloader: false
+  train:
+    dataset_name: chemistry_example.ChemistryRLDataset
+    data_path: artifacts/data/manifest-grpo-train.jsonl
+    encoder_loader: nemotron_stitch.nemo_rl.transport.load_cached_features
+    encoder_loader_kwargs:
+      cache_root: artifacts/data/feature-cache
+      artifact_dir: ${policy.projector_artifact_path}
+    task_metadata_callback: nemotron_stitch.nemo_rl.transport.ground_truth_metadata
+    task_name: chemistry_exact_answer
+    chat_template_kwargs: ${policy.tokenizer.chat_template_kwargs}
+    adapter: chemistry
+    placeholder_token: <SPECIAL_32>
+    start_token: <SPECIAL_30>
+    end_token: <SPECIAL_31>
+    split_validation_size: 0
+    env_name: vlm
+    system_prompt: Give the final answer in \boxed{...}. For multiple-choice questions, put only the option letter
+      in the box.
+  validation: null
+  default:
+    prompt_file: null
+    system_prompt_file: null
+    processor: encoder_rl
+    env_name: vlm
+env:
+  _override_: true
+  vlm:
+    num_workers: 1
+    reward_functions:
+    - name: geo3k
+      weight: 1.0
+      kwargs:
+        format_score: 0.0
+logger:
+  log_dir: outputs/grpo/logs
+  tensorboard_enabled: false
+  wandb_enabled: false
+cluster:
+  gpus_per_node: 8
+  num_nodes: 2
+  master_port_range_low: 1400
+  master_port_range_high: 1999
+  segment_size: null

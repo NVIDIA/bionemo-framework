@@ -1,0 +1,24 @@
+# Unsupported pending resolution of upstream refit corruption. Reproduce reload failures only;
+# do not use this configuration for training.
+# Full decoder training with a frozen SFT projector, without LoRA or resume.
+# Three 8xH100 nodes: two EP8 DTensor policy nodes + one TP1/DP8/EP8
+# generation node. The historical reproduction uses three short synchronous
+# updates to exercise optimizer memory and weight application.
+defaults: grpo-lightning-distributed.yaml
+
+cluster:
+  num_nodes: 3
+
+policy:
+  initial_adapter_expected_config: null
+  train_micro_batch_size: 1
+  logprob_batch_size: 1
+  offload_optimizer_for_logprob: true
+  dtensor_cfg:
+    activation_checkpointing: true
+    lora_cfg:
+      enabled: false
+      restore_from: null
+
+logger:
+  log_dir: outputs/grpo-lightning-fullparam/logs

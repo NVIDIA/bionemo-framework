@@ -207,8 +207,7 @@ class MultimodalInputMixin:
         NeMo AutoModel ``7d36972d`` checks for an explicit ``logits_to_keep``
         parameter before enabling its public fused-linear-CE path, but ignores
         this bridge's ``**kwargs`` support. Expose and forward the parameter so
-        decorated causal-LM hosts retain that upstream capability. Delete this
-        explicit bridge when U-26 is adopted.
+        decorated causal-LM hosts retain that upstream capability.
         """
         # super() is the HF host, validated at decoration time by
         # _validate_forward_surface; the checker cannot see it from the mixin.

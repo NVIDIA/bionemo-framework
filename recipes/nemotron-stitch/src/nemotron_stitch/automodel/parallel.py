@@ -24,12 +24,12 @@ boundary that either validates replica agreement once or sums partial
 contributions on every backward.
 
 Two framework workarounds live here, both against AutoModel
-9af3b45a8fefd817e9ff562e8e8780d54e8cf68e; see docs/upstream-gaps.md:
+9af3b45a8fefd817e9ff562e8e8780d54e8cf68e:
 
-- U-16, ``replace_tp_linear``: the stock DTensor TP plan cannot shard TE-style
+- ``replace_tp_linear``: the stock DTensor TP plan cannot shard TE-style
   custom linears, so they are swapped for torch.nn.Linear holding the *same*
   parameter objects first. Delete when AutoModel's plan handles them.
-- U-17, ``install_combined_moe_tp_dispatch``: AutoModel routes every EP job through
+- ``install_combined_moe_tp_dispatch``: AutoModel routes every EP job through
   its generic custom-MoE parallelizer, bypassing the per-architecture
   strategy registry, and that entry point rejects TP unconditionally. The
   installed wrapper applies the consumer's TP plan first, then re-enters the

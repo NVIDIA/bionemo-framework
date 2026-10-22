@@ -2,12 +2,11 @@
 # backend. The policy warm-starts the compact
 # SFT LoRA adapter directly (no dense merge) and there is no HF->MCore
 # conversion; vLLM receives already-projected soft tokens (never CLIP, never
-# raw images). Grouped-expert refit is tracked by U-29;
-# it is not load-bearing here. The frozen projector arrives through
+# raw images). The frozen projector arrives through
 # policy.projector_artifact_path (the sidecar artifact SFT exported — GRPO
 # keeps it frozen). Runs on unmodified NeMo RL main — no shard_dim
 # cherry-pick: the colocated IPC refit streams per-expert 2D weights, which
-# vLLM 0.25.1 loads natively (see docs/upstream-gaps.md).
+# vLLM loads natively (see docs/upstream-gaps.md).
 #
 #   NEMO_RL_ROOT=<checkout> \
 #     python -m nemotron_stitch.nemo_rl.runner --config configs/grpo-lightning.yaml
@@ -113,7 +112,7 @@ policy:
     temperature: 1.0
     top_p: 1.0
     top_k: null
-    # U-20: NeMo RL af0a11fa rejects distinct validation-only sampling values
+    # NeMo RL af0a11fa rejects distinct validation-only sampling values
     # outside NeMo Gym. Delete these aliases when ordinary vLLM environments
     # support validation overrides.
     val_temperature: ${.temperature}
@@ -142,14 +141,16 @@ policy:
       compilation_config:
         mode: none
         cudagraph_mode: full_decode_only
-      max_num_seqs: ${policy.generation_batch_size}
-      kv_cache_memory_bytes: 4294967296
+      # KERMT dedicated-engine benchmark (2026-10-04): 128 removes the
+      # second decode wave; 8 GiB covers the long-context KV envelope.
+      max_num_seqs: 128
+      kv_cache_memory_bytes: 8589934592
       moe_backend: triton
-      # Lightning's mamba SSM cache stays in fp32 because bf16 states
-      # accumulate policy/rollout divergence over the generation.
+      # Lightning's mamba SSM cache in fp32; bf16 states accumulate
+      # policy/rollout divergence over the generation.
       mamba_ssm_cache_dtype: float32
       enable_mm_embeds: true
-      # U-70: vLLM 0.25.1's async_scheduling default stalls colocated
+      # vLLM 0.25.1's async_scheduling default stalls colocated
       # external-DP engines in the drain tail; pin the synchronous path.
       async_scheduling: false
     colocated:

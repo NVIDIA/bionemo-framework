@@ -1,0 +1,12 @@
+# Dedicated generation: TP1 / DP8 / EP8 on one 8xH100 node.
+# NeMo RL b03da0f4 requires the RL#2517 external-DP async
+# backport. Stock b03da0f4 rejects this topology; use the qualified image.
+defaults: grpo-lightning-async.yaml
+
+policy:
+  generation:
+    vllm_cfg:
+      tensor_parallel_size: 1
+
+logger:
+  log_dir: outputs/grpo-lightning-async-dp/logs

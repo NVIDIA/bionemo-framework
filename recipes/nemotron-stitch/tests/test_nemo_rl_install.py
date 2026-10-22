@@ -50,7 +50,7 @@ from nemo_rl.environments.utils import ENV_REGISTRY
 from nemo_rl.models.generation.vllm import utils, vllm_generation
 from nemo_rl.models.policy import lm_policy
 
-# Native extension support: the worker FQNs travel in the config
+# Worker FQNs travel in the config
 # (policy.worker_extension_cls_fqn and generation.worker_extension_cls_fqn),
 # so the bootstrap must only register runtimes — no Policy or resolver patch.
 assert grpo.Policy.__module__ == 'nemo_rl.models.policy.lm_policy'
@@ -153,6 +153,32 @@ except RuntimeError as error:
     assert 'registry conflict' in str(error)
 else:
     raise AssertionError('a conflicting runtime should fail closed')
+"""
+    src_root = Path(nemotron_stitch.__file__).resolve().parents[1]
+    env = {**os.environ, "PYTHONPATH": f"{src_root}:{os.environ.get('PYTHONPATH', '')}"}
+    subprocess.run([sys.executable, "-c", program], check=True, env=env)
+
+
+def test_async_encoder_worker_uses_the_upstream_lifecycle_and_runtime():
+    pytest.importorskip("vllm", reason="async generation needs the vLLM worker interpreter")
+    program = """
+from pathlib import Path
+from inspect import unwrap
+from nemotron_stitch.nemo_rl.runner import install_extensions
+from nemotron_stitch.nemo_rl.vllm_worker import EncoderVllmAsyncGenerationWorker
+from nemo_rl.distributed.ray_actor_environment_registry import get_actor_python_env
+from nemo_rl.models.generation.vllm.vllm_worker_async import VllmAsyncGenerationWorkerImpl
+
+cls = EncoderVllmAsyncGenerationWorker.__ray_metadata__.modified_class
+for method in ('post_init_async', 'generate_async', 'update_weights_from_collective_async'):
+    assert unwrap(getattr(cls, method)) is unwrap(getattr(VllmAsyncGenerationWorkerImpl, method))
+fqn = 'nemotron_stitch.nemo_rl.vllm_worker.EncoderVllmAsyncGenerationWorker'
+install_extensions(generation_worker_fqn=fqn)
+runtime = get_actor_python_env(fqn)
+expected = Path('/opt/ray_venvs/nemo_rl.models.generation.vllm.vllm_worker_async.VllmAsyncGenerationWorker/bin/python')
+if expected.is_file():
+    assert runtime == str(expected), (runtime, expected)
+install_extensions(generation_worker_fqn=fqn)
 """
     src_root = Path(nemotron_stitch.__file__).resolve().parents[1]
     env = {**os.environ, "PYTHONPATH": f"{src_root}:{os.environ.get('PYTHONPATH', '')}"}

@@ -1,0 +1,11 @@
+# Full Super language decoder GRPO with the SFT projector frozen.
+defaults:
+- grpo-super.yaml
+policy:
+  dtensor_cfg:
+    lora_cfg:
+      enabled: false
+logger:
+  log_dir: outputs/grpo-super-full/logs
+checkpointing:
+  checkpoint_dir: outputs/grpo-super-full/checkpoints

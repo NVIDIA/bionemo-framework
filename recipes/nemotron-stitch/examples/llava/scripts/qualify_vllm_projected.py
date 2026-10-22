@@ -19,20 +19,14 @@ accepted, wrong width/over-budget count rejected. Usage: python scripts/qualify_
 
 from __future__ import annotations
 
-# The pinned NeMo RL stack pairs vLLM 0.25.1 with openai 2.6.1, whose
-# responses types predate namespace tools; NeMo RL's own source-compat patch
-# must land before anything imports vllm.tool_parsers (its generation workers
-# do this internally; this script drives vLLM directly so it calls the hook
-# itself). Safe on venvs where the hook is absent.
-try:
-    from nemo_rl.models.generation.vllm.patches import ensure_vllm_source_compat
-except ImportError:
-    pass
-else:
-    ensure_vllm_source_compat()
+# Direct vLLM use bypasses NeMo RL's worker construction, which normally
+# applies the pinned stack's source-compatibility fixes.
+from nemo_rl.models.generation.vllm.patches import ensure_vllm_source_compat
 
-import torch  # noqa: I001
-from llava_example import (  # noqa: I001
+ensure_vllm_source_compat()
+
+import torch  # noqa: E402, I001
+from llava_example import (  # noqa: E402, I001
     CLIP_PATCH_TOKENS,
     NANO_4B,
     PLACEHOLDER_SPEC,
@@ -60,7 +54,10 @@ def main() -> None:
     llm = LLM(
         model="artifacts/models/nemotron-nano-4b-bf16",
         dtype="bfloat16",
-        enforce_eager=True,
+        enforce_eager=False,
+        compilation_config={"mode": "none", "cudagraph_mode": "full_decode_only"},
+        max_num_seqs=128,
+        kv_cache_memory_bytes=8589934592,
         gpu_memory_utilization=0.45,
         max_model_len=512,
         enable_mm_embeds=True,

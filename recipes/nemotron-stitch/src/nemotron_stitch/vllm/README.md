@@ -43,7 +43,4 @@ unchanged; consumers supply modality dimensions and token strings through
 configuration. All vLLM imports stay inside the factory so the base wheel
 imports without vLLM installed.
 
-## Upstream gaps
-
-See the [open framework limitations](../../../docs/upstream-gaps.md) for the
-pinned runtime and the conditions for deleting framework workarounds.
+Model and processor overrides use vLLM's documented extension surfaces.

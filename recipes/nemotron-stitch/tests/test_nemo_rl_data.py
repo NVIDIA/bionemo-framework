@@ -323,3 +323,23 @@ def test_upstream_collators_and_formatter_preserve_projected_payload():
         from vllm.multimodal.parse import EmbeddingItems
 
         assert len(EmbeddingItems(prompt["multi_modal_data"]["sample"], "sample", 4)) == 1
+
+
+def test_encoder_rl_dataset_preserves_record_template_policy(tmp_path):
+    import json
+
+    from nemotron_stitch.nemo_rl.data import EncoderRLDataset
+
+    manifest = tmp_path / "records.jsonl"
+    manifest.write_text(json.dumps({"prompt": "Count", "chat_template_kwargs": {"enable_thinking": True}}) + "\n")
+    dataset = EncoderRLDataset(
+        data_path=str(manifest),
+        adapter="sample",
+        encoder_loader="unused",
+        encoder_loader_kwargs={},
+        placeholder_token="<slot>",
+        start_token="<start>",
+        end_token="<end>",
+        chat_template_kwargs={"enable_thinking": False, "keep": "default"},
+    )
+    assert dataset.dataset[0]["chat_template_kwargs"] == {"enable_thinking": True, "keep": "default"}

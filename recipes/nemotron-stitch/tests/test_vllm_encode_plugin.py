@@ -127,11 +127,25 @@ def test_encode_mode_builds_the_processing_layer():
     assert "toy" in parser._get_subparsers()
 
 
+class _SentinelTokenizer:
+    def __init__(self, tokens):
+        self.tokens = {token: index for index, token in enumerate(tokens)}
+
+    def encode(self, text, *, add_special_tokens=False):
+        import re
+
+        return [self.tokens[token] for token in re.findall(r"<[^>]+>", text)]
+
+
 def test_encode_mode_prompt_replacement_uses_geometry_and_sentinels():
     plugin = _toy_plugin()
+    from types import SimpleNamespace
+
     from vllm.multimodal.processing import PromptUpdateDetails
 
     processor = object.__new__(plugin.processor)
+    tokenizer = _SentinelTokenizer(["<toy_placeholder>", "<S0>", "<S1>", "<S2>"])
+    processor.info = SimpleNamespace(get_tokenizer=lambda: tokenizer)
     items = plugin.processor_items([[1, 2, 3, 4]])
 
     class _Items:
@@ -141,10 +155,11 @@ def test_encode_mode_prompt_replacement_uses_geometry_and_sentinels():
     updates = plugin.processor._get_prompt_updates(processor, _Items(), {}, {})
     assert len(updates) == 1
     assert updates[0].modality == "toy"
-    assert updates[0].target == "<toy_placeholder>"
+    assert updates[0].target == [0]
     detail = updates[0].replacement(0)
     assert isinstance(detail, PromptUpdateDetails)
-    assert detail.full == "<S0><S1><S1><S1><S1><S2>"
+    assert detail.full == [1, 2, 2, 2, 2, 3]
+    assert detail.is_embed(detail.full).tolist() == [False, True, True, True, True, False]
 
 
 def test_encode_mode_dummy_inputs_follow_the_consumer_payload():

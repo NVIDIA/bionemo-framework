@@ -1,0 +1,112 @@
+# Training settings: nemotron-gene/configs/reference/alignment.yaml.
+# THD input wiring stays local; qualification data and launchers live in the demos repository.
+recipe: nemotron_stitch.automodel.recipe.ProjectorFinetuneRecipe
+step_scheduler:
+  global_batch_size: 16
+  local_batch_size: 1
+  num_epochs: 4
+  max_steps: 2000
+  ckpt_every_steps: 500
+  val_every_steps: 500
+  log_remote_every_steps: 10
+dist_env:
+  backend: nccl
+  timeout_minutes: 60
+rng:
+  _target_: nemo_automodel.components.training.rng.StatefulRNG
+  seed: 42
+  ranked: true
+model:
+  _target_: nemo_automodel.NeMoAutoModelForCausalLM.from_pretrained
+  pretrained_model_name_or_path: artifacts/models/lightning-30b-bf16
+  local_files_only: true
+  trust_remote_code: false
+  torch_dtype: torch.bfloat16
+  architectures:
+  - GeneticsExampleNemotronForCausalLM
+  backend:
+    _target_: nemo_automodel.components.models.common.BackendConfig
+    attn: te
+    experts: torch_mm
+    dispatcher: torch
+  num_nextn_predict_layers: 0
+  mm_training_stage: 1
+  mm_projector_ownership: module
+  mm_projectors:
+  - name: dna
+    kind: mlp2x_gelu_norm
+    mm_hidden_size: 8192
+    hidden_size: 4096
+  mm_placeholder_token_ids:
+    dna: 32
+  output_hidden_states: true
+peft: null
+checkpoint:
+  enabled: true
+  checkpoint_dir: outputs/alignment/checkpoints
+distributed:
+  strategy: fsdp2
+  tp_size: 1
+  cp_size: 1
+  pp_size: 1
+  ep_size: 1
+  sequence_parallel: false
+  activation_checkpointing: true
+loss_fn:
+  _target_: nemo_automodel.components.loss.linear_ce.FusedLinearCrossEntropy
+  reduction: mean
+packed_sequence:
+  packed_sequence_size: ${oc.env:STITCH_PACK_TOKENS,4096}
+  packing_strategy: thd
+  prepacked: true
+dataset:
+  _target_: nemotron_stitch.automodel.data.PackedManifestFeatureDataset
+  tokenizer:
+    _target_: genetics_example.load_processor
+    path: artifacts/models/lightning-30b-bf16
+  max_tokens: ${oc.env:STITCH_PACK_TOKENS,4096}
+  chat_template_kwargs:
+    pooling_window: 64
+  projector_name: dna
+  placeholder_token_id: 32
+  max_length: 4096
+  manifest_path: artifacts/data/manifest.jsonl
+  stage: alignment
+  split: train
+  cache_root: artifacts/data/feature-cache
+  extra_fields:
+  - messages
+  - reasoning_content
+  - chat_template_kwargs
+dataloader:
+  _target_: torchdata.stateful_dataloader.StatefulDataLoader
+  batch_size: 1
+  num_workers: 0
+  shuffle: true
+  collate_fn: nemotron_stitch.automodel.data.packed_collate_fn
+  drop_last: false
+optimizer:
+  _target_: nemotron_stitch.automodel.optim.ProjectorAdamWConfig
+  lr: 0.003
+  weight_decay: 0.0
+  betas:
+  - 0.9
+  - 0.95
+lr_scheduler:
+  lr_warmup_steps: 60
+  lr_decay_steps: 2000
+  lr_decay_style: cosine
+  init_lr: 0.0
+  max_lr: 0.003
+  min_lr: 0.00015
+  start_wd: 0.0
+  end_wd: 0.0
+  wd_incr_steps: 2000
+  wd_incr_style: constant
+wandb:
+  mode: disabled
+projector:
+  model_registry_callback: genetics_example.register_models
+  train_projector: true
+  artifact_dir: outputs/alignment/projector
+  trainability_manifest: outputs/alignment/trainability.json

@@ -33,6 +33,7 @@ from nemotron_stitch.nemo_rl.policy import (
     validate_initial_adapter_provenance,
 )
 from nemotron_stitch.nemo_rl.vllm_worker import (
+    _EncoderVllmWorkerMixin,
     _merge_encoder_hf_overrides,
     _select_vllm_executor_backend,
     require_generation_topology,
@@ -40,10 +41,48 @@ from nemotron_stitch.nemo_rl.vllm_worker import (
 from nemotron_stitch.projector import MultimodalProjector
 
 
+def test_encoder_construction_seam_preserves_upstream_engine_and_deferred_loading(monkeypatch):
+    from nemotron_stitch.nemo_rl import transport
+
+    registered = []
+    monkeypatch.setattr(transport, "resolve_callback", lambda _: lambda: registered.append(True))
+
+    class UpstreamWorker:
+        def __init__(self, config, *, defer_model_load):
+            self.deferred = defer_model_load
+
+        def _create_engine(self, kwargs):
+            return kwargs
+
+    class Worker(_EncoderVllmWorkerMixin, UpstreamWorker):
+        pass
+
+    worker = Worker(
+        {
+            "mm_plugin_callback": "consumer.register",
+            "mm_architecture": "ConsumerProjected",
+            "vllm_cfg": {"async_engine": True},
+            "colocated": {"enabled": False},
+            "vllm_kwargs": {"hf_overrides": {"mm_encoder_max_tokens": 49}},
+        },
+        defer_model_load=True,
+    )
+    assert registered == [True]
+    assert worker.deferred
+    quantization = {"quant_method": "fp8"}
+    kwargs = {"hf_overrides": {"architectures": ["ConsumerTraining"], "quantization_config": quantization}}
+    assert worker._create_engine(kwargs) is kwargs
+    assert kwargs["hf_overrides"] == {
+        "architectures": ["ConsumerProjected"],
+        "quantization_config": quantization,
+        "mm_encoder_max_tokens": 49,
+    }
+
+
 def test_dtensor_refit_inventory_excludes_frozen_extra_parameters():
     pytest.importorskip("nemo_rl", reason="NeMo RL seam tests need the framework installed")
     pytest.importorskip("nemo_automodel", reason="the DTensor policy worker needs AutoModel")
-    from nemo_rl.models.policy.workers.dtensor_policy_worker_v2 import dtensor_params_generator
+    from nemo_rl.models.policy.workers.automodel_policy_worker import automodel_params_generator
 
     class _BaseAdapter:
         def __init__(self):
@@ -63,8 +102,57 @@ def test_dtensor_refit_inventory_excludes_frozen_extra_parameters():
             self.learned_end = nn.Parameter(torch.ones(2), requires_grad=False)
             self.state_dict_adapter = _Adapter()
 
-    names = {name for name, _ in dtensor_params_generator(_Model(), torch.bfloat16)}
+    names = {name for name, _ in automodel_params_generator(_Model(), torch.bfloat16)}
     assert names == {"backbone"}
+
+
+@pytest.mark.parametrize(
+    "lora_enabled,projector_trainable,projector_in_optimizer,error",
+    [
+        (False, False, False, None),
+        (True, False, False, "outside LoRA"),
+        (False, True, False, "projector trainability"),
+        (False, False, True, "projector parameters entered"),
+    ],
+)
+def test_full_parameter_policy_admission_preserves_projector_checks(
+    monkeypatch, lora_enabled, projector_trainable, projector_in_optimizer, error
+):
+    pytest.importorskip("nemo_automodel", reason="policy construction requires AutoModel")
+    from nemo_rl.models.policy.workers.automodel_policy_worker import AutomodelPolicyWorkerImpl
+
+    from nemotron_stitch.nemo_rl import policy
+
+    model = nn.Linear(2, 2)
+    projector = nn.Linear(2, 2).requires_grad_(projector_trainable)
+    object.__setattr__(model, "mm_projector", projector)
+
+    def initialize(worker, config):
+        worker.model = model
+        worker.lora_enabled = config["dtensor_cfg"]["lora_cfg"]["enabled"]
+        parameters = list(model.parameters())
+        if projector_in_optimizer:
+            parameters += list(projector.parameters())
+        worker.optimizer = torch.optim.AdamW(parameters)
+        worker.reference_model_state_dict = None
+        worker.rank = 1
+
+    monkeypatch.setattr(AutomodelPolicyWorkerImpl, "__init__", initialize)
+    monkeypatch.setattr(policy, "resolve_callback", lambda _: lambda: None)
+    monkeypatch.setattr(policy, "materialize_mm_projector", lambda _: None)
+    monkeypatch.setattr(policy, "load_projector_artifact", lambda *a, **k: None)
+    config = {
+        "model_registry_callback": "consumer.register",
+        "projector_artifact_path": "/unused/projector",
+        "hf_config_overrides": {"mm_projector_trainable": False, "mm_projector_ownership": "sidecar"},
+        "dtensor_cfg": {"lora_cfg": {"enabled": lora_enabled, "restore_from": None}},
+    }
+    cls = policy.EncoderDTensorPolicyWorkerV2.__ray_metadata__.modified_class
+    if error:
+        with pytest.raises(RuntimeError, match=error):
+            cls(config)
+    else:
+        cls(config)
 
 
 def test_initial_adapter_provenance_resolves_the_upstream_layout(tmp_path):
@@ -101,13 +189,13 @@ def test_initial_adapter_provenance_fails_closed(tmp_path):
 
 
 def test_policy_topology_rejects_the_combined_replicate_expert_mesh():
-    # U-66: dense replication inside fused expert-parallel ranks is
+    # Dense replication inside fused expert-parallel ranks is
     # inexpressible on the pinned stack (dp_size = world // (tp*cp*ep) leaves
     # no dense DP axis), and the combination is unqualified for the projector
     # contract. Each dimension alone stays admitted.
     require_replicated_projector_policy_config({"dtensor_cfg": {"dp_replicate_size": 4}})
     require_replicated_projector_policy_config({"dtensor_cfg": {"expert_parallel_size": 8}})
-    with pytest.raises(NotImplementedError, match="U-66"):
+    with pytest.raises(NotImplementedError, match="not admitted"):
         require_replicated_projector_policy_config({"dtensor_cfg": {"dp_replicate_size": 2, "expert_parallel_size": 8}})
 
 
@@ -147,7 +235,7 @@ def test_policy_and_generation_topology_contracts():
     with pytest.raises(NotImplementedError, match="pipeline parallelism"):
         require_generation_topology({"vllm_cfg": {"pipeline_parallel_size": 2}})
 
-    # U-70: colocated external-DP generation must pin async_scheduling off.
+    # Colocated external-DP generation must pin async_scheduling off.
     require_generation_topology(
         {
             "colocated": {"enabled": True},
@@ -156,7 +244,7 @@ def test_policy_and_generation_topology_contracts():
         }
     )
     for vllm_kwargs in ({}, {"async_scheduling": True}):
-        with pytest.raises(ValueError, match="U-70"):
+        with pytest.raises(ValueError, match="async_scheduling: false"):
             require_generation_topology(
                 {
                     "colocated": {"enabled": True},
@@ -164,7 +252,7 @@ def test_policy_and_generation_topology_contracts():
                     "vllm_kwargs": vllm_kwargs,
                 }
             )
-    # Non-colocated and single-width colocated layouts are out of U-70's scope.
+    # Non-colocated and single-width colocated layouts are outside this restriction.
     require_generation_topology(
         {
             "colocated": {"enabled": False},
@@ -519,3 +607,43 @@ def test_module_refit_guards(trainable):
         implementation.update_weights_to_sglang_colocated(worker)
     with pytest.raises(NotImplementedError, match="checkpoint-engine"):
         implementation._checkpoint_engine_params(worker)
+
+
+def test_policy_refit_inventory_and_stream_match_current_upstream():
+    pytest.importorskip("nemo_automodel")
+    from nemo_rl.models.policy.workers.automodel_policy_worker import AutomodelPolicyWorkerImpl
+
+    from nemotron_stitch.nemo_rl.policy import EncoderDTensorPolicyWorkerV2
+
+    cls = EncoderDTensorPolicyWorkerV2.__ray_metadata__.modified_class
+    assert issubclass(cls, AutomodelPolicyWorkerImpl)
+    worker = cls.__new__(cls)
+    worker.model = nn.Module()
+    worker.model.backbone = nn.Linear(2, 2)
+    worker.model.mm_projector = nn.Linear(2, 2)
+    worker.dtype = torch.bfloat16
+    worker.draft_model = None
+    info = worker.prepare_refit_info()
+    tensors = dict(worker._refit_weight_generator())
+    assert set(info) == set(tensors) == {"backbone.weight", "backbone.bias"}
+    for name, tensor in tensors.items():
+        assert info[name] == (tensor.shape, tensor.dtype)
+        assert torch.equal(tensor, worker.model.state_dict()[name].to(worker.dtype))
+
+
+def test_policy_save_forwards_final_checkpoint_flag(monkeypatch, tmp_path):
+    pytest.importorskip("nemo_automodel")
+    from nemo_rl.models.policy.workers.automodel_policy_worker import AutomodelPolicyWorkerImpl
+
+    from nemotron_stitch.nemo_rl.policy import EncoderDTensorPolicyWorkerV2
+
+    calls = []
+    monkeypatch.setattr(
+        AutomodelPolicyWorkerImpl, "save_checkpoint", lambda self, *args, **kwargs: calls.append(kwargs)
+    )
+    cls = EncoderDTensorPolicyWorkerV2.__ray_metadata__.modified_class
+    worker = cls.__new__(cls)
+    worker._projector_trainable = True
+    worker.save_checkpoint(str(tmp_path), is_final_checkpoint=True)
+    assert calls == [dict(optimizer_path=None, tokenizer_path=None, is_final_checkpoint=True)]
+    assert worker._projector_checkpoint_weights_path == tmp_path

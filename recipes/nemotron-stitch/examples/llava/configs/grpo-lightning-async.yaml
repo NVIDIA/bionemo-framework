@@ -1,0 +1,32 @@
+# Same separate-node topology and artifact contract as the synchronous
+# control. The runner registers the async worker's own frozen interpreter:
+# ENCODER_GENERATION_WORKER_FQN=nemotron_stitch.nemo_rl.vllm_worker.EncoderVllmAsyncGenerationWorker
+defaults: grpo-lightning-distributed.yaml
+
+grpo:
+  async_grpo:
+    enabled: true
+    max_trajectory_age_steps: 1
+    max_generation_failures: 0
+    in_flight_weight_updates: false
+    recompute_kv_cache_after_weight_updates: false
+
+loss_fn:
+  force_on_policy_ratio: false
+  use_importance_sampling_correction: true
+
+policy:
+  generation:
+    worker_extension_cls_fqn: nemotron_stitch.nemo_rl.vllm_worker.EncoderVllmAsyncGenerationWorker
+    vllm_kwargs:
+      # vLLM 0.25.1's custom all-reduce kernel failed at TP8 startup.
+      # Use the public NCCL fallback; recheck when the pinned kernel is fixed.
+      disable_custom_all_reduce: true
+    vllm_cfg:
+      async_engine: true
+      # NeMo RL b03da0f4 rejects async engines with external DP (RL#1101).
+      # Match TP to EP so one async engine owns the generation node.
+      tensor_parallel_size: 8
+
+logger:
+  log_dir: outputs/grpo-lightning-async/logs

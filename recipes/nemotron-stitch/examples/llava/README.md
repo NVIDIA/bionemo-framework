@@ -28,7 +28,7 @@ training with the same frozen CLIP features and SFT projector/LoRA handoff.
 It makes deterministic chosen/rejected pairs from the CLEVR manifest: the
 recorded numeric answer is chosen, and the next integer is rejected. This is
 an integration demonstration, not a preference-quality experiment. After data
-preparation and SFT, run from `/opt/llava-example`:
+preparation and SFT, run from `/opt/stitch/examples/llava`:
 
 ```bash
 python -c 'from llava_example import prepare_dpo_preferences; print(prepare_dpo_preferences())'
@@ -101,12 +101,16 @@ committed to this repository.
 
 ## Setup
 
-The environment (unmodified NeMo RL main, nesting AutoModel r0.6.0, vLLM
-`0.25.1`, torch `2.11.0+cu130`, transformers `5.12.1`) is built from the
+The environment (NeMo RL `9a842983`, AutoModel `b916107a`, vLLM
+`0.29.0`, torch `2.13.0+cu130`, transformers `5.12.1` in the workers) is built from the
 `recipes/nemotron-stitch` directory:
 
 ```bash
-docker build -f examples/llava/Dockerfile -t llava-example .
+git clone https://github.com/NVIDIA-dev/bionemo-perception-containers.git ../bionemo-perception-containers
+git -C ../bionemo-perception-containers checkout aa831c731f30e9f7bb878e9e29c0e61848f36e1d
+docker build -f examples/Dockerfile \
+  --build-context perception=../bionemo-perception-containers \
+  -t stitch-examples .
 
 # Any GPU SKU: --gpus all exposes every device (restrict a subset with
 # --gpus '"device=0,1"'). --cap-add SYS_PTRACE is for the colocated GRPO
@@ -115,14 +119,14 @@ docker build -f examples/llava/Dockerfile -t llava-example .
 docker run -d --name llava-example --ipc=host \
   --gpus all --cap-add SYS_PTRACE \
   -v "$HOME/.cache/huggingface:/root/.cache/huggingface" \
-  -v "$PWD/examples/llava/artifacts:/opt/llava-example/artifacts" \
-  -v "$PWD/examples/llava/outputs:/opt/llava-example/outputs" \
-  llava-example
+  -v "$PWD/examples/llava/artifacts:/opt/stitch/examples/llava/artifacts" \
+  -v "$PWD/examples/llava/outputs:/opt/stitch/examples/llava/outputs" \
+  -w /opt/stitch/examples/llava stitch-examples sleep infinity
 ```
 
-The base is a public mirror of NVIDIA's NeMo RL nightly at `b03da0f4`, pinned
+The base is a public mirror of NVIDIA's NeMo RL nightly at `9a842983`, pinned
 in the Dockerfile to the AMD64 digest
-`sha256:08fd971c29f8e76f0d589bc7195104231594e859707fda6fac82388770732140`.
+`sha256:b246d90d969277441bbce418bd895c3f9a4ef5e0ab47587b6f4e0c91ad84af48`.
 The public mirror is currently AMD64, matching BioNeMo CI runners. The example
 uses the base's prebuilt
 AutoModel worker environment for preparation, alignment/SFT, and the GRPO
@@ -144,7 +148,7 @@ pinned revision:
 ```bash
 docker exec llava-example hf download nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16 \
   --revision dfaf35de3e30f1867dd8dbc38a7fc9fb52d3914f \
-  --local-dir /opt/llava-example/artifacts/models/nemotron-nano-4b-bf16
+  --local-dir /opt/stitch/examples/llava/artifacts/models/nemotron-nano-4b-bf16
 docker exec llava-example hf download openai/clip-vit-base-patch32 \
   --revision 3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268
 docker exec llava-example python -m llava_example
@@ -239,6 +243,23 @@ only through a KL spike. The worker logs `ENCODER_PROJECTOR_DRIFT` (relative
 L2 against the warm start) before every update as the direct signal; watch it
 alongside NeMo RL's reported KL.
 
+### Warm-starting GRPO from the SFT LoRA adapter
+
+Stage 3 restores stage 2's adapter tensors instead of starting from a fresh
+adapter: each GRPO model config sets
+`policy.dtensor_cfg.lora_cfg.restore_from` to the SFT checkpoint's exported
+PEFT directory and `initial_adapter_expected_config` to the donor fields the
+package's provenance gate checks before any placement group is allocated.
+NeMo RL additionally fails closed unless the donor's `adapter_config.json`
+carries this run's `lora_cfg` rank and alpha and its tensors cover exactly
+the LoRA parameters this run creates, so the GRPO `target_modules` list must
+restate the SFT donor's set verbatim — the configs do, and the exclusions on
+both sides are documented in the `sft-*.yaml` files (U-29, U-30).
+
+Warm start is an alternative to the merged-base path (fold the adapter into
+the base weights for serving, train a fresh adapter); `restore_from`
+continues the same adapter's optimization.
+
 The single-GPU GRPO configs use a resident-weight policy:
 policy and vLLM base weights stay in HBM after the mandatory
 startup handoff, vLLM gets an explicit 4 GiB KV cache, and synchronous
@@ -284,7 +305,7 @@ globally tighter bins.
 > ```bash
 > docker exec llava-example hf download Qwen/Qwen3.5-4B \
 >   --revision 851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a \
->   --local-dir /opt/llava-example/artifacts/models/qwen3.5-4b
+>   --local-dir /opt/stitch/examples/llava/artifacts/models/qwen3.5-4b
 > docker exec llava-example python -m llava_example \
 >   --output-dir outputs/data-qwen \
 >   --projector-name clip_image \
@@ -322,7 +343,7 @@ globally tighter bins.
 > ```bash
 > docker exec llava-example hf download Qwen/Qwen3.6-35B-A3B \
 >   --revision 995ad96eacd98c81ed38be0c5b274b04031597b0 \
->   --local-dir /opt/llava-example/artifacts/models/qwen3.6-35b-a3b
+>   --local-dir /opt/stitch/examples/llava/artifacts/models/qwen3.6-35b-a3b
 > docker exec llava-example python -m nemo_automodel.cli.app configs/alignment-qwen3.6-35b.yaml --nproc-per-node 1
 > docker exec llava-example python -m nemo_automodel.cli.app configs/sft-qwen3.6-35b.yaml --nproc-per-node 1
 > docker exec llava-example python -m nemotron_stitch.nemo_rl.runner --config configs/grpo-qwen3.6-35b.yaml
@@ -343,7 +364,7 @@ globally tighter bins.
 > ```bash
 > docker exec llava-example hf download nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16 \
 >   --revision b3caaabed0263651a17dc1f2d4ce97e794f76c44 \
->   --local-dir /opt/llava-example/artifacts/models/lightning-30b-bf16
+>   --local-dir /opt/stitch/examples/llava/artifacts/models/lightning-30b-bf16
 > docker exec llava-example python -m nemo_automodel.cli.app configs/alignment-lightning.yaml --nproc-per-node 1
 > docker exec llava-example python -m nemo_automodel.cli.app configs/sft-lightning.yaml --nproc-per-node 1
 > docker exec llava-example bash -c \
@@ -381,7 +402,7 @@ globally tighter bins.
 ### Projected-payload smoke check
 
 With the downloaded base snapshot available at
-`artifacts/models/nemotron-nano-4b-bf16`, run this from `/opt/llava-example`
+`artifacts/models/nemotron-nano-4b-bf16`, run this from `/opt/stitch/examples/llava`
 inside the example container:
 
 ```bash
@@ -392,24 +413,6 @@ inside the example container:
 The probe generates from random projected embeddings and checks that invalid
 feature widths and excessive token counts are rejected. `VLLM-PROJECTED-OK`
 indicates the payload checks passed; this probe does not measure model quality.
-
-## Optional candidate image
-
-The default Dockerfile uses the pinned, unmodified NeMo RL stack. To test the
-open U-41 memory fixes, build the optional overlay after building `llava-example`:
-
-```bash
-docker build -f examples/llava/Dockerfile.candidates \
-  --build-arg CANDIDATE_IMAGE=llava-example \
-  -t llava-example:rl41-candidates .
-```
-
-Run this command from `recipes/nemotron-stitch`. The overlay applies the
-[training logprob chunking PR](https://github.com/NVIDIA-NeMo/RL/pull/4114) and
-[FSDP output precision PR](https://github.com/NVIDIA-NeMo/RL/pull/4115).
-It is a candidate stack with separate qualification requirements; it does not
-change the default CI image. Delete each patch layer when the runtime pin
-includes that fix.
 
 ## Distributed Training
 
@@ -482,7 +485,7 @@ generates, with the prompt rendered byte-identically to the GRPO rollout:
 docker exec llava-example \
   /opt/ray_venvs/nemo_rl.models.generation.vllm.vllm_worker.VllmGenerationWorker/bin/python \
   scripts/infer.py --adapter outputs/grpo/checkpoints \
-    --input /opt/llava-example/outputs/my-image.jpg \
+    --input /opt/stitch/examples/llava/outputs/my-image.jpg \
     --question "How many objects are in the image?"
 ```
 
@@ -502,3 +505,47 @@ pytest examples/llava/tests            # CPU: application contracts
 LLAVA_EXAMPLE_HUB_TEST=1 pytest examples/llava/tests -k hub   # opt-in pinned-Hub check
 pyrefly check                          # types: package + this example (from the repo root)
 ```
+
+## Distributed and asynchronous Lightning GRPO
+
+The following configurations extend the Lightning control. Launch from this
+example directory on a joined Ray cluster; all nodes need the same image,
+model snapshot, prepared data, and SFT artifacts at identical paths.
+
+- [`grpo-lightning-distributed.yaml`](configs/grpo-lightning-distributed.yaml)
+  allocates one eight-GPU EP8 policy node and one eight-GPU TP1/EP8 generation
+  node, using native collective refit and grouped-weight reload.
+- [`grpo-lightning-async.yaml`](configs/grpo-lightning-async.yaml) uses the
+  native asynchronous worker with TP8/EP8 generation, importance sampling
+  correction, and trajectories at most one update old. Register its interpreter
+  with `ENCODER_GENERATION_WORKER_FQN` as shown below.
+- [`grpo-lightning-async-dp.yaml`](configs/grpo-lightning-async-dp.yaml) selects
+  TP1/DP8/EP8 async generation. It requires the external-DP async backport;
+  the default pinned CI image rejects this configuration.
+- **Unsupported pending resolution of upstream refit corruption:**
+  [`grpo-lightning-fullparam.yaml`](configs/grpo-lightning-fullparam.yaml)
+  disables LoRA and adapter restoration, starts from base Lightning weights,
+  and keeps the SFT projector frozen. It requires two eight-GPU policy nodes
+  and one eight-GPU generation node. Retain it only to reproduce the reload
+  failure; do not use it for training.
+
+```bash
+export NCCL_NVLS_ENABLE=0 NCCL_IB_DISABLE=0 OMP_NUM_THREADS=4
+python -m nemotron_stitch.nemo_rl.runner --config configs/grpo-lightning-distributed.yaml
+ENCODER_GENERATION_WORKER_FQN=nemotron_stitch.nemo_rl.vllm_worker.EncoderVllmAsyncGenerationWorker \
+  python -m nemotron_stitch.nemo_rl.runner --config configs/grpo-lightning-async.yaml
+```
+
+Dedicated generation allocations use upstream's lifecycle; keep
+`keep_vllm_on_gpu` and `keep_policy_on_gpu` false. Async engines keep vLLM's
+separate `async_scheduling: false` setting explicit on the pinned stack.
+The TP8 async configuration disables custom all-reduce after a startup failure
+in upstream qualification (U-73).
+
+Upstream's bounded two-node sync/async runs and three-node full-parameter run
+exercised finite updates and refit. They do not qualify model quality or
+checkpoint resume. Full-parameter qualification subsequently exposed native
+reload/source-storage races and corrupt outputs. See
+[`docs/upstream-gaps.md`](../../docs/upstream-gaps.md) and the
+[upstream qualification notes](https://github.com/NVIDIA-dev/nemotron-stitch/blob/ef60c9ec64f24aa11613c5e1dcba417084547e78/examples/llava/README.md#qualification-evidence)
+for candidate image requirements and the limits of those measurements.

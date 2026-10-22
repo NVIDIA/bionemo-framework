@@ -234,7 +234,7 @@ class ProjectorRecipeMixin:
             raise NotImplementedError(
                 "external encoder payloads with context parallelism need scatter-before-shard support"
             )
-        # U-15: AutoModel 24b47e8 can leave custom MoE buffers (e.g. Nemotron V3's
+        # AutoModel 24b47e8 can leave custom MoE buffers (e.g. Nemotron V3's
         # e_score_correction_bias) on CPU while parameters land on CUDA: the
         # single-rank path skips parallelization, and the PEFT path forces the
         # post-shard init load ("load-before-shard" is explicitly skipped for

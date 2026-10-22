@@ -8,8 +8,8 @@
 #
 #   ownership/trainability — the projector must be module-owned to train:
 #     sidecar parameters are invisible to the module tree, so torch DCP cannot
-#     save their optimizer state and FSDP2 never manages their gradients
-#     during backward. The worker re-enables gradients
+#     save their optimizer state and FSDP2 never manages their gradients.
+#     The worker re-enables gradients
 #     after AutoModel's post-wrap PEFT freeze and appends one optimizer group
 #     (policy.projector_lr; SFT trained the projector at 1e-4, LoRA trains at
 #     1e-6 — the projector rides between them).

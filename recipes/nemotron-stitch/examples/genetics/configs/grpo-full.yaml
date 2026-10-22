@@ -1,0 +1,11 @@
+# Full decoder GRPO; the SFT projectors stay frozen.
+defaults:
+- grpo.yaml
+policy:
+  dtensor_cfg:
+    lora_cfg:
+      enabled: false
+logger:
+  log_dir: outputs/grpo-full/logs
+checkpointing:
+  checkpoint_dir: outputs/grpo-full/checkpoints

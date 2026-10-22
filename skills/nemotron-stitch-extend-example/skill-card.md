@@ -15,8 +15,11 @@ NVIDIA
 
 Locate a compatible BioNeMo Recipes checkout, identify the application-owned
 encoder, data, and prompt boundaries, and build a small example with explicit
-training and artifact handoffs. Keep the upstream-gap reference limited to open
-framework issues explicitly cited in the recipe source.
+training and artifact handoffs. Use the genetics and chemistry examples for
+typed domain chats, YAML-owned encoder settings, native-processor checkpoint
+saves, worker serialization, isolated GRPO checkpoint paths, bounded SFT
+checkpoint retention, and packed full decoder training. Keep the upstream-gap reference limited to substantive open
+custom-modality integration gaps with evidence and a deletion condition.
 
 ## Requirements / Dependencies
 
@@ -33,6 +36,10 @@ credentials depend on the requested example.
   pins before applying the snapshot's topology or scheduler guidance.
 - Encoder features and prompt slots can be misaligned: validate token geometry,
   masking, trainability, and artifact handoffs using the recipe tests.
+- Tiny packed datasets can leave distributed samplers empty: use the documented
+  repeated manifest view and explicit `--` CLI bounds for sanity runs.
+- LLaVA full-parameter Lightning reload remains unsupported pending resolution of upstream refit corruption: keep
+  its configuration for failure reproduction and do not use it for training.
 - Smoke checks do not measure model quality: report quality results with the
   dataset split, hardware, training budget, checkpoint, and metric definition.
 
@@ -50,7 +57,7 @@ results in the selected recipe checkout.
 ## Evaluation Tasks
 
 Declarative cases cover a supplied checkout, an independently installed skill,
-and joint projector GRPO constraints. Automated tests check release packaging,
+joint projector GRPO constraints, and domain-example selection. Automated tests check release packaging,
 checkout reference paths, and evaluation-case structure.
 
 ## Evaluation Results
