@@ -23,6 +23,8 @@
 import logging
 import shlex
 import subprocess
+import sys
+from threading import Thread
 from typing import Any, Dict
 
 
@@ -30,11 +32,11 @@ logger = logging.getLogger(__name__)
 
 
 def run_subprocess_safely(command: str, timeout: int = 2000) -> Dict[str, Any]:
-    """Run a subprocess and raise an error if it fails.
+    """Run a subprocess with live output and return its result or error details.
 
     Args:
         command: The command to run.
-        timeout: The timeout for the command.
+        timeout: Maximum runtime in seconds; timed-out processes are killed and reaped.
 
     Returns:
         The result of the subprocess.
@@ -53,58 +55,36 @@ def run_subprocess_safely(command: str, timeout: int = 2000) -> Dict[str, Any]:
         stdout_lines = []
         stderr_lines = []
 
-        # Read output in real-time
-        import select
-        import sys
+        # Drain both pipes concurrently so a partial line or a full pipe cannot
+        # prevent the main thread from enforcing the process timeout.
+        def stream_output(pipe, lines, destination):
+            try:
+                for line in pipe:
+                    lines.append(line)
+                    print(line.rstrip(), file=destination, flush=True)
+            finally:
+                pipe.close()
 
-        while True:
-            # Use select to check for available output (Unix/Linux/Mac only)
-            if hasattr(select, "select"):
-                ready, _, _ = select.select([process.stdout, process.stderr], [], [], 0.1)
+        readers = [
+            Thread(target=stream_output, args=(process.stdout, stdout_lines, sys.stdout)),
+            Thread(target=stream_output, args=(process.stderr, stderr_lines, sys.stderr)),
+        ]
+        for reader in readers:
+            reader.start()
 
-                if process.stdout in ready:
-                    line = process.stdout.readline()
-                    if line:
-                        stdout_lines.append(line)
-                        print(line.rstrip(), file=sys.stdout, flush=True)
-
-                if process.stderr in ready:
-                    line = process.stderr.readline()
-                    if line:
-                        stderr_lines.append(line)
-                        print(line.rstrip(), file=sys.stderr, flush=True)
-            else:
-                # Fallback for Windows - read with timeout
-                try:
-                    stdout_data, stderr_data = process.communicate(timeout=0.1)
-                    if stdout_data:
-                        stdout_lines.extend(stdout_data.splitlines(keepends=True))
-                        print(stdout_data.rstrip(), file=sys.stdout, flush=True)
-                    if stderr_data:
-                        stderr_lines.extend(stderr_data.splitlines(keepends=True))
-                        print(stderr_data.rstrip(), file=sys.stderr, flush=True)
-                    break
-                except subprocess.TimeoutExpired:
-                    pass
-
-            # Check if process has finished
-            if process.poll() is not None:
-                # Read any remaining output
-                remaining_stdout, remaining_stderr = process.communicate()
-                if remaining_stdout:
-                    stdout_lines.extend(remaining_stdout.splitlines(keepends=True))
-                    print(remaining_stdout.rstrip(), file=sys.stdout, flush=True)
-                if remaining_stderr:
-                    stderr_lines.extend(remaining_stderr.splitlines(keepends=True))
-                    print(remaining_stderr.rstrip(), file=sys.stderr, flush=True)
-                break
-
-        # Check for timeout
         try:
             process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             process.kill()
-            raise
+            process.wait()
+            for reader in readers:
+                reader.join()
+            raise subprocess.TimeoutExpired(
+                command, timeout, output="".join(stdout_lines), stderr="".join(stderr_lines)
+            ) from None
+        finally:
+            for reader in readers:
+                reader.join()
 
         # Check return code
         if process.returncode != 0:
