@@ -118,18 +118,23 @@ def test_example_readme_and_script_copy(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert copied_docs == [Path("main/examples/demo/examples/index.md")]
 
 
+@pytest.mark.parametrize(
+    ("filename", "contents"),
+    [("default-settings.yaml", "temperature: 1.0\n"), ("data/sanity.jsonl", '{"sample_id": "one"}\n')],
+)
 def test_example_support_file_is_copied_next_to_generated_readme(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, filename: str, contents: str
 ) -> None:
     """Linked example configuration must exist beside its generated documentation."""
     source_dir = tmp_path / "examples"
     source_dir.mkdir()
     (source_dir / "README.md").write_text(
-        "[configuration](default-settings.yaml)\n",
+        f"[support file]({filename})\n",
         encoding="utf-8",
     )
-    settings = source_dir / "default-settings.yaml"
-    settings.write_text("temperature: 1.0\n", encoding="utf-8")
+    settings = source_dir / filename
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    settings.write_text(contents, encoding="utf-8")
     generated_root = tmp_path / "generated"
 
     def open_generated(path: Path, mode: str):
@@ -149,8 +154,8 @@ def test_example_support_file_is_copied_next_to_generated_readme(
         "copied",
     )
 
-    generated_settings = generated_root / "main/examples/demo/examples/default-settings.yaml"
-    assert generated_settings.read_text(encoding="utf-8") == "temperature: 1.0\n"
+    generated_settings = generated_root / "main/examples/demo/examples" / filename
+    assert generated_settings.read_text(encoding="utf-8") == contents
     assert copied_docs == [Path("main/examples/demo/examples/index.md")]
 
 

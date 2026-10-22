@@ -46,6 +46,7 @@ SUPPORT_FILE_SUFFIXES = {
     ".jpeg",
     ".jpg",
     ".json",
+    ".jsonl",
     ".png",
     ".py",
     ".sh",
