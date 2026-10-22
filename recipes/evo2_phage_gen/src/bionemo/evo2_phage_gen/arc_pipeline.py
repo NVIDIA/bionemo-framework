@@ -638,6 +638,40 @@ def _apply_lovis4u_runtime_patches(output_dir: Path) -> None:
     visualization_path.write_text(text)
 
 
+def _apply_final_arc_contract_patch(output_dir: Path) -> None:
+    """Add original ARC gates after the existing physical-ORF AAI, core and safety gates."""
+    path = output_dir / "genome_design_filtering_pipeline.py"
+    text = path.read_text()
+    anchor = (
+        '    print(f"Completed genome design filtering pipeline. Final number of candidates: {len(filtered_df)}.")'
+    )
+    hook = """    if config.get("final_arc_contract"):
+        from bionemo.evo2_phage_gen.arc_final_filters import apply_arc_final_filters
+        filtered_df, final_arc = apply_arc_final_filters(filtered_df, config)
+        for row in final_arc["gate_order"]:
+            filter_counts["count_arc_reference_" + row["gate"]] = row["remaining"]
+        filter_counts.to_csv(f'{config["results_save_dir"]}/{config["synteny_filter_counts_file_save_location"]}', index=False)
+        filtered_df.to_csv(f'{config["results_save_dir"]}/{config["synteny_filter_seqs_csv_file_save_location"]}', index=False)
+        save_df_as_fasta(filtered_df, f'{config["results_save_dir"]}/{config["synteny_filter_seqs_fasta_file_save_location"]}')
+
+"""
+    if hook in text:
+        return
+    if text.count(anchor) != 1:
+        raise ValueError("Expected one final completion marker for the independent ARC contract")
+    text = text.replace(anchor, hook + anchor)
+    visualize = "        ### Visualize genome annotations ###\n        if len(filtered_df) > 0:"
+    if visualize not in text:
+        raise ValueError("Expected the adapted annotation visualization stage")
+    # Core-function scoring consumes PHROG hits. Its pruned reference is not the
+    # original ARC reference; the final stage performs independent LoVis clustering.
+    text = text.replace(
+        visualize,
+        '        ### Visualize genome annotations ###\n        if len(filtered_df) > 0 and not (config.get("final_arc_contract") and config.get("core_gene_reference_functions")):',
+    )
+    path.write_text(text)
+
+
 def prepare_arc_pipeline_workdir(
     source_dir: Path = DEFAULT_ARC_PIPELINE_SOURCE_DIR,
     output_dir: Path = DEFAULT_ARC_PIPELINE_WORKDIR,
@@ -698,6 +732,7 @@ def prepare_arc_pipeline_workdir(
     _apply_synteny_metrics_patch(output_dir)
     _apply_aai_evidence_patch(output_dir)
     _apply_lovis4u_runtime_patches(output_dir)
+    _apply_final_arc_contract_patch(output_dir)
     return written_paths
 
 

@@ -62,6 +62,16 @@ _ARC_WATERFALL_COLUMNS = (
     "count_required_genes_filter",
     "count_syntenic_gene_count_filter",
     "count_sequence_safety_filter",
+    "count_arc_reference_valid_nt_chars",
+    "count_arc_reference_valid_genome_len",
+    "count_arc_reference_valid_gc_content",
+    "count_arc_reference_valid_nt_homopolymer_len",
+    "count_arc_reference_arc_seven_protein_hits",
+    "count_arc_reference_arc_tropism",
+    "count_arc_reference_arc_aai",
+    "count_arc_reference_physical_aai_reconfirmed",
+    "count_arc_reference_arc_synteny",
+    "count_arc_reference_syntenic_diversity",
 )
 _WORKFLOW_ORDER = (
     "raw_generation",
@@ -274,6 +284,19 @@ def summarize_arc_screen(
         },
         "limitations": "This branch is computational hard-QC evidence, not proof of bootability or viability.",
     }
+    if config.get("final_arc_contract"):
+        final_summary_path = results_dir / "arc_reference_filters/summary.json"
+        final_summary = json.loads(final_summary_path.read_text())
+        if (
+            final_summary.get("state") != "succeeded"
+            or final_summary.get("contract") != config["final_arc_contract"]
+            or final_summary.get("passed_observations") != final_count
+        ):
+            raise ValueError("Final-filter contract summary disagrees with the completed Arc branch")
+        # Embed alternative-route counts in the target report and final rollout
+        # evidence without treating overlapping categories as sequential filters.
+        report["final_filter_contract"] = final_summary
+        report["artifacts"]["final_filter_summary"] = str(final_summary_path.resolve())
     output_json.parent.mkdir(parents=True, exist_ok=True)
     output_json.write_text(json.dumps(report, indent=2) + "\n")
     return output_json
@@ -675,6 +698,18 @@ def finalize_rollout_report(
         ]
     else:
         accepted_ids = sorted(cluster_representatives, key=generation_order.__getitem__)
+    accepted_scores = [
+        float(score_by_id[record_id]["mean_log_probability_per_nucleotide"]) for record_id in accepted_ids
+    ]
+    accepted_score_summary = {
+        "population": "accepted_cluster_representatives",
+        "weighting": "one_per_cluster",
+        "score": "mean_log_probability_per_nucleotide",
+        "n": len(accepted_scores),
+        "mean": sum(accepted_scores) / len(accepted_scores) if accepted_scores else None,
+        "min": min(accepted_scores) if accepted_scores else None,
+        "max": max(accepted_scores) if accepted_scores else None,
+    }
     accepted_rank_by_id = {record_id: index for index, record_id in enumerate(accepted_ids, start=1)}
     likelihood_rank_by_id = {str(row["record_id"]): index for index, row in enumerate(score_rows, start=1)}
 
@@ -755,6 +790,7 @@ def finalize_rollout_report(
             "accepted_cluster_representatives": str(Path(accepted_fasta).resolve()),
         },
         "counts": counts,
+        "accepted_score_summary": accepted_score_summary,
         "ranking": {
             "score": "mean_log_probability_per_nucleotide",
             "conditioning_prefix": "+~",

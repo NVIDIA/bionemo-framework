@@ -1319,6 +1319,7 @@ PY
     note "Arc CheckV database: ${CHECKVDB}"
     note "Arc screening working directory: ${repo_root}"
     note 'Arc internal MMseqs clustering disabled; final 99% identity/95% coverage clustering follows safety and hard QC'
+    note 'Independent ARC filters 1-6,8,9 follow nine-core and safety; original ARC synteny is separate from core conservation'
   fi
 
   write_arc_rollout_config() {
@@ -1359,6 +1360,8 @@ config.update({
     "mmseqs_clustering_filter": False,
     # Filter 7 removes near-reference landmark scores only in the diagnostic branch.
     "genetic_architecture_remove_filter": remove_filter,
+    "final_arc_contract": "arc-circular-aai-syntenic-diversity-plus-nine-core-safety-v3",
+    "final_arc_workers": 8,
     # Upstream stage name for synteny, required-function, and AAI measurements.
     "genetic_architecture_visualization_and_synteny_filtering": True,
     "use_reference_genome": True,

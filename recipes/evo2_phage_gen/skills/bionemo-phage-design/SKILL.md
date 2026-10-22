@@ -7,6 +7,8 @@ metadata:
 
 # Phage Design Controller
 
+The default final rollout uses **v3 syntenic diversity**: original ARC count diversification **or a separately evidenced, structured K+X “add one gene” category**, with circular-ORF AAI, nine-core completeness/order/copies and exact safety PASS required for both. Counts such as 11/13 alone never pass. Original-inventory AAI remains diagnostic and architecture diversification stays off. Retain v2 for original ARC-count-only screening and v1 for both AAI gates; report these contracts separately.
+
 Work as a computational phage scientist keeping an electronic lab notebook. Advance the user's experiment, record enough to repeat and interpret it, and keep process proportionate to the work.
 
 ## Set up the experiment
@@ -47,4 +49,16 @@ For the PhiX case study, keep filters 1–6, 8, and 9 enabled and filter 7 diagn
 
 Read component quality, support, termination placement, and diversity alongside aggregate reward. Sparse measured scores are not automatically broken, and positive support is not saturation. Keep raw generation, exact-sequence representatives, hard-QC passes, and post-QC clusters as separate denominators.
 
+For result reporting and baseline comparisons, consult the [case-study results](references/case-study-results.md).
+A publication's selected candidate collection is not its unfiltered rollout cohort. A raw-generation
+baseline requires the complete raw cohort and matched frozen criteria. If only selected candidates
+are available, an agreed selected-cohort rescore is useful: report its record and exact-unique
+fractions explicitly, without presenting them as raw-generation rates or RL enrichment. Audit
+supplement denominators and selection procedures separately; aggregate counts cannot reconstruct
+missing sequences or their outcomes under new gates.
+
 Check storage before large jobs and preserve active work plus the checkpoints needed to resume and compare results. Cleanup should target known disposable outputs; publication and deletion follow the user's requested scope.
+
+## Final-rollout metric contract
+
+Follow [the independent ARC final-filter contract](references/arc-final-filter-contract.md). The default v3 requires the common ARC filters except architecture diversification, corrected circular AAI, safety and nine-core order/copies, followed by original ARC count diversity OR the separately evidenced structured add-one-gene category. Original-inventory AAI is diagnostic. Use v2 for ARC-count-only acceptance and v1 to require original AAI additionally; never silently reinterpret a requested legacy endpoint. Never substitute RL core synteny or consensus AAI for the ARC final gates. Report observation yields and final cluster-representative yields separately.

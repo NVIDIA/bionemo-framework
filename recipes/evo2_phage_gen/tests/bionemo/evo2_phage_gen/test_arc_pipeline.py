@@ -139,17 +139,19 @@ def run_mmseqs_search_proteins(query_fasta: str, mmseqs_db: str, results_dir: st
 
 
 @pytest.mark.parametrize(
-    ("online", "filter7", "empty_at"),
+    ("online", "filter7", "empty_at", "final_contract"),
     [
-        (False, False, None),
-        (False, True, None),
-        (True, False, None),
-        (False, True, "required"),
-        (False, True, "core_gene_ordered_conservation"),
-        (False, True, "safety"),
+        (False, False, None, False),
+        (False, True, None, False),
+        (True, False, None, False),
+        (False, True, "required", False),
+        (False, True, "core_gene_ordered_conservation", False),
+        (False, True, "safety", False),
+        (False, False, None, True),
+        (False, False, "safety", True),
     ],
 )
-def test_final_gate_order(tmp_path, online, filter7, empty_at):
+def test_final_gate_order(tmp_path, online, filter7, empty_at, final_contract, monkeypatch):
     """Exercise emitted stage dataflow: biology and safety before novelty, with RL unfiltered."""
     if not DEFAULT_ARC_PIPELINE_SOURCE_DIR.exists() or not DEFAULT_PHIX174_FASTA.exists():
         pytest.skip("Arc source assets are not available")
@@ -174,6 +176,8 @@ def test_final_gate_order(tmp_path, online, filter7, empty_at):
         genetic_architecture_visualization_and_synteny_filtering=True,
         genetic_architecture_remove_filter=filter7,
     )
+    if final_contract:
+        config["final_arc_contract"] = "arc-1-6-8-9-plus-nine-core-safety-v1"
     sequences = ["AAAA", "AAAC", "AAAG", "AAAT", "AACA", "AACC", "AACG"]
     ids = ["keep", "high_aai", "missing_gene", "wrong_order", "unsafe", "unknown_safety", "filter7"]
     rows = pd.DataFrame({"id_prompt": ids, "sequence": sequences})
@@ -245,39 +249,52 @@ def test_final_gate_order(tmp_path, online, filter7, empty_at):
     def save_fasta(df, path):
         Path(path).write_text("".join(f">{row.id_prompt}\n{row.sequence}\n" for row in df.itertuples()))
 
-    namespace = dict(
-        config=config,
-        pd=pd,
-        os=os,
-        shutil=shutil,
-        online_measurement_mode=online,
-        filtered_df=rows.copy(),
-        seq_df=rows.copy(),
-        seq_fasta=str(original),
-        filter_counts=counts,
-        annotate_protein_hits=no_op,
-        batch_create_gff_files=no_op,
-        batch_convert_gff_to_gbk=no_op,
-        add_genome_id_mapping=add_mapping,
-        valid_gene_annotations=required,
-        run_lovis4u_in_conda_env=no_op,
-        count_syntenic_genes_all=no_op,
-        count_total_num_genes=no_op,
-        valid_syntenic_gene_count=synteny,
-        calculate_average_protein_percent_identity=no_op,
-        valid_average_protein_percent_identity=aai,
-        save_df_as_fasta=save_fasta,
-        valid_genetic_architecture_score=remove_architecture,
-        ga=SimpleNamespace(
+    def independent_arc(df, passed_config):
+        assert passed_config["final_arc_contract"]
+        calls.append(("independent_arc", df.id_prompt.tolist()))
+        result = df[df.id_prompt == "keep"].copy()
+        return result, {"gate_order": [{"gate": "arc_synteny", "remaining": len(result)}]}
+
+    monkeypatch.setattr("bionemo.evo2_phage_gen.arc_final_filters.apply_arc_final_filters", independent_arc)
+
+    namespace = {
+        "config": config,
+        "pd": pd,
+        "os": os,
+        "shutil": shutil,
+        "online_measurement_mode": online,
+        "filtered_df": rows.copy(),
+        "seq_df": rows.copy(),
+        "seq_fasta": str(original),
+        "filter_counts": counts,
+        "annotate_protein_hits": no_op,
+        "batch_create_gff_files": no_op,
+        "batch_convert_gff_to_gbk": no_op,
+        "add_genome_id_mapping": add_mapping,
+        "valid_gene_annotations": required,
+        "run_lovis4u_in_conda_env": no_op,
+        "count_syntenic_genes_all": no_op,
+        "count_total_num_genes": no_op,
+        "valid_syntenic_gene_count": synteny,
+        "calculate_average_protein_percent_identity": no_op,
+        "valid_average_protein_percent_identity": aai,
+        "save_df_as_fasta": save_fasta,
+        "valid_genetic_architecture_score": remove_architecture,
+        "ga": SimpleNamespace(
             phix174_truth_matrix_blurred_sigma5=None,
             phix174_weight_vector=None,
             phix174_normalization_vector_blurred_sigma5=None,
         ),
-    )
+    }
     exec(compile(ast.Module(body=main.body[first:], type_ignores=[]), str(workdir), "exec"), namespace)
     observed = dict(calls)
     assert observed["required"] == ids
-    if online:
+    if final_contract:
+        assert observed["independent_arc"] == ([] if empty_at else ["keep", "filter7"])
+        if not empty_at:
+            assert observed["aai"] == ["keep", "high_aai", "filter7"]
+        expected = [] if empty_at else ["keep"]
+    elif online:
         assert observed["core_gene_ordered_conservation"] == ids
         assert observed["aai"] == ids
         expected = ids
@@ -301,7 +318,9 @@ def test_final_gate_order(tmp_path, online, filter7, empty_at):
     assert final_counts.iloc[0, -1] == len(expected)
     if not online and not empty_at:
         assert final_counts.loc[0, "count_sequence_safety_filter"] == 3
-        assert final_counts.columns[-1] == "count_average_protein_sequence_identity_filter"
+        assert final_counts.columns[-1] == (
+            "count_arc_reference_arc_synteny" if final_contract else "count_average_protein_sequence_identity_filter"
+        )
 
 
 def test_online_measurement_patch_rejects_missing_gbk_conversion_anchor(tmp_path):
@@ -801,7 +820,7 @@ def count_total_num_genes(gff_directory, results_csv):
         return hits
 
     module.run_mmseqs_search_proteins = search
-    member_options = dict(identity_database="individual-proteins", query_fasta="called-orfs.faa")
+    member_options = {"identity_database": "individual-proteins", "query_fasta": "called-orfs.faa"}
 
     module.valid_average_protein_percent_identity(
         str(tmp_path / "gff"),

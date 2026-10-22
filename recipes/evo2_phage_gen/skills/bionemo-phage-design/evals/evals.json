@@ -2,6 +2,22 @@
   "skill_name": "bionemo-phage-design",
   "evals": [
     {
+      "id": "bionemo-phage-design-005-baseline-cohorts",
+      "prompt": "Update the documented step-400 10k comparison using ARC's released 302 selected candidates and the Science supplement; I do not have the full raw rollouts. What does the completed matched rescore show, and can it support the previous 15/110,000 baseline or an RL enrichment ratio?",
+      "expected_output": "An evidence-backed selected-cohort comparison with the completed rescore, corrected supplement denominators, and explicit limits on raw-generation inference.",
+      "assertions": [
+        "It reports 33/10,000 target passes, 10 separate filter-7 diagnostic passes and 8 post-QC clusters for the frozen step-400 evaluation, not for the live trainer's final best checkpoint.",
+        "It distinguishes 9,435 exact linear representatives and 5,831 pre-AAI biological/safety survivors from the raw denominator.",
+        "It reports 15/302 selected-record target passes, 15/296 unique-sequence passes, 5 separate filter-7 diagnostic passes and 15 post-QC clusters; lineage counts are 4/244 Evo 1 and 11/58 Evo 2 selected records.",
+        "It distinguishes the 715,763 generations summed across nine synthesis pools in Science Fig. S7C from the nominal 110k SFT sweep, and does not preserve the unsupported 15/110,000 attribution.",
+        "It permits an explicitly agreed selected-cohort rescore using matched frozen criteria/assets, but does not infer an unfiltered pass rate from selected candidates or aggregate generation counts.",
+        "It makes no controlled RL enrichment or experimental viability claim and keeps model/sampling differences explicit.",
+        "It labels the historical target results as adapted core-conservation results, not measured original-ARC synteny/count acceptance."
+      ],
+      "expected_skill": "bionemo-phage-design",
+      "expected_script": null
+    },
+    {
       "id": "bionemo-phage-design-004-quick-e2e",
       "prompt": "Run a quick real PhiX E2E check in the current Dockerfile container, including SFT, RL and final screening. Use very few steps and generations, keep biological rules unchanged, and fix execution bugs until all artifacts exist.",
       "expected_output": "An opt-in quick E2E execution and artifact audit, not a scientific qualification claim.",
@@ -48,6 +64,52 @@
         "The response defaults output and mutable scope to complete genomes and asks before any material scope reduction.",
         "It covers adsorption and entry, defense and counter-defense, replication, morphogenesis and packaging, lysis and progeny, viable-reference support, and intended-use safety.",
         "It defines the desired host direction, including target gain and any original-host retention or off-target avoidance."
+      ],
+      "expected_skill": "bionemo-phage-design",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-006-arc-final-contract",
+      "prompt": "Evaluate a saved PhiX rollout using all ARC filters except architecture, plus safety and nine-core conservation. The RL core score is 1 and logged natural-protein AAI is below 95%. Can these scores replace the original ARC gates, and how should duplicate removal and score reporting work?",
+      "expected_output": "Use the independent ARC final contract, add core and exact safety PASS, and distinguish observation yields from final cluster-representative yields.",
+      "assertions": [
+        "It uses final_arc_contract arc-1-6-8-9-circular-aai-plus-nine-core-safety-v2 for final screening and keeps the online scorer separate.",
+        "It requires >=7 natural-protein hit-bearing ORFs, mean natural-member best-hit-per-ORF AAI <=95%, and original LoVis count-pair diversification excluding (11,11), plus nine-core order/copies and exact safety PASS.",
+        "It preserves the original 11-feature ARC reference and ORF inventory for count diversification, uses physical circular-ORF AAI for acceptance, and records original-inventory AAI as a diagnostic; it does not claim exact gene annotation or add A* silently.",
+        "It applies 99%-identity/95%-coverage clustering after QC and computes representative-level score summaries only on retained IDs."
+      ],
+      "expected_skill": "bionemo-phage-design",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-007-add-one-gene",
+      "prompt": "Update the default PhiX final rollout to accept the original ARC synteny count rule or a well-structured add-one-gene K+X category. Two samples have ARC counts 11/13. Is that count enough, and how should the categories be reported?",
+      "expected_output": "Use explicit v3 with separately evidenced add-one-gene acceptance and preserved legacy ARC count decisions.",
+      "assertions": [
+        "It names arc-circular-aai-syntenic-diversity-plus-nine-core-safety-v3 and preserves v1/v2 reproduction.",
+        "It never admits 11/13 on counts alone; it requires available native ORF evidence for exactly one eligible full K and one full X outside K and the core, with no accessory duplicates or excess types.",
+        "It keeps circular AAI, nine-core completeness/order/copies, safety and all common ARC gates required for both routes.",
+        "It reports original ARC-count pass, add-one-gene pass, overlap, add-only and union counts with per-sample categories and X-family/ORF evidence; it clusters the union only after all gates."
+      ],
+      "expected_skill": "bionemo-phage-design",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-arc302-waterfall",
+      "prompt": "Which filters remove ARC's ordered designs, why is our length window narrower than ARC's paper, and did the two full passers boot?",
+      "expected_output": "A selected-cohort waterfall with length provenance, measured-only attribution and experimental labels.",
+      "assertions": [
+        "Reports 296 \u2192 198 \u2192 149 \u2192 59 \u2192 58 \u2192 58 \u2192 15 \u2192 2 and distinguishes 302 ordered records from 296 unique sequences.",
+        "Reports length losses of 40 short and 58 long, nine-core completeness losses of 90, and zero safety exclusions.",
+        "Distinguishes our heuristic 5,306\u20135,730 nt from the published 4\u20136 kb, acknowledges weak lower-bound justification and does not call 5,730 a universal viability ceiling.",
+        "Explains the 49 G-stage exclusions involve the added 95% reciprocal-coverage requirement, not identity alone.",
+        "Reports both final passers as nonviable and distinguishes novelty rejection from predicted nonviability; does not infer generation yields.",
+        "When assessing boot enrichment among circular-AAI passers, holds length and G gates fixed and excludes count/K+X diversification; reports core-pass 1 viable-labeled plus 14 nonviable versus core-fail 0 plus 48, excluding one failed synthesis.",
+        "Attributes the observed 1/63 to 1/15 change to core completeness; does not claim an independently demonstrated order/copy or safety benefit.",
+        "Describes the sole positive as requiring acquired mutations, with no unchanged boot success in either AAI-passing group; calls the evidence suggestive rather than proven enrichment.",
+        "Reports all 16 viable-labeled ARC inputs above the 5,306-nt minimum; shortest successful input 5,349 nt, labeled viable without acquired mutations.",
+        "Reports zero boot successes among 38 tested unique designs below 5,306 nt, excluding two synthesis failures; one of 22 at 5,306\u20135,385 nt booted.",
+        "Distinguishes small viable-genome deletions from the approximately 4,228-nt in-vitro packaging result; neither establishes the exact 5,306-nt viability boundary."
       ],
       "expected_skill": "bionemo-phage-design",
       "expected_script": null

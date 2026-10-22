@@ -1,5 +1,9 @@
 # PhiX174 whole-genome example on 8×H100
 
+The default final rollout uses **v3 syntenic diversity**: original ARC count diversification **or a separately evidenced, structured K+X “add one gene” category**, with circular-ORF AAI, nine-core completeness/order/copies and exact safety PASS required for both. Counts such as 11/13 alone never pass. Original-inventory AAI remains diagnostic and architecture diversification stays off. Retain v2 for original ARC-count-only screening and v1 for both AAI gates; report these contracts separately.
+
+The final-rollout acceptance contract is [ARC filters with circular-AAI correction, architecture off, plus safety and nine-core conservation](../skills/bionemo-phage-design/references/arc-final-filter-contract.md). Historical adapted-core results do not measure the original ARC synteny/count endpoint.
+
 [`phix174_8xh100.sh`](phix174_8xh100.sh) prepares public inputs, performs supervised fine-tuning
 (SFT), and optimizes the model with [GDPO](https://arxiv.org/abs/2601.05242), a multi-reward
 reinforcement learning (RL) method. It then generates a rollout of 1,000 complete genomes and
@@ -19,24 +23,19 @@ The end-to-end run takes approximately 4 days on a server with 8 H100 GPUs, and 
 
 ## Latest completed PhiX174 result
 
-The 8×H100 rerun completed on 2026-08-24:
+The fresh cosine **`fea26289` step-900** rollout completed current v3 screening on
+**2026-10-22**: **355/10,000 (3.55%)** pass all per-genome gates, yielding **16 final cluster
+representatives**. The 355 passers comprise 351 ARC-count passes and four K+X-only passes; the separate
+filter-7 diagnostic passes 27. See the [current results](../README.md#frozen-rollout-results)
+for the comparison and [case-study notes](../skills/bionemo-phage-design/references/case-study-results.md)
+for artifact provenance and historical screening versions.
 
-| Final-rollout denominator                                  |       Count |
-| ---------------------------------------------------------- | ----------: |
-| Raw generated and SFT-likelihood scored                    |       1,000 |
-| Representatives retained before hard QC                    |       1,000 |
-| Submitted to safety / excluded by pre-safety QC            |     991 / 9 |
-| Safety PASS / FAIL / INDETERMINATE                         | 989 / 0 / 2 |
-| Safety-PASS target hard-QC representatives                 |         513 |
-| Post-QC 99%-identity clusters and accepted representatives |         511 |
-
-The denominators proceed from raw generation through biological deduplication, safety screening,
-and target hard QC, then post-QC clustering. Likelihood is a within-protocol ranking signal; these
-computational candidates are not evidence of bootability or wet-lab safety. See the
-[case-study notes](../skills/bionemo-phage-design/references/case-study-results.md) for historical context.
-
-The current launcher starts a new `results/phix174-8xh100-origin` result root. Its reward and
-sampling settings have changed since that completed run; the table is historical evidence.
+This follow-up used one GB300, BF16, seed 12, generation batch 64, likelihood microbatch 8,
+temperature 1, top-k 5, top-p 1, and 5,000 origin-aligned prompts each of 16 and 24 nucleotides.
+The launcher still defaults to 1,000 final generations; the follow-up does not change that default.
+The historical step-400 result of 33 passes / eight clusters omitted the v3 diversification gate
+and must not be presented as the current endpoint. ARC's 302 ordered designs are a selected
+publication cohort, not an unfiltered generation baseline.
 
 ## Quick start
 

@@ -23,6 +23,7 @@ import pandas as pd
 import pytest
 import yaml
 from Bio import SeqIO
+from Bio.Seq import Seq
 
 from bionemo.evo2_phage_gen import protein_evidence
 
@@ -190,6 +191,60 @@ def test_pseudocircular_filter_removes_a_prefix_tail_repeated_by_a_cross_origin_
     protein_evidence.remove_pseudocircular_extension_orfs(source, nucleotide_orfs, protein_orfs)
 
     assert [record.id for record in SeqIO.parse(protein_orfs, "fasta")] == ["genome_ORF.2", "genome_ORF.3"]
+
+
+def test_circular_tail_keeps_distinct_locus(tmp_path):
+    """Two real ORFs can share a peptide suffix but have different circular stops."""
+    sequence = "ATGTAAAATGTAA" + "C" * 42 + "ATGAA"
+    assert len(sequence) == 60
+    extended = sequence + sequence[:13]
+    source = tmp_path / "source.fasta"
+    source.write_text(f">genome\n{sequence}\n")
+    nucleotide_orfs = tmp_path / "orfs.fasta"
+    protein_orfs = tmp_path / "proteins.fasta"
+    nt_lines, aa_lines = [], []
+    for index, (start, end) in enumerate(((0, 6), (55, 73)), start=1):
+        dna = extended[start:end]
+        peptide = str(Seq(dna).translate(table=11, cds=True))
+        header = f">genome_ORF.{index} [{start}-{end}](+) type:complete length:{end - start}"
+        nt_lines.extend((header, dna))
+        aa_lines.extend((header, peptide))
+    nucleotide_orfs.write_text("\n".join(nt_lines) + "\n")
+    protein_orfs.write_text("\n".join(aa_lines) + "\n")
+    assert aa_lines[3].endswith(aa_lines[1])
+    protein_evidence.remove_pseudocircular_extension_orfs(source, nucleotide_orfs, protein_orfs)
+    assert [record.id for record in SeqIO.parse(protein_orfs, "fasta")] == ["genome_ORF.1", "genome_ORF.2"]
+    assert [record.id for record in SeqIO.parse(nucleotide_orfs, "fasta")] == ["genome_ORF.1", "genome_ORF.2"]
+
+
+@pytest.mark.parametrize("outer_start,outer_strand", [(7, "+"), (6, "-")])
+def test_circular_tail_requires_frame_and_strand(tmp_path, outer_start, outer_strand):
+    """Identical peptide strings and stop positions alone do not prove one locus."""
+    source = tmp_path / "source.fasta"
+    source.write_text(">genome\nATGTAAATGAAA\n")
+    nucleotide_orfs = tmp_path / "orfs.fasta"
+    protein_orfs = tmp_path / "proteins.fasta"
+    headers = [">genome_ORF.1 [0-6](+)", f">genome_ORF.2 [{outer_start}-18]({outer_strand})"]
+    nucleotide_orfs.write_text(f"{headers[0]}\nATGTAA\n{headers[1]}\nATGAAAATGTAA\n")
+    protein_orfs.write_text(f"{headers[0]}\nM\n{headers[1]}\nMKM\n")
+    protein_evidence.remove_pseudocircular_extension_orfs(source, nucleotide_orfs, protein_orfs)
+    assert len(list(SeqIO.parse(protein_orfs, "fasta"))) == 2
+
+
+def test_reference_tail_keeps_distinct_locus(tmp_path):
+    """The reference cleanup must use the same physical-locus rule as candidates."""
+    sequence = "ATGTAAAATGTAA" + "C" * 42 + "ATGAA"
+    source = tmp_path / "reference.gff"
+    source.write_text(
+        "##gff-version 3\n"
+        "ref\tcaller\tCDS\t1\t6\t.\t+\t0\tID=short\n"
+        "ref\tcaller\tCDS\t56\t73\t.\t+\t0\tID=spanning\n"
+        f"##FASTA\n>ref\n{sequence}{sequence[:13]}\n"
+    )
+    destination = tmp_path / "staged.gff"
+    protein_evidence.stage_coordinate_normalized_reference_gff(source, destination, len(sequence))
+    assert "ID=short" in destination.read_text()
+    assert "ID=spanning" in destination.read_text()
 
 
 def test_reference_gff_proteins_and_candidate_orf_order_are_loaded_for_smooth_search(tmp_path):

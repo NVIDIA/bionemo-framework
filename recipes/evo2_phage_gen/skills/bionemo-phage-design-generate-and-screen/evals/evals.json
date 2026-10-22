@@ -76,7 +76,32 @@
         "It traces the feasibility mask into the online diversity reward, but first permits a proposed replacement gate to be replayed on saved measurements; only adopting the change in-loop requires a new RL attempt, while genuinely post-hoc gates require no retraining.",
         "Any relaxed or removed post-hoc criterion is versioned and reported rather than silently changed after seeing candidate outcomes.",
         "When using the maintained PhiX profile, required functions and synteny precede safety PASS, optional filter-7 architecture removal follows safety, AAI runs last, and clustering follows all per-genome gates. It keeps the architecture keep gate in upstream QC and filter-7 diagnostic outcomes separate from the target-profile passing set. Saved safety evidence is reconciled before novelty; biologically complete high-AAI candidates retain their gene evidence. The landmark score is not an RL objective.",
-        "For the maintained PhiX profile, distinguish core_gene_ordered_conservation from accessory_gene_diversification. K/X novelty is an RL reward and diagnostic, not an additional final Arc filter; partial core evidence and core copies are excluded from accessory credit, and missing measurements cannot earn K-loss credit. X requires an eligible family outside K and the core genes; mutations within K do not supply X, while a distinct K-like family may qualify."
+        "For the maintained PhiX profile, distinguish core_gene_ordered_conservation from accessory_gene_diversification. The default v3 separately replays native K/X evidence for an explicit add-one-gene route OR original ARC count diversity, while preserving legacy v1/v2; an aggregate reward or 11/13 count is not sufficient; partial core evidence and core copies are excluded from accessory credit, and missing measurements cannot earn K-loss credit. X requires an eligible family outside K and the core genes; mutations within K do not supply X, while a distinct K-like family may qualify."
+      ],
+      "expected_skill": "bionemo-phage-design-generate-and-screen",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-generate-and-screen-circular-locus-evidence",
+      "prompt": "Two predicted proteins share a peptide suffix, one crosses the circular origin, and choosing a shorter A start lowers AAI. How should the final screen reconcile these calls?",
+      "expected_output": "Use circular locus evidence for duplicates and independent annotation evidence for initiation, without selecting annotations by pass rate.",
+      "assertions": [
+        "It requires the same circular locus, strand, stop and reading frame before treating a prefix call as a duplicate, and retains a matching peptide at a distinct locus.",
+        "It distinguishes the forward-prefix cleanup from general reverse-strand annotation and from independent alternative products such as A*.",
+        "It retains the agreed maximal-ORF convention for A, documents the 522-versus-513-aa same-frame start ambiguity without claiming the longer product cannot be expressed, does not select starts by lower AAI or trim to reference length, and preserves natural-member best-E-value AAI arithmetic."
+      ],
+      "expected_skill": "bionemo-phage-design-generate-and-screen",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-generate-and-screen-add-one-gene",
+      "prompt": "A final PhiX candidate has original ARC counts 11/13 and K+X reward 1. Should v3 accept it, and how do you report its category?",
+      "expected_output": "Require structured native ORF evidence and all common gates, then report an independent add-one-gene decision and union membership.",
+      "assertions": [
+        "It does not accept from 11/13 counts or reward alone; it verifies exactly one eligible full K and one eligible full non-core/non-K X, no extra accessory types or duplicates, and available native evidence.",
+        "It preserves common safety, core completeness/order/copies and corrected AAI gates; K loss alone is not the add-one-gene category.",
+        "It records the original ARC-count decision, add-one-gene decision, overlap, union and X ORF/family provenance, then clusters only the final union.",
+        "It labels the 302 ordered ARC designs as a selected re-screening cohort, not a generation-pass-rate denominator or proof that v3 is strictly harder than ARC."
       ],
       "expected_skill": "bionemo-phage-design-generate-and-screen",
       "expected_script": null

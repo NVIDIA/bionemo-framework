@@ -6,6 +6,13 @@ For methods or quantitative claims that are not common knowledge or already summ
 
 Capture denominators, controls, sample size, assay conditions, uncertainty, negative results, and contradictions that affect the decision. For predictive models, note the training domain, validation population, operating point, and limits of transfer. When no defensible cutoff exists, propose target-specific calibration instead of inventing a universal threshold.
 
+For the PhiX publication, distinguish parameter sweeps, synthesis-generation pools, selected
+candidates and experimentally recovered descendants. Science Fig. S7 and Data S1 show separate
+optional diversification filters and manual selection, not one uniform sequential funnel.
+Rescoring released candidates can measure a selected-cohort fraction but cannot recover the
+unfiltered generation rate from aggregate totals. See the controller's
+[audited case-study comparison](../../bionemo-phage-design/references/case-study-results.md).
+
 ## Public background sources
 
 - [King et al., *Generative design of novel bacteriophages with genome language models*](https://www.science.org/doi/10.1126/science.aec2657); the [CC BY bioRxiv version](https://www.biorxiv.org/content/10.1101/2025.09.12.675911v1.full) links its supplement and data.

@@ -1,5 +1,9 @@
 # Evo2 Phage Generation Configurations
 
+The default final rollout uses **v3 syntenic diversity**: original ARC count diversification **or a separately evidenced, structured K+X “add one gene” category**, with circular-ORF AAI, nine-core completeness/order/copies and exact safety PASS required for both. Counts such as 11/13 alone never pass. Original-inventory AAI remains diagnostic and architecture diversification stays off. Retain v2 for original ARC-count-only screening and v1 for both AAI gates; report these contracts separately.
+
+The final-rollout acceptance contract is [ARC filters with circular-AAI correction, architecture off, plus safety and nine-core conservation](../skills/bionemo-phage-design/references/arc-final-filter-contract.md). Historical adapted-core results do not measure the original ARC synteny/count endpoint.
+
 This directory contains the maintained inputs for the Microviridae workflow.
 
 - `sft_microviridae_preprocess.yaml` and `sft_microviridae_dataset.yaml` reproduce the

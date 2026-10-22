@@ -33,6 +33,7 @@ from scipy.optimize import linear_sum_assignment
 
 
 ORFIPY_INTERVAL_RE = re.compile(r"\[(\d+)-(\d+)\]")
+ORFIPY_STRANDED_INTERVAL_RE = re.compile(r"\[(\d+)-(\d+)\]\(([+-])\)")
 
 
 @dataclass(frozen=True)
@@ -597,7 +598,13 @@ def remove_pseudocircular_extension_orfs(
     nucleotide_orfs_fasta: str | Path,
     protein_orfs_fasta: str | Path,
 ) -> None:
-    """Remove extension-only calls and native-prefix tails repeated by circular ORFs."""
+    """Remove extension-only calls and same-locus forward circular prefix tails.
+
+    Matching peptides alone cannot establish a duplicated locus. Require the
+    same physical stop and codon frame after shifting the prefix by one genome.
+    This reconciles the forward-strand prefix extension used by the PhiX caller;
+    it does not infer translation starts or collapse genuine gene copies.
+    """
     source_sequences = {record.id: str(record.seq).upper() for record in SeqIO.parse(source_fasta, "fasta")}
     if not source_sequences:
         raise ValueError(f"No source genomes found in {source_fasta}")
@@ -610,18 +617,23 @@ def remove_pseudocircular_extension_orfs(
     if [record.id for record in nucleotide_records] != [record.id for record in protein_records]:
         raise ValueError("ORFipy nucleotide and protein FASTAs contain different record IDs")
 
-    intervals: dict[str, tuple[str, int, int]] = {}
+    intervals: dict[str, tuple[str, int, int, str]] = {}
+    spanning_orfs: dict[tuple[str, int], list[str]] = {}
     keep_ids: set[str] = set()
     for record in nucleotide_records:
         genome_id, separator, _ = record.id.rpartition("_ORF.")
-        interval = ORFIPY_INTERVAL_RE.search(record.description)
+        interval = ORFIPY_STRANDED_INTERVAL_RE.search(record.description)
         if not separator or genome_id not in source_lengths or interval is None:
             raise ValueError(f"Cannot resolve ORFipy source interval for {record.id}")
         start = int(interval.group(1))
         end = int(interval.group(2))
-        intervals[record.id] = (genome_id, start, end)
+        strand = interval.group(3)
+        intervals[record.id] = (genome_id, start, end, strand)
         if start < source_lengths[genome_id]:
             keep_ids.add(record.id)
+            if strand == "+" and end > source_lengths[genome_id]:
+                key = (genome_id, end - source_lengths[genome_id])
+                spanning_orfs.setdefault(key, []).append(record.id)
 
     protein_by_id = {record.id: str(record.seq) for record in protein_records}
     extension_lengths: dict[str, int] = {}
@@ -636,17 +648,17 @@ def remove_pseudocircular_extension_orfs(
         extension_lengths[genome_id] = max(first_stops) if first_stops else len(sequence)
 
     for record_id in tuple(keep_ids):
-        genome_id, _start, end = intervals[record_id]
-        if end > extension_lengths[genome_id]:
+        genome_id, start, end, strand = intervals[record_id]
+        if strand != "+" or end > extension_lengths[genome_id]:
             continue
         prefix_protein = protein_by_id[record_id]
-        if any(
-            other_id != record_id
-            and other_genome == genome_id
-            and other_end > source_lengths[genome_id]
+        shifted_start = start + source_lengths[genome_id]
+        if prefix_protein and any(
+            shifted_start >= intervals[other_id][1]
+            and (shifted_start - intervals[other_id][1]) % 3 == 0
             and len(protein_by_id[other_id]) > len(prefix_protein)
             and protein_by_id[other_id].endswith(prefix_protein)
-            for other_id, (other_genome, _other_start, other_end) in intervals.items()
+            for other_id in spanning_orfs.get((genome_id, end), ())
         ):
             keep_ids.remove(record_id)
 
@@ -746,22 +758,21 @@ def stage_coordinate_normalized_reference_gff(
 
     redundant_prefix_features: set[int] = set()
     if circular_genome_length is not None:
-        for line_index, seq_id, _start, end, strand in cds_features:
+        for line_index, seq_id, start, end, strand in cds_features:
             extension_length = len(sequences[seq_id]) - int(circular_genome_length)
-            if extension_length <= 0 or end > extension_length:
+            if strand != "+" or extension_length <= 0 or end > extension_length:
                 continue
             prefix_protein = proteins[line_index]
             for other_index, other_seq_id, other_start, other_end, other_strand in cds_features:
                 if (
                     other_seq_id == seq_id
                     and other_strand == strand
-                    and other_end > int(circular_genome_length)
-                    and other_start > extension_length
+                    and other_start <= int(circular_genome_length) < other_end
+                    and other_end == end + int(circular_genome_length)
+                    and start + int(circular_genome_length) >= other_start
+                    and (start + int(circular_genome_length) - other_start) % 3 == 0
                     and len(proteins[other_index]) > len(prefix_protein)
-                    and (
-                        proteins[other_index].startswith(prefix_protein)
-                        or proteins[other_index].endswith(prefix_protein)
-                    )
+                    and proteins[other_index].endswith(prefix_protein)
                 ):
                     redundant_prefix_features.add(line_index)
                     break

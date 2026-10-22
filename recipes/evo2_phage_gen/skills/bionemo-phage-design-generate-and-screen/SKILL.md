@@ -60,8 +60,19 @@ For the PhiX profile, distinguish `core_gene_ordered_conservation` from
 rules; the latter rewards K/X repertoire changes, excludes partial core matches,
 and penalizes accessory copies. X must be outside K and the nine core families;
 K mutations do not supply X, while a distinct K-like family may qualify.
-It is an RL reward and diagnostic only, not a new
-final filter or a claim of exact agreement with Arc's historical cluster counts.
+The v3 final contract independently replays its ORF evidence for a separate
+structured add-one-gene route: one eligible K and one eligible non-core/non-K X,
+both at full credit, no duplicate accessory copies, and exactly two accessory
+types. A reward alone or an 11/13 count pair never establishes this category.
+Keep the original ARC count decision and the add-one-gene decision separate.
 Use the [accessory definition](../../configs/accessory_genes.md) before adapting
 families or thresholds. K-family absence requires available search evidence; a
 missing artifact is never a deletion reward. AAI includes all hit-bearing proteins.
+
+For circular-ORF AAI, collapse a prefix tail only with the same circular locus,
+strand, stop and reading frame; identical peptide suffixes alone do not establish
+duplication. Preserve distinct gene copies. The PhiX forward-prefix cleanup does
+not resolve biological initiation sites or independently annotate A\*. Retain the
+current maximal-ORF assumption for A and annotate the 522-versus-513-aa start
+ambiguity; do not trim it to the reference or select starts by their resulting AAI. See the maintained
+[final-filter contract](../bionemo-phage-design/references/arc-final-filter-contract.md).

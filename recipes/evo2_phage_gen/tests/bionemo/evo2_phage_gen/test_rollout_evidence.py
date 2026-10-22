@@ -232,6 +232,10 @@ def test_post_qc_clustering_pins_contract(tmp_path):
             ],
             [2, 2, 1],
         ),
+        (
+            ["count_arc_reference_physical_aai_reconfirmed", "count_arc_reference_syntenic_diversity"],
+            [2, 1],
+        ),
     ],
 )
 def test_arc_summary_preserves_execution_order(tmp_path, columns, counts):
@@ -264,6 +268,26 @@ def test_arc_summary_preserves_execution_order(tmp_path, columns, counts):
         )
     )
 
+    v3 = columns[-1] == "count_arc_reference_syntenic_diversity"
+    if v3:
+        payload = json.loads(config.read_text())
+        payload["final_arc_contract"] = "arc-circular-aai-syntenic-diversity-plus-nine-core-safety-v3"
+        config.write_text(json.dumps(payload))
+        (arc / "arc_reference_filters").mkdir()
+        contract_summary = {
+            "state": "succeeded",
+            "contract": payload["final_arc_contract"],
+            "passed_observations": 1,
+            "syntenic_diversity_counts": {
+                "original_arc_count": 0,
+                "add_one_gene": 1,
+                "both": 0,
+                "add_one_gene_only": 1,
+                "union": 1,
+            },
+        }
+        (arc / "arc_reference_filters/summary.json").write_text(json.dumps(contract_summary))
+
     summarize_arc_screen(
         config,
         representatives,
@@ -278,6 +302,13 @@ def test_arc_summary_preserves_execution_order(tmp_path, columns, counts):
     assert report["waterfall"][-len(columns) :] == [
         {"stage": stage, "count": count} for stage, count in zip(columns, counts, strict=True)
     ]
+
+    if v3:
+        assert report["final_filter_contract"] == contract_summary
+        contract_summary["passed_observations"] = 2
+        (arc / "arc_reference_filters/summary.json").write_text(json.dumps(contract_summary))
+        with pytest.raises(ValueError, match="summary disagrees"):
+            summarize_arc_screen(config, representatives, tmp_path / "bad.json", expected_filter7=False)
 
 
 def test_final_report_reconciles_raw_and_representative_denominators(tmp_path):
@@ -355,6 +386,15 @@ def test_final_report_reconciles_raw_and_representative_denominators(tmp_path):
 
     payload = json.loads((tmp_path / "final-designs.json").read_text())
     assert payload["schema_version"] == 3
+    assert payload["accepted_score_summary"] == {
+        "population": "accepted_cluster_representatives",
+        "weighting": "one_per_cluster",
+        "score": "mean_log_probability_per_nucleotide",
+        "n": 1,
+        "mean": -0.3,
+        "min": -0.3,
+        "max": -0.3,
+    }
     assert payload["workflow_order"] == [
         "raw_generation",
         "exact_sequence_deduplication",

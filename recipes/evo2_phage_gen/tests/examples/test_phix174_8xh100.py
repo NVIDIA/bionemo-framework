@@ -414,6 +414,7 @@ def test_dry_run(tmp_path: Path) -> None:
     assert "Arc CheckV database: <prepared-checkv-db>" in log
     assert f"Arc screening working directory: {RECIPE_ROOT.parents[1]}" in log
     assert "Arc internal MMseqs clustering disabled" in log
+    assert "Independent ARC filters 1-6,8,9 follow nine-core and safety" in log
 
     likelihood = log.index("monitor: selected-SFT likelihood scoring")
     deduplication = log.index("command: evo2_phage_generation deduplicate-fasta")
@@ -1568,3 +1569,9 @@ def test_rejects_invalid_final_prompt_batch_size(tmp_path: Path) -> None:
 
     assert completed.returncode == 2
     assert "FINAL_PROMPT_BATCH_SIZE must be a positive integer" in completed.stderr
+
+
+def test_final_rollout_declares_independent_arc_contract():
+    script = (RECIPE_ROOT / "examples/phix174_8xh100.sh").read_text()
+    assert '"final_arc_contract": "arc-circular-aai-syntenic-diversity-plus-nine-core-safety-v3"' in script
+    assert '"genetic_architecture_remove_filter": remove_filter' in script

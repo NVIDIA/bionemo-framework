@@ -1,6 +1,6 @@
 # Accessory-gene diversification
 
-`accessory_gene_diversification` is an RL reward and a diagnostic, **not a final
+`accessory_gene_diversification` is an RL reward and a diagnostic; its aggregate score is **not a final
 acceptance filter**. It favors K loss or one or two supported accessory types
 outside the K and core-gene families. It does not replace
 required-gene completeness, `core_gene_ordered_conservation`, safety, or AAI.
@@ -155,3 +155,7 @@ to (10,10), (10,11), (10,12), (11,12), (12,12), and 0.5 to (11,11). Those counts
 not map directly to the nine core functions plus K, particularly after removing
 redundant circular-prefix annotations. The current final filters are unchanged
 by this new reward; accessory novelty is not an additional acceptance gate.
+
+## Explicit final add-one-gene category
+
+The v3 final-rollout contract separately replays the native evidence for exactly one eligible full K plus one eligible full X outside K and the core, with no accessory duplicates and exactly two types. It records this structured add-one-gene route independently of original ARC count diversification and accepts their union only after common core/order/copy, safety, circular-AAI and ARC gates. Counts such as 11/13 alone never qualify. This does not change the RL reward surface or silently alter v1/v2 acceptance. See [the final-filter contract](../skills/bionemo-phage-design/references/arc-final-filter-contract.md).
