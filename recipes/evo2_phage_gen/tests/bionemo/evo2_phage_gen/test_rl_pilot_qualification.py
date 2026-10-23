@@ -55,8 +55,7 @@ def _write_logs(tmp_path: Path, checkpoint: Path, *, optimizer_reinitialized: bo
     )
     reload_log = tmp_path / "reload.log"
     reload_lines = [
-        f"successfully loaded checkpoint from {checkpoint / 'policy/weights'} "
-        "[ t 0/1, p 0/1 ] at iteration 0\n"
+        f"successfully loaded checkpoint from {checkpoint / 'policy/weights'} [ t 0/1, p 0/1 ] at iteration 0\n"
     ]
     if optimizer_reinitialized:
         reload_lines.append(

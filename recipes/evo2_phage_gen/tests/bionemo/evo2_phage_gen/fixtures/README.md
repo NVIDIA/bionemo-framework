@@ -65,7 +65,7 @@ deliberately fall below both maintained and archived caller minima: they test th
 cleanup utility, not a claim that ORFipy would emit them. A mutant that omits
 prefix-tail removal fails the physical-inventory oracle.
 
-These checks do not rerun ORFipy or searches, settle biological initiation/A*
+These checks do not rerun ORFipy or searches, settle biological initiation/A\*
 products, validate reverse-strand discovery, or demonstrate arbitrary-genome
 rotation invariance or unchanged published AAI. The four tested cuts and declared
 forward enumeration convention define their scope.
