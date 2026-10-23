@@ -1,0 +1,23 @@
+# Stage 3 on eight H100s — NeMo RL's native `defaults` overlay over grpo.yaml.
+# Same topology class as grpo-2gpu.yaml, scaled: a one-rank policy cluster on
+# one GPU (the package's encoder policy worker is qualified for exactly one
+# rank) and a seven-replica vLLM cluster (tensor_parallel_size 1 each) on the
+# rest, with NCCL refit between them. This is pipeline/resource parallelism,
+# NOT model sharding.
+#
+#   python -m nemotron_stitch.nemo_rl.runner --config configs/grpo-8gpu.yaml
+defaults: grpo.yaml
+
+cluster:
+  gpus_per_node: 8
+  num_nodes: 1
+
+policy:
+  keep_policy_on_gpu: false
+  generation:
+    keep_vllm_on_gpu: false
+    colocated:
+      enabled: false
+      resources:
+        gpus_per_node: 7
+        num_nodes: null

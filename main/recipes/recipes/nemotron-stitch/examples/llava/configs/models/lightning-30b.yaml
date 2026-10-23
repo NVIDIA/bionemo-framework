@@ -1,0 +1,61 @@
+# GRPO base-model contract for LIGHTNING_30B (llava_example.py), composed
+# through NeMo RL's `defaults:` (see configs/grpo-lightning.yaml); never run
+# directly.
+policy:
+  # The raw Lightning snapshot: the sidecar-owned projector is not in the
+  # module tree, so the augmented projector-init directory is neither needed
+  # nor wanted here; the strict native load covers exactly the base inventory
+  # (the auxiliary MTP head stays out of the policy, matching the other
+  # stages).
+  model_name: artifacts/models/lightning-30b-bf16
+  projector_artifact_path: outputs/sft-lightning/projector
+  tokenizer:
+    name: ${policy.model_name}
+    chat_template_kwargs:
+      enable_thinking: false
+    # The pinned artifact already carries the corrected Mistral regex; keep
+    # Transformers from re-patching it. Threaded by NeMo RL #3798.
+    tokenizer_kwargs:
+      fix_mistral_regex: false
+  hf_config_overrides:
+    architectures: [LlavaExampleNemotronLightningForCausalLM]
+    mm_projector_ownership: sidecar
+    mm_projector_trainable: false
+    mm_projectors:
+      - name: image
+        kind: mlp2x_gelu
+        mm_hidden_size: 768
+    mm_placeholder_token_ids:
+      image: 32
+    # vLLM-side plugin configuration; NeMo RL copies policy.hf_config_overrides
+    # over the generation engine's hf_overrides (nemo_rl transport contract).
+    mm_encoder_start: "<SPECIAL_30>"
+    mm_encoder_placeholder: "<SPECIAL_32>"
+    mm_encoder_end: "<SPECIAL_31>"
+    # vLLM profiles the maximum payload; individual requests may be shorter.
+    mm_encoder_max_tokens: 49
+  dtensor_cfg:
+    automodel_kwargs:
+      # r0.6.0 builds Lightning's auxiliary MTP head natively; the pinned
+      # stack's stages ran without it (dropped at load), so keep it out of
+      # the policy here too. The checkpoint's mtp.* keys are dropped by the
+      # tolerant native load.
+      num_nextn_predict_layers: 0
+    lora_cfg:
+      # Stage-2 SFT adapter (compact LoRA), warm-started through NeMo RL's
+      # restore_from path and loaded via AutoModel's latest-checkpoint link.
+      restore_from: outputs/sft-lightning/checkpoints/LATEST/model
+      # Same targets as stage 2 (native nemotron_v3 module names);
+      # sft-lightning.yaml documents the excluded families.
+      target_modules:
+        - "*.mixer.q_proj"
+        - "*.mixer.k_proj"
+        - "*.mixer.v_proj"
+        - "*.mixer.o_proj"
+        - "*.mixer.in_proj"
+        - "*.mixer.shared_experts.up_proj"
+        - "*.mixer.shared_experts.down_proj"
+  generation:
+    vllm_kwargs:
+      limit_mm_per_prompt:
+        image: 1

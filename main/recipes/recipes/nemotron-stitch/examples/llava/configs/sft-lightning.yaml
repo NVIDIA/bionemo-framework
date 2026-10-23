@@ -1,0 +1,148 @@
+# Stage 2 — SFT on the Lightning 30B target, upstream-main track (NeMo RL
+# main + AutoModel r0.6.0). Same stage as sft.yaml with the LIGHTNING_30B
+# spec's values; the module names below are the native nemotron_v3
+# implementation's (model.layers.*.mixer.*).
+# One rank (EP defaults to 8 below, so single-GPU runs override it):
+#   python -m nemo_automodel.cli.app configs/sft-lightning.yaml --nproc-per-node 1 \
+#     --distributed.ep_size=1
+# Eight ranks (8×H100 80 GB, expert-parallel; qualified 2026-09-03):
+#   torchrun --nproc-per-node 8 -m nemo_automodel.cli.app configs/sft-lightning.yaml
+# (packed microbatch is 1; global batch 16 yields 2 accumulation steps at 8
+# ranks — the qualified 2026-09-03 geometry; pass
+# --step_scheduler.global_batch_size=8 for the accumulation-free 8-rank
+# geometry. Multi-pack microbatches are unsupported by the packed collator.)
+recipe: nemotron_stitch.automodel.recipe.ProjectorFinetuneRecipe
+
+step_scheduler:
+  global_batch_size: 16
+  # One microbatch item is one padding-free pack containing as many source
+  # samples as fit under packed_sequence.packed_sequence_size.
+  local_batch_size: 1
+  num_epochs: 1000
+  max_steps: 200
+  ckpt_every_steps: 200
+  val_every_steps: 1000
+
+dist_env:
+  backend: nccl
+  timeout_minutes: 30
+
+rng:
+  _target_: nemo_automodel.components.training.rng.StatefulRNG
+  seed: 43
+  ranked: true
+
+model:
+  _target_: nemo_automodel.NeMoAutoModelForCausalLM.from_pretrained
+  pretrained_model_name_or_path: &model-path artifacts/models/lightning-30b-bf16
+  local_files_only: true
+  trust_remote_code: false
+  torch_dtype: torch.bfloat16
+  architectures: [LlavaExampleNemotronLightningForCausalLM]
+  backend:
+    _target_: nemo_automodel.components.models.common.BackendConfig
+    attn: te
+  # r0.6.0 builds Lightning's auxiliary MTP head natively; the pinned stack
+  # dropped it at load and trained without it. Keep it out here too (the
+  # checkpoint's mtp.* keys drop on the tolerant native load), so the two
+  # stacks train the same parameters.
+  num_nextn_predict_layers: 0
+  mm_training_stage: 2
+  mm_projector_ownership: module
+  mm_projectors:
+    - name: image
+      kind: mlp2x_gelu
+      mm_hidden_size: 768
+  mm_placeholder_token_ids:
+    image: 32
+
+peft:
+  _target_: nemo_automodel.components._peft.lora.PeftConfig
+  # Every projection that survives the SFT->GRPO handoff on this
+  # architecture: each target is an ordinary LinearLoRA whose module the
+  # training forward actually calls, so NeMo RL's DTensor-v2 refit folds the
+  # delta into the base weight vLLM loads. Deliberately absent:
+  #   - routed experts: AutoModel trains them as GroupedExpertsLoRA, which
+  #     the pinned NeMo RL refit does not merge (U-29), and their merged
+  #     export for serving needs Automodel#3834, which the pinned AutoModel
+  #     1814c6c9 predates;
+  #   - mixer.out_proj: the fused mamba training path passes its base weight
+  #     directly to the scan kernel, so a LoRA wrapper is silently inert
+  #     (U-30);
+  #   - conv1d/A/D, embeddings, norms, lm_head: no LinearLoRA form.
+  target_modules:
+    - "*.mixer.q_proj"
+    - "*.mixer.k_proj"
+    - "*.mixer.v_proj"
+    - "*.mixer.o_proj"
+    - "*.mixer.in_proj"
+    - "*.mixer.shared_experts.up_proj"
+    - "*.mixer.shared_experts.down_proj"
+  exclude_modules: []
+  match_all_linear: false
+  dim: 8
+  alpha: 16
+  dropout: 0.0
+  use_triton: true
+
+checkpoint:
+  # The PEFT checkpoint holds the LoRA state only; the jointly trained
+  # projector is exported separately through projector.artifact_dir.
+  enabled: true
+  checkpoint_dir: outputs/sft-lightning/checkpoints
+  model_save_format: safetensors
+  save_consolidated: final
+
+distributed:
+  strategy: fsdp2
+  tp_size: 1
+  cp_size: 1
+  pp_size: 1
+  ep_size: 8
+  sequence_parallel: false
+  activation_checkpointing: false
+
+loss_fn:
+  _target_: nemo_automodel.components.loss.masked_ce.MaskedCrossEntropy
+
+packed_sequence:
+  packed_sequence_size: 2048
+  packing_strategy: nemotron_stitch.automodel.data.StreamingFeaturePackingConfig
+  packing_format: thd
+
+dataset:
+  _target_: nemotron_stitch.automodel.data.ManifestFeatureIterableDatasetConfig
+  manifest_path: outputs/data/manifest.jsonl
+  stage: sft
+  split: train
+  cache_root: outputs/data/feature-cache
+  projector_name: image
+  placeholder_token_id: 32
+  max_length: 512
+  # The model answers directly (no think block); must match the GRPO prompt
+  # rendering byte-for-byte.
+  chat_template_kwargs: {enable_thinking: false}
+
+dataloader:
+  _target_: torchdata.stateful_dataloader.StatefulDataLoader
+  batch_size: null
+  num_workers: 0
+  shuffle: true
+  shuffle_buffer_size: 1000
+
+optimizer:
+  _target_: nemotron_stitch.automodel.optim.ProjectorAdamWConfig
+  lr: 1.0e-4
+  weight_decay: 0.0
+  betas: [0.9, 0.95]
+
+wandb:
+  mode: disabled
+
+projector:
+  model_registry_callback: llava_example.register_models
+  train_projector: true
+  # Warm start from the module-written alignment artifact.
+  initial_artifact: outputs/lightning-alignment/projector
+  artifact_dir: outputs/sft-lightning/projector
+  trainability_manifest: outputs/sft-lightning/trainability.json

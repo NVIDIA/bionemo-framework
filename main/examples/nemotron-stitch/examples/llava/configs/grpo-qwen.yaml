@@ -1,0 +1,179 @@
+# Stage 3 — Qwen3.5-4B GRPO: frozen CLIP projector plus trainable LoRA,
+# with vLLM rollouts over the same Qwen conditional-generation base.
+#
+#   python -m nemotron_stitch.nemo_rl.runner --config configs/grpo-qwen.yaml
+defaults:
+  - ../third_party/nemo-rl/examples/configs/vlm_grpo_3B.yaml
+  - models/qwen3.5-4b.yaml
+
+grpo:
+  num_prompts_per_step: 4
+  num_generations_per_prompt: 4
+  max_rollout_turns: 1
+  max_num_epochs: 1
+  max_num_steps: 3
+  normalize_rewards: true
+  use_leave_one_out_baseline: true
+  val_period: 0
+  val_at_start: false
+  val_at_end: false
+  seed: 44
+  use_dynamic_sampling: false
+
+loss_fn:
+  reference_policy_kl_penalty: 0.0
+  force_on_policy_ratio: true
+
+checkpointing:
+  enabled: true
+  checkpoint_dir: outputs/qwen-grpo/checkpoints
+  metric_name: null
+  keep_top_k: 1
+  save_period: 3
+  model_save_format: safetensors
+  save_consolidated: false
+  save_optimizer: true
+
+policy:
+  model_registry_callback: llava_qwen.register_models
+  # Config-driven worker extension FQNs; see grpo.yaml.
+  worker_extension_cls_fqn: nemotron_stitch.nemo_rl.policy.EncoderDTensorPolicyWorkerV2
+  keep_policy_on_gpu: true
+  initial_adapter_expected_config:
+    peft_type: LORA
+    r: 8
+    lora_alpha: 16
+  train_global_batch_size: 16
+  train_micro_batch_size: 4
+  generation_batch_size: 16
+  logprob_batch_size: 4
+  max_total_sequence_length: 512
+  precision: bfloat16
+  max_grad_norm: 1.0
+  dtensor_cfg:
+    _v2: true
+    enabled: true
+    cpu_offload: false
+    sequence_parallel: false
+    activation_checkpointing: false
+    tensor_parallel_size: 1
+    context_parallel_size: 1
+    expert_parallel_size: 1
+    dp_replicate_size: 1
+    lora_cfg:
+      enabled: true
+      exclude_modules: []
+      match_all_linear: false
+      dim: 8
+      alpha: 16
+      dropout: 0.0
+      dropout_position: post
+      lora_A_init: xavier
+      use_triton: false
+  dynamic_batching:
+    enabled: false
+  sequence_packing:
+    enabled: false
+  optimizer:
+    name: torch.optim.AdamW
+    kwargs:
+      lr: 1.0e-6
+      weight_decay: 0.0
+      betas: [0.9, 0.95]
+      eps: 1.0e-8
+      foreach: false
+      fused: false
+  scheduler:
+    - name: torch.optim.lr_scheduler.ConstantLR
+      kwargs:
+        factor: 1.0
+        total_iters: 10000000000
+    - milestones: []
+  generation:
+    backend: vllm
+    # The package's vLLM worker carries U-18; see grpo.yaml.
+    worker_extension_cls_fqn: nemotron_stitch.nemo_rl.vllm_worker.EncoderVllmGenerationWorker
+    keep_vllm_on_gpu: true
+    mm_plugin_callback: llava_qwen.register_vllm
+    mm_architecture: LlavaExampleQwen3_5Projected
+    max_new_tokens: 64
+    temperature: 1.0
+    top_p: 1.0
+    top_k: null
+    stop_token_ids: null
+    stop_strings: null
+    vllm_cfg:
+      async_engine: false
+      precision: ${policy.precision}
+      tensor_parallel_size: 1
+      pipeline_parallel_size: 1
+      expert_parallel_size: 1
+      skip_tokenizer_init: false
+      # Graph only decode: projected embeddings stay on eager prefill, and
+      # mode=none below avoids changing kernels through Inductor.
+      enforce_eager: false
+      gpu_memory_utilization: 0.35
+      max_model_len: ${policy.max_total_sequence_length}
+      enable_prefix_caching: false
+    vllm_kwargs:
+      compilation_config:
+        mode: none
+        cudagraph_mode: full_decode_only
+      max_num_seqs: ${policy.generation_batch_size}
+      kv_cache_memory_bytes: 4294967296
+      enable_mm_embeds: true
+      # U-70: vLLM 0.25.1's async_scheduling default stalls colocated
+      # external-DP engines in the drain tail; pin the synchronous path.
+      async_scheduling: false
+    colocated:
+      enabled: true
+
+data:
+  max_input_seq_length: ${policy.max_total_sequence_length}
+  shuffle: false
+  num_workers: 0
+  use_multiple_dataloader: false
+  train:
+    dataset_name: nemotron_stitch.nemo_rl.data.EncoderRLDataset
+    data_path: outputs/data-qwen/manifest-grpo-train.jsonl
+    encoder_loader: nemotron_stitch.nemo_rl.transport.load_cached_features
+    encoder_loader_kwargs:
+      cache_root: outputs/data-qwen/feature-cache
+      artifact_dir: ${policy.projector_artifact_path}
+    task_metadata_callback: nemotron_stitch.nemo_rl.transport.ground_truth_metadata
+    task_name: image_clevr_math
+    chat_template_kwargs: ${policy.tokenizer.chat_template_kwargs}
+    adapter: ${policy.hf_config_overrides.mm_projectors.0.name}
+    placeholder_token: "<|vision_pad|>"
+    start_token: "<|vision_start|>"
+    end_token: "<|vision_end|>"
+    split_validation_size: 0
+    env_name: vlm
+  validation: null
+  default:
+    prompt_file: null
+    system_prompt_file: null
+    processor: encoder_rl
+    env_name: vlm
+
+env:
+  vlm:
+    num_workers: 8
+    reward_functions:
+      - name: format
+        weight: 0.2
+      - name: exact_alnum
+        weight: 0.8
+
+logger:
+  log_dir: outputs/qwen-grpo/logs
+  wandb_enabled: false
+  tensorboard_enabled: false
+  mlflow_enabled: false
+  swanlab_enabled: false
+  monitor_gpus: true
+  num_val_samples_to_print: 0
+
+cluster:
+  gpus_per_node: 1
+  num_nodes: 1

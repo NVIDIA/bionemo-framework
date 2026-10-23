@@ -1,0 +1,46 @@
+# Stage 3 variant — GRPO that also trains the projector. Overlays grpo.yaml
+# (the frozen-projector stage remains the default contract; this file is the
+# opt-in joint recipe). One H100, policy and vLLM colocated.
+#
+#   python -m nemotron_stitch.nemo_rl.runner --config configs/grpo-trainable-projector.yaml
+#
+# What changes, and why:
+#
+#   ownership/trainability — the projector must be module-owned to train:
+#     sidecar parameters are invisible to the module tree, so torch DCP cannot
+#     save their optimizer state and FSDP2 never manages their gradients
+#     during backward. The worker re-enables gradients
+#     after AutoModel's post-wrap PEFT freeze and appends one optimizer group
+#     (policy.projector_lr; SFT trained the projector at 1e-4, LoRA trains at
+#     1e-6 — the projector rides between them).
+#   ratio — the rollout batch is embedded by the SFT-artifact sidecar at data
+#     construction (transport.frozen_projector), one gradient step behind the
+#     trainable projector. vLLM scores its samples under exactly the
+#     embeddings it sampled with, so its logprobs are the true old-policy
+#     logprobs and the importance ratio absorbs the projector drift. The
+#     forced ratio assumes recomputation matches sampling and would be wrong
+#     from the first update.
+#   KL — the reference snapshot is patched to the warm-started projector, so
+#     the KL term measures real policy drift, including the projector. Earlier
+#     projector+LoRA runs surfaced runaway projector drift only through a KL
+#     spike; this keeps a nonzero leash on it, and the worker logs
+#     ENCODER_PROJECTOR_DRIFT per update for the direct signal.
+defaults: grpo.yaml
+
+loss_fn:
+  reference_policy_kl_penalty: 0.01
+  force_on_policy_ratio: false
+
+policy:
+  hf_config_overrides:
+    mm_projector_ownership: module
+    mm_projector_trainable: true
+  projector_lr: 1.0e-5
+
+checkpointing:
+  # Distinct tree from the frozen stage: a trainable-projector resume must
+  # never silently pick up a frozen-stage checkpoint (and vice versa).
+  checkpoint_dir: outputs/grpo-trainable-projector/checkpoints
+
+logger:
+  log_dir: outputs/grpo-trainable-projector/logs

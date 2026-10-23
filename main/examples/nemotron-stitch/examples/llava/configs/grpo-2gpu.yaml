@@ -1,0 +1,24 @@
+# Stage 3 on two H100s — NeMo RL's native `defaults` overlay over grpo.yaml.
+# This is pipeline/resource parallelism, NOT model sharding: a one-rank policy
+# cluster on GPU 0 and a one-rank vLLM cluster on GPU 1, with NCCL refit
+# between them. Each cluster stays one rank, inside the package's qualified
+# sidecar-worker boundary.
+#
+#   python -m nemotron_stitch.nemo_rl.runner --config configs/grpo-2gpu.yaml
+defaults: grpo.yaml
+
+cluster:
+  gpus_per_node: 2
+  num_nodes: 1
+
+policy:
+  # Dedicated policy and rollout GPUs use NeMo RL's ordinary resident lifecycle;
+  # the colocated residency overrides deliberately do not cross this boundary.
+  keep_policy_on_gpu: false
+  generation:
+    keep_vllm_on_gpu: false
+    colocated:
+      enabled: false
+      resources:
+        gpus_per_node: 1
+        num_nodes: null

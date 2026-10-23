@@ -1,0 +1,203 @@
+# Stage 3 — GRPO on the Lightning 30B target: the DTensor (AutoModel) policy
+# backend. The policy warm-starts the compact
+# SFT LoRA adapter directly (no dense merge) and there is no HF->MCore
+# conversion; vLLM receives already-projected soft tokens (never CLIP, never
+# raw images). Grouped-expert refit is tracked by U-29;
+# it is not load-bearing here. The frozen projector arrives through
+# policy.projector_artifact_path (the sidecar artifact SFT exported — GRPO
+# keeps it frozen). Runs on unmodified NeMo RL main — no shard_dim
+# cherry-pick: the colocated IPC refit streams per-expert 2D weights, which
+# vLLM 0.25.1 loads natively (see docs/upstream-gaps.md).
+#
+#   NEMO_RL_ROOT=<checkout> \
+#     python -m nemotron_stitch.nemo_rl.runner --config configs/grpo-lightning.yaml
+#
+# Run recipe below; the LIGHTNING_30B contract composes from
+# models/lightning-30b.yaml (see configs/grpo.yaml's header).
+defaults:
+  - ${oc.env:NEMO_RL_ROOT,/opt/nemo-rl}/examples/configs/grpo_math_1B.yaml
+  - models/lightning-30b.yaml
+
+grpo:
+  num_prompts_per_step: 4
+  num_generations_per_prompt: 8
+  max_num_epochs: 1
+  max_num_steps: 3
+  val_period: 0
+  val_at_start: false
+  val_at_end: false
+  seed: 44
+
+loss_fn:
+  reference_policy_kl_penalty: 0.01
+  # Rollouts are synchronous and used for exactly one update. Keep the
+  # reference-policy KL while avoiding a redundant current-policy forward.
+  force_on_policy_ratio: true
+
+checkpointing:
+  enabled: false
+
+policy:
+  model_registry_callback: llava_example.register_models
+  # Config-driven worker extension FQNs; see grpo.yaml.
+  worker_extension_cls_fqn: nemotron_stitch.nemo_rl.policy.EncoderDTensorPolicyWorkerV2
+  # The qualified GB300 holds the policy and rollout engine together; retain
+  # both base-weight copies so the per-step refit stays device-local.
+  keep_policy_on_gpu: true
+  initial_adapter_expected_config:
+    peft_type: LORA
+    r: 8
+    lora_alpha: 16
+  train_global_batch_size: 32
+  train_micro_batch_size: 4
+  generation_batch_size: 32
+  logprob_batch_size: 4
+  max_total_sequence_length: 512
+  precision: bfloat16
+  max_grad_norm: 1.0
+  dtensor_cfg:
+    _v2: true
+    enabled: true
+    cpu_offload: false
+    sequence_parallel: false
+    activation_checkpointing: false
+    tensor_parallel_size: 1
+    context_parallel_size: 1
+    expert_parallel_size: 1
+    dp_replicate_size: 1
+    lora_cfg:
+      enabled: true
+      exclude_modules: []
+      match_all_linear: false
+      dim: 8
+      alpha: 16
+      dropout: 0.0
+      dropout_position: post
+      lora_A_init: xavier
+      # Triton LoRA kernels are dtype-strict; NeMo RL's fp32-master-weight
+      # regime feeds them mixed dtypes. The torch path is autocast-safe.
+      use_triton: false
+  dynamic_batching:
+    enabled: false
+  sequence_packing:
+    enabled: false
+  make_sequence_length_divisible_by: 1
+  optimizer:
+    name: torch.optim.AdamW
+    kwargs:
+      lr: 1.0e-6
+      weight_decay: 0.0
+      betas: [0.9, 0.95]
+      eps: 1.0e-8
+      foreach: false
+      fused: false
+  scheduler:
+    - name: torch.optim.lr_scheduler.ConstantLR
+      kwargs:
+        factor: 1.0
+        total_iters: 10000000000
+    - milestones: []
+  generation:
+    backend: vllm
+    # The package's vLLM worker carries U-18; see grpo.yaml.
+    worker_extension_cls_fqn: nemotron_stitch.nemo_rl.vllm_worker.EncoderVllmGenerationWorker
+    keep_vllm_on_gpu: true
+    mm_plugin_callback: llava_example.register_vllm
+    mm_architecture: LlavaExampleNemotronProjected
+    # 64, matching the qualified encoder cells: with ignore_eos the
+    # generation continues past the short CLEVR answers, and the high-entropy
+    # junk tail dominates token_mult_prob_error (policy/rollout kernel
+    # differences matter most where the distribution is flat).
+    max_new_tokens: 64
+    ignore_eos: true
+    temperature: 1.0
+    top_p: 1.0
+    top_k: null
+    # U-20: NeMo RL af0a11fa rejects distinct validation-only sampling values
+    # outside NeMo Gym. Delete these aliases when ordinary vLLM environments
+    # support validation overrides.
+    val_temperature: ${.temperature}
+    val_top_p: ${.top_p}
+    val_top_k: ${.top_k}
+    stop_token_ids: []
+    stop_strings: null
+    vllm_cfg:
+      async_engine: false
+      precision: ${policy.precision}
+      tensor_parallel_size: 1
+      pipeline_parallel_size: 1
+      expert_parallel_size: 1
+      skip_tokenizer_init: false
+      # Graph only decode. The previously qualified compiled-kernel path had
+      # worse policy/rollout parity; mode=none below retains the eager kernels.
+      enforce_eager: false
+      gpu_memory_utilization: 0.35
+      max_model_len: ${policy.max_total_sequence_length}
+      enable_prefix_caching: false
+      use_tqdm: false
+      # DeepGEMM rejects Lightning's non-gated expert activation (upstream
+      # gap; see docs/upstream-gaps.md).
+      use_deep_gemm: false
+    vllm_kwargs:
+      compilation_config:
+        mode: none
+        cudagraph_mode: full_decode_only
+      max_num_seqs: ${policy.generation_batch_size}
+      kv_cache_memory_bytes: 4294967296
+      moe_backend: triton
+      # Lightning's mamba SSM cache stays in fp32 because bf16 states
+      # accumulate policy/rollout divergence over the generation.
+      mamba_ssm_cache_dtype: float32
+      enable_mm_embeds: true
+      # U-70: vLLM 0.25.1's async_scheduling default stalls colocated
+      # external-DP engines in the drain tail; pin the synchronous path.
+      async_scheduling: false
+    colocated:
+      enabled: true
+
+data:
+  _override_: true
+  max_input_seq_length: ${policy.max_total_sequence_length}
+  shuffle: false
+  num_workers: 0
+  use_multiple_dataloader: false
+  train:
+    dataset_name: nemotron_stitch.nemo_rl.data.EncoderRLDataset
+    data_path: outputs/data/manifest-grpo-train.jsonl
+    encoder_loader: nemotron_stitch.nemo_rl.transport.load_cached_features
+    encoder_loader_kwargs:
+      cache_root: outputs/data/feature-cache
+      artifact_dir: ${policy.projector_artifact_path}
+    task_metadata_callback: nemotron_stitch.nemo_rl.transport.ground_truth_metadata
+    task_name: image_clevr_math
+    chat_template_kwargs: ${policy.tokenizer.chat_template_kwargs}
+    adapter: ${policy.hf_config_overrides.mm_projectors.0.name}
+    placeholder_token: "<SPECIAL_32>"
+    start_token: "<SPECIAL_30>"
+    end_token: "<SPECIAL_31>"
+    split_validation_size: 0
+    env_name: vlm
+  validation: null
+  default:
+    prompt_file: null
+    system_prompt_file: null
+    processor: encoder_rl
+    env_name: vlm
+
+# NeMo RL's built-in VLM environment; no custom reward, no custom worker.
+env:
+  vlm:
+    num_workers: 8
+    reward_functions:
+      - name: format
+        weight: 0.2
+      - name: exact_alnum
+        weight: 0.8
+
+logger:
+  log_dir: outputs/grpo-lightning/logs
+  tensorboard_enabled: true
+
+cluster:
+  gpus_per_node: 1
+  num_nodes: 1

@@ -1,0 +1,41 @@
+# Trainable-projector qualification overlay for the Lightning 30B MoE target
+# with an EP=8 policy mesh and an EP=8 colocated vLLM rollout (TP=1). The
+# qualified single-replica evidence run (8×H100, 2026-10-01): three finite
+# GRPO updates with the fail-closed trainability audit green on all eight
+# ranks, monotone ENCODER_PROJECTOR_DRIFT (bias 0 -> 0.0026), and a nonzero
+# generation-KL leash (0.009-0.044), warm-started from the EP=8 Lightning
+# alignment/SFT chain. Composes over the qualified GB300 recipe; deltas are
+# the trainable contract (module ownership, projector optimizer group,
+# unforced importance ratio, KL leash) and the EP=8 mesh. The one-rank
+# variant of this topology is the 4B control's
+# grpo-trainable-projector.yaml.
+#
+#   python -m nemotron_stitch.nemo_rl.runner --config configs/grpo-lightning-trainable-ep8.yaml
+defaults: grpo-lightning.yaml
+
+cluster:
+  gpus_per_node: 8
+  num_nodes: 1
+
+grpo:
+  max_num_steps: 3
+
+# The rollout batch is embedded by the SFT-artifact sidecar, one gradient
+# step behind the trainable projector; the unforced ratio lets vLLM's
+# sample-time logprobs carry the old policy honestly.
+loss_fn:
+  force_on_policy_ratio: false
+
+policy:
+  hf_config_overrides:
+    mm_projector_ownership: module
+    mm_projector_trainable: true
+  projector_lr: 1.0e-5
+  dtensor_cfg:
+    expert_parallel_size: 8
+  generation:
+    vllm_cfg:
+      expert_parallel_size: 8
+
+logger:
+  log_dir: outputs/grpo-lightning-trainable-ep8/logs

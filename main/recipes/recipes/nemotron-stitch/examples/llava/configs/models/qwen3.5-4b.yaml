@@ -1,0 +1,41 @@
+# GRPO base-model contract for Qwen3.5-4B. Qwen's native image/video inputs
+# stay disabled; CLIP soft tokens travel as clip_image.
+policy:
+  model_name: artifacts/models/qwen3.5-4b
+  projector_artifact_path: outputs/qwen-sft/projector
+  tokenizer:
+    name: ${policy.model_name}
+    chat_template_kwargs:
+      enable_thinking: false
+    tokenizer_kwargs: {}
+    use_processor: false
+  hf_config_overrides:
+    architectures: [LlavaExampleQwen3_5ForConditionalGeneration]
+    mm_projector_ownership: sidecar
+    mm_projector_trainable: false
+    mm_projectors:
+      - name: clip_image
+        kind: mlp2x_gelu
+        mm_hidden_size: 768
+    mm_placeholder_token_ids:
+      clip_image: 248055
+    mm_encoder_start: "<|vision_start|>"
+    mm_encoder_placeholder: "<|vision_pad|>"
+    mm_encoder_end: "<|vision_end|>"
+    mm_encoder_max_tokens: 49
+  dtensor_cfg:
+    automodel_kwargs: {}
+    lora_cfg:
+      # Warm start from the SFT compact-LoRA adapter.
+      restore_from: outputs/qwen-sft/checkpoints/LATEST/model
+      target_modules:
+        - "model.language_model.layers.*.self_attn.q_proj"
+        - "model.language_model.layers.*.self_attn.k_proj"
+        - "model.language_model.layers.*.self_attn.v_proj"
+        - "model.language_model.layers.*.self_attn.o_proj"
+  generation:
+    vllm_kwargs:
+      limit_mm_per_prompt:
+        image: 0
+        video: 0
+        clip_image: 1
