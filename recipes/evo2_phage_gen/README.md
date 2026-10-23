@@ -105,7 +105,7 @@ feedback that shaped the recipe and its safety controls.
 
 The [screening evidence](docs/phix174-screening-evidence.md) preserves the selected-cohort
 waterfall, length/coverage rationale, and experimental-outcome limitations.
-The [accessory score definition](configs/accessory_genes.md) distinguishes the online K/X reward
+The [accessory score definition](docs/accessory_genes.md) distinguishes the online K/X reward
 from v3's independently measured final acceptance route; mutations within K do not supply X.
 Historical screening versions remain in the
 [case-study notes](skills/bionemo-phage-design/references/case-study-results.md).

@@ -121,7 +121,7 @@ The private CSV reader checks producer availability and finite, consistent count
 unavailable evidence earns zero and remains unavailable. Keep this separate from a
 successful search with no matching genes.
 
-Use the [biological profile](../../../configs/required_genes.md) for the PhiX function
+Use the [biological profile](../../../docs/required_genes.md) for the PhiX function
 map, alternate J, conditional essentiality evidence, calibrated coverage, and guidance
 for new profiles. `required_genes_integrity_sum` is summed normalized coverage in
 this term, not the smooth reference-protein geometric mean. Any profile change needs
@@ -181,7 +181,7 @@ matches remain graded RL evidence. When complete assignments tie, accept a
 circularly ordered alternative instead of depending on an arbitrary content-only
 tie. An unmapped profile still uses reference-only
 synteny and its LoVis cluster gate. Use the
-[biological profile](../../../configs/required_genes.md#synteny-uses-the-same-function-definitions)
+[biological profile](../../../docs/required_genes.md#synteny-uses-the-same-function-definitions)
 for the 72-nt short-J calling threshold, family-specific coverage calibration, and
 rotation-tested natural-homolog scope. A family-recognition score does not establish
 compatibility of an arbitrary gene swap in a new genomic background.
@@ -279,7 +279,7 @@ search tables are published atomically, so failed partial output cannot become
 evidence for a later objective. This helper never filters sequences. The online reward reader maps these measurements back
 to rollout IDs; failed or empty measurements cannot earn K-loss credit.
 
-Use the [accessory definition](../../../configs/accessory_genes.md) for formulas,
+Use the [accessory definition](../../../docs/accessory_genes.md) for formulas,
 family alternatives, coverage, copy penalties, and the relationship
 to AAI. `accessory_gene_diversification` is separate from required functions and
 `core_gene_ordered_conservation`; the latter retains its previous formula and gate.

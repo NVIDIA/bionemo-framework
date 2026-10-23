@@ -128,7 +128,7 @@ for synteny and 0.99 for tropism. For synteny, `core_gene_reference_functions` a
 admits the same curated families as required genes: each edge uses the stronger
 of direct-reference integrity and normalized family coverage. A qualifying family
 match earns full gene credit without 90% identity to PhiX or the consensus.
-See the [shared function and architecture rules](required_genes.md#synteny-uses-the-same-function-definitions).
+See the [shared function and architecture rules](../docs/required_genes.md#synteny-uses-the-same-function-definitions).
 For the direct-reference match, any zero factor gives zero credit, with continuous
 credit above zero and no additional
 integrity cutoff or bonus. The [worked protein-score definitions](../examples/README.md#protein-evidence-synteny-and-diversity)
@@ -152,7 +152,7 @@ similarity, not viability: a known viable genome can legitimately fail a novelty
 | Measurement        | Default behavior                                                                                                                                                                                                                                                                  |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Nucleotide QC      | ACGT only, GC 30–65%, homopolymers ≤10 bases. DUST supplies a separate online low-complexity objective.                                                                                                                                                                           |
-| Required functions | Named A/B/C/D/E/F/G/H/J slots with explicit allowed PHROG families, including the viable alternate J. K and A\* are outside this term. See the [biological rationale, formula, and coverage limits](required_genes.md).                                                           |
+| Required functions | Named A/B/C/D/E/F/G/H/J slots with explicit allowed PHROG families, including the viable alternate J. K and A\* are outside this term. See the [biological rationale, formula, and coverage limits](../docs/required_genes.md).                                                           |
 | Synteny            | All nine curated functions in circular order, with distinct full-coverage ORFs and no extra qualifying copies. Smooth synteny also admits partial reference/family evidence; K/A\* are outside this profile.                                                                      |
 | Spike/G match      | Hard QC requires ≥60% identity and ≥95% bidirectional coverage against PhiX174 G. The RL target is stricter: 95% identity and 99% coverage for full credit.                                                                                                                       |
 | AAI novelty        | Mean identity of the lowest-E-value individual PHROGs protein hit per called ORF; optional hard cutoff ≤95%. RL scales novelty by `min(hit_ORFs / 10, 1)` to require supporting evidence. Annotation uses a separate consensus database.                                          |
@@ -218,7 +218,7 @@ review questions from the active synteny reward.
 
 The protein objectives now distinguish `core_gene_ordered_conservation` (the
 existing core/function/order score) from `accessory_gene_diversification` (K/X
-novelty and accessory copy budget). See the [accessory score definition](accessory_genes.md)
+novelty and accessory copy budget). See the [accessory score definition](../docs/accessory_genes.md)
 for the full score surface, evidence exclusions, and historical Arc comparison.
 X requires a distinct family outside K and the nine core genes; mutations within K do not supply X.
 The accessory metric is an RL reward and diagnostic only; it adds no final filter.

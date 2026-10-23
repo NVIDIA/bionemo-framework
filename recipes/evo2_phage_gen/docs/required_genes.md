@@ -1,6 +1,6 @@
 # Required genes in the PhiX profile
 
-The [Arc configuration](arc_genome_design_filtering_local.yaml) defines nine named
+The [Arc configuration](../configs/arc_genome_design_filtering_local.yaml) defines nine named
 functions for a PhiX-like productive-infection cycle. Each function has an explicit
 list of allowed PHROG families in `required_gene_families`. These are detection
 targets for biologically motivated functions, not a claim that homology proves

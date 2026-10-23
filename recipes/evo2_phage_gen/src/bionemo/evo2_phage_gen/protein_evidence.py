@@ -1236,7 +1236,7 @@ def summarize_required_gene_evidence(
 
     Missing functions earn zero; extra families and copies cannot replace them.
     Maximize total credit and independently count the largest full-length assignment.
-    See configs/required_genes.md for the biological rationale and calibration limits.
+    See docs/required_genes.md for the biological rationale and calibration limits.
     """
     matches, available = score_function_matches(
         hits_df, required_families, minimum_reciprocal_coverage, family_coverage_thresholds

@@ -74,6 +74,6 @@ and penalizes accessory copies. X must be outside K and the nine core families;
 K mutations do not supply X, while a distinct K-like family may qualify.
 It is an RL reward and diagnostic only, not a new
 final filter or a claim of exact agreement with Arc's historical cluster counts.
-Use the [accessory definition](../../configs/accessory_genes.md) before adapting
+Use the [accessory definition](../../docs/accessory_genes.md) before adapting
 families or thresholds. K-family absence requires available search evidence; a
 missing artifact is never a deletion reward. AAI includes all hit-bearing proteins.

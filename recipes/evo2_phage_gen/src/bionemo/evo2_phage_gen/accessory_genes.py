@@ -17,7 +17,7 @@
 
 K may be retained or lost. A supported family outside K and the core genes
 provides accessory X evidence; redundant copies and more than two accessory types
-reduce credit. See configs/accessory_genes.md for the state surface and limits.
+reduce credit. See docs/accessory_genes.md for the state surface and limits.
 """
 
 import math

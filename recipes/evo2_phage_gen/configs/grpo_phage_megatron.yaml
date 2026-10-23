@@ -336,7 +336,7 @@ env:
       # Direct-reference integrity is the geometric mean of significance, identity, and both coverages.
       # Identity settings are fractions; 5% is a shaping baseline, not a homology threshold.
       # The 90% target below does not apply to the family route: a supported family
-      # match can give full synteny gene credit at lower identity. See configs/required_genes.md.
+      # match can give full synteny gene credit at lower identity. See docs/required_genes.md.
       core_gene_identity_zero_credit: 0.05
       core_gene_identity_full_credit: 0.90
       core_gene_reciprocal_coverage_full_credit: 0.95

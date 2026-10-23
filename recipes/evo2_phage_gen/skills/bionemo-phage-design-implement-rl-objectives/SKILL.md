@@ -35,7 +35,7 @@ For the shared smooth protein scorer, use the four-factor geometric-mean definit
 
 Use gene-deletion and truncation controls to check incremental recovery of gene content. Base-shuffled controls test accidental match credit; gene-order-shuffled controls preserve the protein sequences and test order separately from content. Neither defines a universal reward floor, and an order penalty is appropriate only when the design calls for conserved architecture.
 
-Required-gene objectives use named functions with explicit, reviewed PHROG alternatives via `required_gene_families`; annotation labels cannot substitute for a function. Use the [required-function API](references/reward-api.md#required-functions) and [biological profile](../../configs/required_genes.md) for the mean-coverage formula, calibrated targets, and experimental scope.
+Required-gene objectives use named functions with explicit, reviewed PHROG alternatives via `required_gene_families`; annotation labels cannot substitute for a function. Use the [required-function API](references/reward-api.md#required-functions) and [biological profile](../../docs/required_genes.md) for the mean-coverage formula, calibrated targets, and experimental scope.
 
 For function-aware synteny, use the same family evidence and `core_gene_reference_functions` mapping described in the [synteny API](references/reward-api.md#function-aware-synteny). Supported family matches bypass the direct-reference 90% identity target while retaining order and copy checks; tropism and origin keep their own criteria. Preserve short natural J alternatives, including their ORF-calling and coverage calibration, when adapting the PhiX profile. Broader natural-homolog and domain/profile evidence can justify other detection alternatives without a published successful swap; document that this establishes plausible function, not genome compatibility. Do not infer essentiality solely from a reference annotation or presence in viable controls.
 
@@ -84,6 +84,6 @@ and penalizes accessory copies. X must be outside K and the nine core families;
 K mutations do not supply X, while a distinct K-like family may qualify.
 It is an RL reward and diagnostic only, not a new
 final filter or a claim of exact agreement with Arc's historical cluster counts.
-Use the [accessory definition](../../configs/accessory_genes.md) before adapting
+Use the [accessory definition](../../docs/accessory_genes.md) before adapting
 families or thresholds. K-family absence requires available search evidence; a
 missing artifact is never a deletion reward. AAI includes all hit-bearing proteins.
