@@ -102,7 +102,10 @@ database or software parity. Original-inventory AAI remains a diagnostic sensiti
 
 Outputs under `arc/arc_reference_filters/` include per-gate CSVs, original natural-member search
 hits, annotated GFFs, per-genome LoVis cluster memberships, accepted observations and `summary.json`.
-The input/configuration fingerprint prevents reuse with changed inputs. Core and ARC synteny
+The input/configuration fingerprint binds both natural-member AAI and tropism-protein
+database files (including sidecars), not merely their configured paths. An in-place
+database change must invalidate reuse; retain prior results and use a new output root.
+Core and ARC synteny
 fields have separate names. Missing cluster output or incomplete reference/candidate annotation
 fails the run. Only after every per-genome gate does final nucleotide clustering select designs.
 Always report passing observations and cluster representatives with their denominators separately;
@@ -114,4 +117,17 @@ not evidence of experimental viability.
 
 The final rollout JSON includes `accepted_score_summary`: SFT likelihood statistics computed only on accepted cluster representatives, with one vote per cluster. Raw per-observation likelihoods remain available as provenance.
 
-The concise target/diagnostic report embeds the completed `final_filter_contract` summary, including alternative-route counts; final rollout JSON retains it under its target-profile evidence. A missing, mismatched-contract or count-inconsistent final summary fails reporting. The 302 ARC ordered designs are a selected re-screening cohort, not a generation-yield denominator. ARC can disable count diversification for another selection route; the two new recent K+X passers also meet original-inventory AAI (93.11% and 93.33%). Do not claim v3 is strictly harder than ARC or that these candidates were ineligible for ARC selection.
+The concise target/diagnostic report embeds the completed `final_filter_contract` summary, including alternative-route counts; final rollout JSON retains it under its target-profile evidence. A missing, mismatched-contract or count-inconsistent final summary fails reporting. V3 counts must be nonnegative integers: overlap cannot exceed either route, add-only equals added minus overlap, and union equals original plus added minus overlap and the terminal FASTA count. The 302 ARC ordered designs are a selected re-screening cohort, not a generation-yield denominator. ARC can disable count diversification for another selection route; the two new recent K+X passers also meet original-inventory AAI (93.11% and 93.33%). Do not claim v3 is strictly harder than ARC or that these candidates were ineligible for ARC selection.
+
+## Independent regression evidence
+
+CPU tests under `tests/bionemo/evo2_phage_gen/` exercise the real final-filter entry
+point against pinned upstream function excerpts, published Data S1 sequences/scores
+and saved raw alignments. See `fixtures/README.md` for provenance and limits.
+The archived 302-design search matched 299 novelty decisions and 291 hit counts;
+three threshold disagreements are explicitly retained, not hidden by tolerance.
+Saved-hit aggregation parity does not establish fresh ORF/search/database parity.
+Keep scientific changes (physical ORF inventory, K+X acceptance) separate from
+output-preserving API/performance changes, and report original versus extended
+acceptance separately. New scientific rules require a matched re-screen in a new
+output root before replacing published rollout counts.

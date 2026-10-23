@@ -311,6 +311,139 @@ def test_arc_summary_preserves_execution_order(tmp_path, columns, counts):
             summarize_arc_screen(config, representatives, tmp_path / "bad.json", expected_filter7=False)
 
 
+def _route_summary_files(tmp_path, route_counts, final_count=3):
+    """Stage real branch artifacts independently of the route-count claims under test."""
+    records = [">a\nAACG\n", ">b\nGGTT\n", ">c\nTTGC\n"]
+    inputs = tmp_path / "inputs.fasta"
+    inputs.write_text("".join(records))
+    terminal = tmp_path / "terminal.fasta"
+    terminal.write_text("".join(records[:final_count]))
+    config = {
+        "results_save_dir": str(tmp_path),
+        "mmseqs_clustering_filter": False,
+        "genetic_architecture_remove_filter": False,
+        "final_arc_contract": "arc-circular-aai-syntenic-diversity-plus-nine-core-safety-v3",
+        "synteny_filter_seqs_fasta_file_save_location": terminal.name,
+    }
+    for stage, column, count in [
+        ("nucleotide", "count_initial_before_nucleotide_metrics", 3),
+        ("orf", "count_orf_count_filter", 3),
+        ("homology", "count_tropism_protein_sequence_identity_filter", 3),
+        ("diversification", "count_genetic_architecture_score_remove_filter", 3),
+        ("synteny", "count_arc_reference_syntenic_diversity", final_count),
+    ]:
+        filename = f"{stage}.csv"
+        (tmp_path / filename).write_text(f"{column}\n{count}\n")
+        config[f"{stage}_filter_counts_file_save_location"] = filename
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps(config))
+    summary_dir = tmp_path / "arc_reference_filters"
+    summary_dir.mkdir()
+    (summary_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "state": "succeeded",
+                "contract": config["final_arc_contract"],
+                "passed_observations": final_count,
+                "syntenic_diversity_counts": route_counts,
+            }
+        )
+    )
+    return config_path, inputs
+
+
+_OVERLAPPING_ROUTES = {
+    "original_arc_count": 2,
+    "add_one_gene": 2,
+    "both": 1,
+    "add_one_gene_only": 1,
+    "union": 3,
+}
+
+
+@pytest.mark.parametrize(
+    "route_counts,final_count",
+    [
+        pytest.param(None, 3, id="missing-counts"),
+        pytest.param([], 3, id="nonmapping-counts"),
+        pytest.param(
+            {key: value for key, value in _OVERLAPPING_ROUTES.items() if key != "both"}, 3, id="missing-overlap"
+        ),
+        pytest.param(dict(_OVERLAPPING_ROUTES, original_arc_count=-1), 3, id="negative-count"),
+        pytest.param(dict(_OVERLAPPING_ROUTES, add_one_gene="2"), 3, id="string-count"),
+        pytest.param(dict(_OVERLAPPING_ROUTES, both=True), 3, id="boolean-count"),
+        pytest.param(dict(_OVERLAPPING_ROUTES, add_one_gene_only=1.0), 3, id="float-count"),
+        pytest.param(dict(_OVERLAPPING_ROUTES, union=None), 3, id="null-count"),
+        pytest.param(dict(_OVERLAPPING_ROUTES, both=2), 3, id="double-counted-overlap"),
+        pytest.param(dict(_OVERLAPPING_ROUTES, add_one_gene_only=2), 3, id="wrong-add-only"),
+        pytest.param(dict(_OVERLAPPING_ROUTES, union=2), 3, id="wrong-union"),
+        pytest.param(_OVERLAPPING_ROUTES, 2, id="union-versus-fasta"),
+        pytest.param(
+            {"original_arc_count": 0, "add_one_gene": 2, "both": 1, "add_one_gene_only": 1, "union": 1},
+            1,
+            id="overlap-exceeds-original",
+        ),
+    ],
+)
+def test_arc_summary_rejects_bad_routes(tmp_path, route_counts, final_count):
+    """A correct headline count must not conceal contradictory alternative-route claims."""
+    config, inputs = _route_summary_files(tmp_path, route_counts, final_count)
+    output = tmp_path / "report.json"
+    with pytest.raises(ValueError, match=r"syntenic.diversity"):
+        summarize_arc_screen(config, inputs, output, expected_filter7=False)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "route_counts,final_count",
+    [
+        pytest.param(_OVERLAPPING_ROUTES, 3, id="overlap"),
+        pytest.param(
+            {"original_arc_count": 2, "add_one_gene": 1, "both": 0, "add_one_gene_only": 1, "union": 3},
+            3,
+            id="disjoint",
+        ),
+        pytest.param(
+            {"original_arc_count": 2, "add_one_gene": 0, "both": 0, "add_one_gene_only": 0, "union": 2},
+            2,
+            id="original-only",
+        ),
+        pytest.param(
+            {"original_arc_count": 0, "add_one_gene": 0, "both": 0, "add_one_gene_only": 0, "union": 0},
+            0,
+            id="empty-accepted-set",
+        ),
+    ],
+)
+def test_arc_summary_accepts_reconciled_routes(tmp_path, route_counts, final_count):
+    config, inputs = _route_summary_files(tmp_path, route_counts, final_count)
+    output = tmp_path / "report.json"
+    summarize_arc_screen(config, inputs, output, expected_filter7=False)
+    report = json.loads(output.read_text())
+    assert report["final_pass_count"] == final_count
+    assert report["final_filter_contract"]["syntenic_diversity_counts"] == route_counts
+
+
+@pytest.mark.parametrize(
+    "contract",
+    ["arc-1-6-8-9-plus-nine-core-safety-v1", "arc-1-6-8-9-circular-aai-plus-nine-core-safety-v2"],
+)
+def test_arc_summary_keeps_legacy_reports(tmp_path, contract):
+    """A historical count-only report need not supply the newer alternative-route schema."""
+    config_path, inputs = _route_summary_files(tmp_path, None)
+    config = json.loads(config_path.read_text())
+    config["final_arc_contract"] = contract
+    config_path.write_text(json.dumps(config))
+    summary_path = tmp_path / "arc_reference_filters/summary.json"
+    summary = json.loads(summary_path.read_text())
+    summary["contract"] = contract
+    del summary["syntenic_diversity_counts"]
+    summary_path.write_text(json.dumps(summary))
+    output = tmp_path / "report.json"
+    summarize_arc_screen(config_path, inputs, output, expected_filter7=False)
+    assert json.loads(output.read_text())["final_filter_contract"] == summary
+
+
 def test_final_report_reconciles_raw_and_representative_denominators(tmp_path):
     raw = tmp_path / "raw.fasta"
     raw.write_text(">a\nAACG\n>a-copy\nAACG\n>b\nGG~T\n>c\nTTGC\n")

@@ -15,11 +15,21 @@
 
 """Regression tests preventing silent replacement of ARC gates with RL objectives."""
 
+import concurrent.futures
+import hashlib
+import json
+import sys
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pandas as pd
 import pytest
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 
+from bionemo.evo2_phage_gen import accessory_genes, arc_final_filters
 from bionemo.evo2_phage_gen.arc_final_filters import (
     ADD_ONE_GENE_CONTRACT,
     CIRCULAR_AAI_CONTRACT,
@@ -268,3 +278,343 @@ def test_missing_or_misaligned_native_evidence_fails_closed():
     assignments.loc[1, "eligible"] = "True"
     with pytest.raises(ValueError, match="booleans"):
         classify(counts, metrics, assignments)
+
+
+@pytest.fixture
+def final_replay(tmp_path, monkeypatch):
+    """Replay real upstream decisions with synthetic external-search/ORF outputs.
+
+    Every candidate advertises perfect online reward. Literal external evidence
+    includes one failure for each common ARC gate, distinct original/added/both
+    synteny routes, and an original-inventory AAI failure. No acceptance mask,
+    aggregation, GFF annotation, or accessory measurement is mocked.
+    """
+    upstream_fixture = Path(__file__).parent / "fixtures/arc_pipeline_upstream.py"
+    with monkeypatch.context() as fixture_source:
+        # The committed excerpt has separately verified per-function upstream
+        # provenance. Use the real loader's coordinate correction on that excerpt.
+        fixture_source.setattr(
+            arc_final_filters, "UPSTREAM_SHA256", hashlib.sha256(upstream_fixture.read_bytes()).hexdigest()
+        )
+        api = arc_final_filters.load_arc_functions(upstream_fixture)
+    # (original ORF count, cross-reference cluster pairs, original AAI, native X)
+    panel = {
+        "original": (10, 10, 90, False),
+        "added": (13, 11, 90, True),
+        "both": (10, 10, 90, True),
+        "count_only": (13, 11, 90, False),
+        "near_copy": (10, 10, 98, True),
+        "bad_chars": (10, 10, 90, True),
+        "short": (10, 10, 90, True),
+        "high_gc": (10, 10, 90, True),
+        "homopolymer": (10, 10, 90, True),
+        "six_hits": (6, 6, 90, True),
+        "low_tropism": (10, 10, 90, True),
+    }
+    sequences = {}
+    for index, name in enumerate(panel):
+        suffix = "".join("ACGT"[(index >> shift) & 3] for shift in (6, 4, 2, 0))
+        sequences[name] = "ACGT" * 1249 + suffix
+    sequences["bad_chars"] = "N" + sequences["bad_chars"][1:]
+    sequences["short"] = sequences["short"][:3999]
+    sequences["high_gc"] = "GCGT" * 1249 + "ACGT"
+    sequences["homopolymer"] = "A" * 11 + sequences["homopolymer"][11:]
+    fasta = tmp_path / "input.fasta"
+    fasta.write_text("".join(f">{name}\n{sequence}\n" for name, sequence in sequences.items()))
+    safety = tmp_path / "safety.json"
+    safety.write_text(json.dumps({"records": [{"record_id": name, "state": "PASS"} for name in panel]}))
+    qualified = pd.DataFrame(
+        {
+            "id_prompt": list(panel),
+            "sequence": list(sequences.values()),
+            "num_syntenic_genes": 9,
+            "reference_num_genes": 9,
+            "duplicate_reference_gene_count": 0,
+            "reference_order_violation_count": 0,
+            "missing_synteny_output": False,
+            "average_protein_percent_identity": 94.0,
+            "average_protein_identity_gene_count": 9,
+            "reward": 1.0,
+            "all_objectives_max_score": 1.0,
+        }
+    )
+    natural_db = tmp_path / "natural-db"
+    natural_db.write_bytes(b"natural-member database v1")
+    tropism_db = tmp_path / "tropism-db"
+    tropism_db.write_bytes(b"tropism database v1")
+    annotation = tmp_path / "annotations.tsv"
+    annotation.write_text("phrog\tannot\tcategory\n1\ttest protein\ttest category\n")
+    reference = tmp_path / "physical-reference.gff"
+    reference.write_text(
+        "##gff-version 3\n"
+        + "".join(
+            f"ref\ttest\tCDS\t{i * 90 + 1}\t{(i + 1) * 90}\t.\t+\t0\tID=ref{gene}\n"
+            for i, gene in enumerate("ABCDEFGHJ")
+        )
+        + "##FASTA\n>ref\n"
+        + "ATG" * 270
+        + "\n"
+    )
+    physical_proteins = tmp_path / "physical.fasta"
+    physical_proteins.write_text("".join(f">{name}_ORF.{i}\n{'M' * 30}\n" for name in panel for i in (1, 2)))
+    family_dir = tmp_path / "families"
+    family_dir.mkdir()
+    family_rows = []
+    for name, (_, _, _, has_x) in panel.items():
+        for i, family in ((1, 1713), (2, 1670)) if has_x else ((1, 1713),):
+            family_rows.append(
+                {
+                    "id_prompt": f"{name}_ORF.{i}",
+                    "protein_database_mmseqs_target": f"phrog_{family}",
+                    "protein_database_mmseqs_e_value": 1e-20,
+                    "protein_database_mmseqs_percent_identity": 90,
+                    "protein_database_mmseqs_alignment_length": 30,
+                    "protein_database_mmseqs_query_length": 30,
+                    "protein_database_mmseqs_target_length": 30,
+                    "protein_database_mmseqs_query_coverage": 1.0,
+                    "protein_database_mmseqs_target_coverage": 1.0,
+                }
+            )
+    pd.DataFrame(family_rows).to_csv(family_dir / "mmseqs2_all_hits.csv", index=False)
+    config = {
+        "final_arc_contract": ADD_ONE_GENE_CONTRACT,
+        "core_gene_reference_functions": {f"ref{gene}": gene for gene in "ABCDEFGHJ"},
+        "required_gene_families": {gene: [f"phrog:{i}"] for i, gene in enumerate("ABCDEFGHJ", 1)},
+        "accessory_gene_k_families": ["phrog:1713"],
+        "sequence_safety_manifest": str(safety),
+        "evo_gen_seqs_fasta_file_save_location": str(fasta),
+        "results_save_dir": str(tmp_path),
+        "mmseqs_db_aai_database": str(natural_db),
+        "mmseqs_db_tropism_protein": str(tropism_db),
+        "protein_annotation_file": str(annotation),
+        "reference_genome_gff_file_save_location": str(reference),
+        "orfipy_proteins_file_save_location": physical_proteins.name,
+        "mmseqs_protein_database_results_dir_save_location": family_dir.name,
+        "final_arc_workers": 1,
+        "mmseqs_threads": 1,
+    }
+
+    def orf_output(input_fasta, threads, starts, stops, strand, minimum, maximum, out, nuc, temp, proteins):
+        nucleotide_records, protein_records = [], []
+        for record in SeqIO.parse(input_fasta, "fasta"):
+            for i in range(panel[record.id][0]):
+                identifier = f"{record.id}_ORF.{i + 1}"
+                description = f"[{i * 90}-{(i + 1) * 90}](+)"
+                nucleotide_records.append(SeqRecord(Seq("ATG" * 30), id=identifier, description=description))
+                protein_records.append(SeqRecord(Seq("M" * 30), id=identifier, description=description))
+        SeqIO.write(nucleotide_records, Path(out) / nuc, "fasta")
+        SeqIO.write(protein_records, Path(out) / proteins, "fasta")
+
+    def search_output(query, database, results, output_csv, prefix, **kwargs):
+        rows = []
+        for record in SeqIO.parse(query, "fasta"):
+            name = record.id.rsplit("_", 1)[0]
+            if prefix == "tropism_protein" and not record.id.endswith("_ORF.1"):
+                continue
+            identity = panel[name][2] if prefix == "protein_database" else 59 if name == "low_tropism" else 90
+            rows.append(
+                {
+                    "id_prompt": record.id,
+                    "sequence": str(record.seq),
+                    f"{prefix}_mmseqs_target": "phrog_1|natural-member",
+                    f"{prefix}_mmseqs_e_value": 1e-20,
+                    f"{prefix}_mmseqs_percent_identity": identity,
+                }
+            )
+        pd.DataFrame(rows).to_csv(output_csv, index=False)
+
+    def staged_reference(output):
+        output.write_text(
+            "".join(f"ref\ttest\tCDS\t{i * 90 + 1}\t{(i + 1) * 90}\t.\t+\t0\tID=ORF.{i + 1}\n" for i in range(11))
+        )
+        return output
+
+    def cluster_output():
+        inputs = Path(sys.argv[sys.argv.index("-gff") + 1])
+        candidate = next(inputs.glob("genome_*.gff"))
+        name = next(
+            line.removeprefix("##description ")
+            for line in candidate.read_text().splitlines()
+            if line.startswith("##description ")
+        )
+        total, paired, _, _ = panel[name]
+        rows = []
+        for i in range(1, 12):
+            ref_id = f"ref-ORF.{i}"
+            rows.append(f"{ref_id}\t{ref_id}\n")
+            if i <= paired:
+                rows.append(f"{ref_id}\t{candidate.stem}-ORF.{i}\n")
+        for i in range(paired + 1, total + 1):
+            identifier = f"{candidate.stem}-ORF.{i}"
+            rows.append(f"{identifier}\t{identifier}\n")
+        table = Path(sys.argv[sys.argv.index("-o") + 1]) / "mmseqs/mmseqs_clustering.tsv"
+        table.parent.mkdir(parents=True)
+        table.write_text("".join(rows))
+
+    def reference_search_output(**kwargs):
+        # A successfully completed, empty direct-reference search is measured evidence.
+        kwargs["output_tsv"].write_text("")
+
+    api.update(run_orfipy=orf_output, run_mmseqs_search_proteins=search_output)
+    monkeypatch.setattr(arc_final_filters, "load_arc_functions", lambda source: api)
+    monkeypatch.setattr(arc_final_filters, "stage_arc_reference", staged_reference)
+    monkeypatch.setattr(
+        arc_final_filters.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(stdout="test-mmseqs")
+    )
+    monkeypatch.setattr(arc_final_filters.importlib.metadata, "version", lambda name: "test-version")
+    monkeypatch.setattr(
+        arc_final_filters.concurrent.futures, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor
+    )
+    cluster_module = SimpleNamespace(main=cluster_output)
+    monkeypatch.setitem(sys.modules, "bionemo.evo2_phage_gen.lovis4u_metrics", cluster_module)
+    # Another collected test may already have imported the real submodule, so
+    # `from ... import lovis4u_metrics` can resolve the cached package attribute.
+    monkeypatch.setattr(sys.modules["bionemo.evo2_phage_gen"], "lovis4u_metrics", cluster_module, raising=False)
+    monkeypatch.setattr(sys, "argv", list(sys.argv))
+    monkeypatch.setenv("LOVIS4U_MMSEQS_THREADS", "1")
+    monkeypatch.setenv("LOVIS4U_MMSEQS_BINARY", "mmseqs")
+    monkeypatch.setattr(accessory_genes, "run_reference_protein_search", reference_search_output)
+    return SimpleNamespace(qualified=qualified, config=config, output=tmp_path / "replay", api=api)
+
+
+@pytest.mark.parametrize(
+    "contract,accepted,gate_counts,route_counts",
+    [
+        (CONTRACT, ["original", "both"], [10, 9, 8, 7, 6, 5, 4, 2], [2, 0, 0, 0, 2]),
+        (CIRCULAR_AAI_CONTRACT, ["original", "both", "near_copy"], [10, 9, 8, 7, 6, 5, 5, 3], [3, 0, 0, 0, 3]),
+        (
+            ADD_ONE_GENE_CONTRACT,
+            ["original", "added", "both", "near_copy"],
+            [10, 9, 8, 7, 6, 5, 5, 4],
+            [3, 3, 2, 1, 4],
+        ),
+    ],
+)
+def test_final_replay_keeps_independent_gates(final_replay, contract, accepted, gate_counts, route_counts):
+    run = final_replay
+    run.config["final_arc_contract"] = contract
+    result, summary = arc_final_filters.apply_arc_final_filters(run.qualified, run.config, output_dir=run.output)
+    assert result.id_prompt.tolist() == accepted
+    assert result.reward.eq(1).all()
+    assert result.num_syntenic_genes.eq(9).all()  # Original core evidence survives the independent ARC annotation.
+    assert result.average_protein_percent_identity.eq(94).all()
+    assert summary["state"] == "succeeded"
+    assert summary["passed_observations"] == len(accepted)
+    assert [entry["remaining"] for entry in summary["gate_order"]] == gate_counts
+    assert summary["syntenic_diversity_counts"] == dict(
+        zip(["original_arc_count", "add_one_gene", "both", "add_one_gene_only", "union"], route_counts, strict=True)
+    )
+    assert summary["original_inventory_aai_passers"] == 4
+    assert json.loads((run.output / "summary.json").read_text()) == summary
+    assert pd.read_csv(run.output / "accepted-metrics.csv").id_prompt.tolist() == accepted
+    assert [record.id for record in SeqIO.parse(run.output / "accepted-observations.fasta", "fasta")] == accepted
+    if contract == ADD_ONE_GENE_CONTRACT:
+        decisions = pd.read_csv(run.output / "syntenic-diversity-decisions.csv").set_index("id_prompt")
+        assert decisions.syntenic_diversity_category.to_dict() == {
+            "original": "original_arc_count",
+            "added": "add_one_gene",
+            "both": "both",
+            "count_only": "fail",
+            "near_copy": "both",
+        }
+        assert result.set_index("id_prompt").loc["near_copy", "arc_average_protein_percent_identity"] == 98
+
+
+@pytest.mark.parametrize("changed", ["tropism", "tropism-sidecar", "natural", "annotation", "physical", "input"])
+def test_replay_cache_rejects_changed_evidence(final_replay, changed):
+    run = final_replay
+    first, summary = arc_final_filters.apply_arc_final_filters(run.qualified, run.config, output_dir=run.output)
+    fingerprint = (run.output / "input-fingerprint.txt").read_text()
+    repeated, repeated_summary = arc_final_filters.apply_arc_final_filters(
+        run.qualified, run.config, output_dir=run.output
+    )
+    pd.testing.assert_frame_equal(first, repeated)
+    assert repeated_summary == summary
+    if changed == "input":
+        run.qualified.loc[0, "reward"] = 0.5
+    else:
+        path = {
+            "tropism": Path(run.config["mmseqs_db_tropism_protein"]),
+            "tropism-sidecar": Path(run.config["mmseqs_db_tropism_protein"] + ".index"),
+            "natural": Path(run.config["mmseqs_db_aai_database"]),
+            "annotation": Path(run.config["protein_annotation_file"]),
+            "physical": Path(run.config["results_save_dir"]) / run.config["orfipy_proteins_file_save_location"],
+        }[changed]
+        path.write_bytes((path.read_bytes() if path.exists() else b"") + b"\nchanged evidence\n")
+    with pytest.raises(ValueError, match="different input/configuration"):
+        arc_final_filters.apply_arc_final_filters(run.qualified, run.config, output_dir=run.output)
+    assert (run.output / "input-fingerprint.txt").read_text() == fingerprint
+    assert json.loads((run.output / "summary.json").read_text()) == summary
+
+
+def test_missing_tropism_database_fails_closed(final_replay):
+    run = final_replay
+    Path(run.config["mmseqs_db_tropism_protein"]).unlink()
+    with pytest.raises(ValueError, match=r"tropism.*database"):
+        arc_final_filters.apply_arc_final_filters(run.qualified, run.config, output_dir=run.output)
+
+
+@pytest.mark.parametrize("missing", ["core", "physical_aai", "safety", "accessory"])
+def test_perfect_reward_cannot_replace_evidence(final_replay, missing):
+    run = final_replay
+    if missing == "core":
+        run.qualified = run.qualified.drop(columns="missing_synteny_output")
+    elif missing == "physical_aai":
+        run.qualified.loc[0, "average_protein_identity_gene_count"] = 0
+    elif missing == "safety":
+        path = Path(run.config["sequence_safety_manifest"])
+        manifest = json.loads(path.read_text())
+        manifest["records"][0]["state"] = "INDETERMINATE"
+        path.write_text(json.dumps(manifest))
+    else:
+        path = Path(run.config["results_save_dir"]) / "families/mmseqs2_all_hits.csv"
+        pd.read_csv(path).drop(columns="protein_database_mmseqs_query_coverage").to_csv(path, index=False)
+    with pytest.raises(ValueError):
+        arc_final_filters.apply_arc_final_filters(run.qualified, run.config, output_dir=run.output)
+    assert not (run.output / "accepted-observations.fasta").exists()
+
+
+def test_empty_gate_reports_zero_remaining(final_replay):
+    run = final_replay
+    qualified = run.qualified.loc[run.qualified.id_prompt.eq("bad_chars")]
+    accepted, summary = arc_final_filters.apply_arc_final_filters(qualified, run.config, output_dir=run.output)
+    assert accepted.empty
+    assert summary["gate_order"] == [
+        {"gate": gate, "remaining": 0}
+        for gate in (
+            "valid_nt_chars",
+            "valid_genome_len",
+            "valid_gc_content",
+            "valid_nt_homopolymer_len",
+            "arc_seven_protein_hits",
+            "arc_tropism",
+            "physical_aai_reconfirmed",
+            "syntenic_diversity",
+        )
+    ]
+    assert summary["passed_observations"] == 0
+    assert summary["state"] == "succeeded"
+    assert (run.output / "accepted-observations.fasta").read_text() == ""
+    assert pd.read_csv(run.output / "accepted-metrics.csv").empty
+
+
+@pytest.mark.parametrize("outcome", ["no_hits", "failed"])
+def test_external_failure_is_not_a_successful_zero(final_replay, outcome):
+    run = final_replay
+
+    def search_output(query, database, results, output_csv, prefix, **kwargs):
+        if outcome == "failed":
+            raise RuntimeError("synthetic search execution failure")
+        pd.DataFrame(columns=["id_prompt", f"{prefix}_mmseqs_target"]).to_csv(output_csv, index=False)
+
+    run.api["run_mmseqs_search_proteins"] = search_output
+    if outcome == "failed":
+        with pytest.raises(RuntimeError, match="search execution failure"):
+            arc_final_filters.apply_arc_final_filters(run.qualified, run.config, output_dir=run.output)
+        assert json.loads((run.output / "summary.json").read_text())["state"] == "running"
+        assert not (run.output / "accepted-observations.fasta").exists()
+    else:
+        accepted, summary = arc_final_filters.apply_arc_final_filters(run.qualified, run.config, output_dir=run.output)
+        assert accepted.empty
+        assert summary["state"] == "succeeded"
+        assert [entry["remaining"] for entry in summary["gate_order"]] == [10, 9, 8, 7, 0, 0, 0, 0]

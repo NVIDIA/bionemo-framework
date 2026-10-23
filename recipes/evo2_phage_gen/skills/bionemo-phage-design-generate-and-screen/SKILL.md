@@ -65,6 +65,9 @@ structured add-one-gene route: one eligible K and one eligible non-core/non-K X,
 both at full credit, no duplicate accessory copies, and exactly two accessory
 types. A reward alone or an 11/13 count pair never establishes this category.
 Keep the original ARC count decision and the add-one-gene decision separate.
+Reconcile their overlap and union against the terminal FASTA; reject inconsistent
+route summaries. Reuse final-filter evidence only when inputs, configuration and
+both natural-member AAI and tropism database file hashes (including sidecars) match.
 Use the [accessory definition](../../docs/accessory_genes.md) before adapting
 families or thresholds. K-family absence requires available search evidence; a
 missing artifact is never a deletion reward. AAI includes all hit-bearing proteins.

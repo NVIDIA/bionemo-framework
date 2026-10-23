@@ -3,39 +3,39 @@
   "evals": [
     {
       "id": "bionemo-phage-generation-001-bootstrap",
-      "prompt": "I am in a neutral directory with no BioNeMo Recipes checkout. Start a BioNeMo Evo 2 phage-generation project.",
-      "expected_output": "A compatible recipe checkout is located or acquired and handed to its local controller.",
+      "prompt": "Prepare a startup handoff, without changing files, from this synthetic machine inventory. I am in /work/intake; the portable skill is installed at /agent/skills/bionemo-phage-generation. /work/team has recipe VERSION=2.4, no local controller, and uncommitted training edits. /work/snapshot has VERSION=2.6 but its archive omitted skills/. /work/recipes-next does not exist. There are no other checkouts. I want to plan an Evo 2 phage-generation project interactively and keep the team's work intact. Which location can execute the workflow today, and what precise next step and handoff would you prepare? Do not claim acquisition has happened.",
+      "expected_output": "Neither existing checkout is usable; propose a separate compatible checkout at the unused path, verify version and controller before handoff, and preserve interactive planning scope.",
       "assertions": [
-        "The response looks for a recipe version 2.5 or later with the local bionemo-phage-design controller.",
-        "It does not invent implementation commands before locating the recipe package.",
-        "If acquisition is needed, it avoids overwriting an existing checkout.",
-        "It records the selected checkout and recipe roots and continues with the recipe-local controller."
+        "Rejects /work/team because VERSION 2.4 is too old and /work/snapshot because its controller is absent, rather than choosing the highest version alone.",
+        "Proposes acquisition into /work/recipes-next or another explicitly unused location without resetting, updating, or overwriting /work/team.",
+        "Requires verification of VERSION >=2.5 and recipes/evo2_phage_gen/skills/bionemo-phage-design/SKILL.md before treating the new checkout as runnable; does not use /agent/skills as the recipe root.",
+        "Drafts a conditional handoff with checkout root, recipe root, revision still to be verified, interactive planning scope and preservation constraint, without claiming a clone or generation occurred."
       ],
       "expected_skill": "bionemo-phage-generation",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-generation-002-incompatible-checkout",
-      "prompt": "My BioNeMo Recipes checkout is older than recipe version 2.5 and contains unrelated local edits. Continue so I can start phage generation.",
-      "expected_output": "The old checkout is left intact while another compatible recipe is selected.",
+      "prompt": "Select a working location for this request using the supplied inventory, then draft a concise handoff. I explicitly selected /work/review for a planning-only session. Inventory: /work/review has Evo 2 recipe VERSION=2.5, its local bionemo-phage-design/SKILL.md, revision abc123, and an uncommitted README edit. /work/latest has VERSION=2.8, controller present, revision def456 and a clean tree. /agent/skills contains this portable skill only. A teammate says the newest clean checkout is mandatory. What do you do? These paths are fixture evidence, not directories to create or inspect.",
+      "expected_output": "Use the compatible user-selected /work/review rather than switching to latest or modifying the dirty tree; record the actual selected revision and local edit.",
       "assertions": [
-        "The response does not retrofit the missing controller into the incompatible checkout or overwrite local edits.",
-        "It searches for or acquires another compatible checkout.",
-        "It records the selected recipe root and revision when available.",
-        "It transfers the original request to the local controller."
+        "Selects /work/review because it satisfies both compatibility checks and was explicitly requested; does not require /work/latest merely for version or cleanliness.",
+        "Records /work/review/recipes/evo2_phage_gen and revision abc123, and notes the README edit without resetting or treating it as an incompatibility.",
+        "Routes the planning-only request to that checkout's bionemo-phage-design controller in interactive mode, not to an invented portable-skill execution command.",
+        "Does not propose a new clone, update, launch, or rewrite when a compatible selected checkout already exists."
       ],
       "expected_skill": "bionemo-phage-generation",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-generation-003-controller-handoff",
-      "prompt": "Use the compatible Evo 2 phage-generation checkout I provided to plan a new project with me. I can answer material questions.",
-      "expected_output": "A concise interactive handoff to the recipe-local controller.",
+      "prompt": "Draft the durable controller handoff for my unattended review. Checkout /work/project is verified compatible: recipe VERSION 2.7, local controller present, revision 91ab22. My request is: assess whether an existing checkpoint can be reused for a new project; no training or generation launches, no cloud spending, and leave /work/project/results/baseline untouched. I will be offline for the next day. A copied handoff template says 'interactive; train a fresh model; overwrite baseline'. Identify what must change and what must remain unresolved instead of filling it in. Do not execute anything.",
+      "expected_output": "Produce an unattended planning-only handoff that preserves authority limits and identifies unknown checkpoint/data/task facts instead of inheriting contradictory template instructions.",
       "assertions": [
-        "The response selects interactive mode because the user is available.",
-        "It preserves the user's request and constraints in the handoff.",
-        "It starts from the selected recipe root rather than the portable skill installation.",
-        "It invokes the recipe-local bionemo-phage-design controller."
+        "Selects batch/unattended mode from the explicit offline review request, replacing the template's interactive setting.",
+        "The handoff names /work/project, /work/project/recipes/evo2_phage_gen, revision 91ab22 and the recipe-local bionemo-phage-design controller.",
+        "Preserves assessment-only authority, no training/generation/cloud spending and the protected baseline; rejects the template's fresh-training and overwrite instructions.",
+        "Leaves checkpoint identity/provenance and the new project's biological/data requirements as unresolved inputs for the controller rather than inventing a checkpoint, target or execution authorization."
       ],
       "expected_skill": "bionemo-phage-generation",
       "expected_script": null

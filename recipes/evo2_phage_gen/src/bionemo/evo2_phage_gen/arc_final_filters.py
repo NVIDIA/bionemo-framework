@@ -339,7 +339,16 @@ def apply_arc_final_filters(
     natural_db = str(config.get("mmseqs_db_aai_database", ""))
     if not natural_db or not Path(natural_db).exists():
         raise ValueError("A prepared natural-member AAI database is required")
-    database_files = sorted(Path(natural_db).parent.glob(Path(natural_db).name + "*"))
+    tropism_db = str(config.get("mmseqs_db_tropism_protein", ""))
+    if not tropism_db or not Path(tropism_db).exists():
+        raise ValueError("A prepared tropism protein database is required")
+    database_files = sorted(
+        {
+            asset
+            for database in (natural_db, tropism_db)
+            for asset in Path(database).parent.glob(Path(database).name + "*")
+        }
+    )
     database_hashes = {}
     for asset in database_files:
         if asset.is_file():
@@ -511,7 +520,7 @@ def apply_arc_final_filters(
     )
     if df.empty:
         return finish(df)
-    g_hits = search("g-hits", str(Path(config["mmseqs_db_tropism_protein"]).resolve()), "tropism_protein", False)
+    g_hits = search("g-hits", str(Path(tropism_db).resolve()), "tropism_protein", False)
     if g_hits.empty:
         return finish(save("arc_tropism", df.iloc[:0].copy()))
     df = save("arc_tropism", api["valid_mmseqs_pident"](g_hits, "tropism_protein", [60, 100], df))

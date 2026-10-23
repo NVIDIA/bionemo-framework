@@ -16,9 +16,12 @@
 """Tests for ``bionemo.evo2_phage_gen.arc_pipeline``."""
 
 import ast
+import hashlib
 import importlib.util
 import json
 import os
+import re
+import shlex
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
@@ -42,6 +45,308 @@ from bionemo.evo2_phage_gen.arc_pipeline import (
 )
 from bionemo.evo2_phage_gen.external_qc import ARC_GENETIC_ARCHITECTURE_IMPORT_FASTA
 from bionemo.evo2_phage_gen.protein_evidence import core_gene_ordered_conservation_pass_mask
+
+
+UPSTREAM_ARC_FIXTURE = Path(__file__).parent / "fixtures" / "arc_pipeline_upstream.py"
+
+
+def _load_arc_module(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _prepare_upstream_excerpt(tmp_path: Path, *, protein_patch: bool = False, coordinate_patch: bool = False):
+    """Apply real production patches to verbatim pinned functions, without downloaded assets.
+
+    Only protein-search hunks fully contained in the retained source interval are
+    applicable to this excerpt. This does not claim to test the whole patch chain.
+    """
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    pipeline = tmp_path / "genome_design_filtering_pipeline.py"
+    shutil.copyfile(UPSTREAM_ARC_FIXTURE, pipeline)
+    if protein_patch:
+        original = _load_arc_module(UPSTREAM_ARC_FIXTURE, "arc_patch_provenance")
+        first = original.UPSTREAM_FUNCTIONS["mmseqs_search_proteins"]["lines"][0]
+        last = original.UPSTREAM_FUNCTIONS["run_mmseqs_search_proteins"]["lines"][1]
+        hunks = []
+        for hunk in re.split(r"(?=^@@ )", arc_pipeline.DEFAULT_ARC_PIPELINE_PATCH.read_text(), flags=re.MULTILINE):
+            match = re.match(r"@@ -(\d+),(\d+) \+", hunk)
+            if match is not None and first <= int(match[1]) and int(match[1]) + int(match[2]) - 1 <= last:
+                hunks.append(hunk)
+        assert hunks, "The maintained patch no longer exposes the audited protein-search hunks"
+        patch = tmp_path / "protein-search.patch"
+        patch.write_text(
+            "--- genome_design_filtering_pipeline.py\n+++ genome_design_filtering_pipeline.py\n" + "".join(hunks)
+        )
+        arc_pipeline._apply_arc_pipeline_patch(tmp_path, patch)
+        arc_pipeline._apply_mmseqs_protein_evidence_patch(tmp_path)
+    if coordinate_patch:
+        arc_pipeline._apply_orfipy_gff_coordinate_patch(tmp_path)
+    return pipeline
+
+
+def _protein_search_inputs(tmp_path: Path):
+    """Include an E-value tie, reordered queries, a no-hit ORF and an unrelated ID."""
+    query = tmp_path / "queries.fasta"
+    query.write_text(">sample_z_ORF.2\nMKKK\n>sample_a_ORF.1\nMPPP\n>sample_nohit_ORF.4\nMFFF\n")
+    hits = [
+        ("sample_z_ORF.2", "weak_z", 1e-9, 99.0, 100, 100, 100, 1.0, 1.0),
+        ("sample_a_ORF.1", "first_tie", 1e-20, 70.0, 100, 100, 100, 0.8, 0.9),
+        ("sample_z_ORF.2", "best_z", 1e-30, 64.0, 50, 100, 200, 0.4, 0.2),
+        ("sample_a_ORF.1", "second_tie", 1e-20, 99.0, 100, 100, 100, 1.0, 1.0),
+        ("unrelated_ORF.1", "unrelated", 1e-50, 100.0, 100, 100, 100, 1.0, 1.0),
+    ]
+    return query, hits
+
+
+def _assert_protein_search_rows(frame: pd.DataFrame, *, only_top_hits: bool):
+    prefix = "protein_database_mmseqs_"
+    assert frame["id_prompt"].tolist() == (
+        ["sample_a_ORF.1", "sample_z_ORF.2"]
+        if only_top_hits
+        else ["sample_z_ORF.2", "sample_a_ORF.1", "sample_z_ORF.2", "sample_a_ORF.1"]
+    )
+    assert frame[prefix + "target"].tolist() == (
+        ["first_tie", "best_z"] if only_top_hits else ["weak_z", "first_tie", "best_z", "second_tie"]
+    )
+    assert frame[prefix + "percent_identity"].tolist() == ([70.0, 64.0] if only_top_hits else [99.0, 70.0, 64.0, 99.0])
+    assert frame[prefix + "query_coverage"].tolist() == ([0.8, 0.4] if only_top_hits else [1.0, 0.8, 0.4, 1.0])
+    assert frame[prefix + "target_coverage"].tolist() == ([0.9, 0.2] if only_top_hits else [1.0, 0.9, 0.2, 1.0])
+
+
+def test_upstream_oracle_integrity():
+    """Guard the independent source oracle against silently editing it to fit our outputs."""
+    module = _load_arc_module(UPSTREAM_ARC_FIXTURE, "arc_oracle_integrity")
+    text = UPSTREAM_ARC_FIXTURE.read_text()
+    lines = text.splitlines(keepends=True)
+    functions = [node for node in ast.parse(text).body if isinstance(node, ast.FunctionDef)]
+    assert {node.name for node in functions} == set(module.UPSTREAM_FUNCTIONS)
+    for node in functions:
+        source = "".join(lines[node.lineno - 1 : node.end_lineno])
+        assert hashlib.sha256(source.encode()).hexdigest() == module.UPSTREAM_FUNCTIONS[node.name]["sha256"]
+
+
+@pytest.mark.parametrize("only_top_hits", [False, True])
+def test_upstream_protein_search_parity(tmp_path, monkeypatch, only_top_hits):
+    """Additional alignment fields must not change legacy hits, ties, IDs or search work."""
+    original = _load_arc_module(UPSTREAM_ARC_FIXTURE, "arc_original_search")
+    patched = _load_arc_module(
+        _prepare_upstream_excerpt(tmp_path / "patched", protein_patch=True), "arc_patched_search"
+    )
+    query, hits = _protein_search_inputs(tmp_path)
+    database = tmp_path / "database"
+    database.mkdir()
+    outputs = []
+    commands = []
+    for index, module in enumerate((original, patched)):
+
+        def run_search(command, *, shell, check, stdout, stderr, text):
+            assert shell and check and text
+            assert stdout is stderr
+            arguments = shlex.split(command)
+            fields = arguments[arguments.index("--format-output") + 1]
+            assert fields in {
+                "query,target,evalue,pident",
+                "query,target,evalue,pident,alnlen,qlen,tlen,qcov,tcov",
+            }
+            commands.append(arguments)
+            width = len(fields.split(","))
+            Path(arguments[4]).write_text("".join("\t".join(map(str, row[:width])) + "\n" for row in hits))
+            return SimpleNamespace(returncode=0)
+
+        # Only the external binary boundary is replaced; parsing, best-hit
+        # selection, FASTA lookup and CSV serialization remain the real code.
+        monkeypatch.setattr(
+            module,
+            "subprocess",
+            SimpleNamespace(run=run_search, CalledProcessError=arc_pipeline.subprocess.CalledProcessError),
+        )
+        output = tmp_path / f"search-{index}.csv"
+        frame = module.run_mmseqs_search_proteins(
+            str(query),
+            str(database),
+            str(tmp_path / f"search-{index}"),
+            str(output),
+            "protein_database",
+            threads=3,
+            split=2,
+            sensitivity=7.5,
+            only_top_hits=only_top_hits,
+        )
+        outputs.append((frame, pd.read_csv(output)))
+    _assert_protein_search_rows(outputs[1][0], only_top_hits=only_top_hits)
+    legacy_columns = outputs[0][0].columns.tolist()
+    pd.testing.assert_frame_equal(outputs[0][0], outputs[1][0][legacy_columns])
+    pd.testing.assert_frame_equal(outputs[0][1], outputs[1][1][legacy_columns])
+    assert len(commands) == 2  # Exactly one expensive search per original/patched call.
+    assert commands[0][:4] == commands[1][:4] == ["mmseqs", "easy-search", str(query), str(database)]
+    assert (
+        commands[0][6:-2]
+        == commands[1][6:-2]
+        == ["--threads", "3", "--split", "2", "-s", "7.5", "--remove-tmp-files", "1"]
+    )
+
+
+@pytest.mark.parametrize("mutation", ["wrong_best_hit", "alignment_columns_as_coverage"])
+def test_protein_parity_detects_mutants(tmp_path, mutation):
+    """Demonstrate that the oracle rejects plausible best-hit and gapped-coverage drift."""
+    pipeline = _prepare_upstream_excerpt(tmp_path / "patched", protein_patch=True)
+    source = pipeline.read_text()
+    if mutation == "wrong_best_hit":
+        source = source.replace(
+            'df.groupby("id_prompt")[f"{descriptive_prefix}_mmseqs_e_value"].idxmin()',
+            'df.groupby("id_prompt")[f"{descriptive_prefix}_mmseqs_e_value"].idxmax()',
+        )
+    else:
+        source = source.replace("float(query_coverage)", "float(alignment_length) / float(query_length)")
+    assert source != pipeline.read_text()
+    namespace = {}
+    exec(compile(source, str(pipeline), "exec"), namespace)
+    query, hits = _protein_search_inputs(tmp_path)
+    table = tmp_path / "hits.m8"
+    table.write_text("".join("\t".join(map(str, row)) + "\n" for row in hits))
+    observed = namespace["mmseqs_results_to_df"](
+        namespace["parse_mmseqs_results"](str(table)), str(query), str(tmp_path / "hits.csv"), "protein_database", True
+    )
+    with pytest.raises(AssertionError):
+        _assert_protein_search_rows(observed, only_top_hits=True)
+
+
+@pytest.mark.parametrize("outcome", ["no_orfs", "no_hits", "missing_output", "failed_search", "malformed_output"])
+def test_real_protein_evidence_states(tmp_path, monkeypatch, outcome):
+    """Keep genuine empty evidence separate from external failure on the real patched source."""
+    module = _load_arc_module(
+        _prepare_upstream_excerpt(tmp_path / "patched", protein_patch=True), "arc_real_evidence_states"
+    )
+    query = tmp_path / "queries.fasta"
+    query.write_text("" if outcome == "no_orfs" else ">sample_ORF.1\nMKKK\n")
+    database = tmp_path / "database"
+    database.mkdir()
+    results = tmp_path / "search"
+    results.mkdir()
+    output = tmp_path / "hits.csv"
+    raw = results / "mmseqs_result.m8"
+    if outcome == "no_orfs":
+        raw.write_text("stale evidence must not survive an empty query\n")
+    search_calls = []
+
+    def run_search(_command, **_kwargs):
+        search_calls.append(True)
+        if outcome == "failed_search":
+            raise arc_pipeline.subprocess.CalledProcessError(1, "mmseqs")
+        if outcome == "no_hits":
+            raw.write_text("")
+        elif outcome == "malformed_output":
+            raw.write_text("sample_ORF.1\tphrog_1\tnot-an-evalue\t90\t4\t4\t4\t1\t1\n")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(
+        module,
+        "subprocess",
+        SimpleNamespace(run=run_search, CalledProcessError=arc_pipeline.subprocess.CalledProcessError),
+    )
+    arguments = (str(query), str(database), str(results), str(output), "protein_database")
+    errors = {
+        "missing_output": FileNotFoundError,
+        "failed_search": arc_pipeline.subprocess.CalledProcessError,
+        "malformed_output": ValueError,
+    }
+    if outcome in errors:
+        with pytest.raises(errors[outcome]):
+            module.run_mmseqs_search_proteins(*arguments)
+        assert not output.exists()
+    else:
+        observed = module.run_mmseqs_search_proteins(*arguments)
+        assert observed.empty
+        assert pd.read_csv(output).empty
+        assert raw.read_text() == ""
+        assert observed.columns.tolist() == [
+            "id_prompt",
+            "sequence",
+            "protein_database_mmseqs_target",
+            "protein_database_mmseqs_e_value",
+            "protein_database_mmseqs_percent_identity",
+            "protein_database_mmseqs_alignment_length",
+            "protein_database_mmseqs_query_length",
+            "protein_database_mmseqs_target_length",
+            "protein_database_mmseqs_query_coverage",
+            "protein_database_mmseqs_target_coverage",
+        ]
+    assert len(search_calls) == (0 if outcome == "no_orfs" else 1)
+
+
+def _coordinate_roundtrip(module, root: Path, strand: str):
+    root.mkdir()
+    coding = Seq("ATGAAACCCTAA")
+    sequence = Seq("CCC") + (coding if strand == "+" else coding.reverse_complement()) + Seq("GGG")
+    genomes, orfs = root / "genomes.fasta", root / "orfs.fasta"
+    genomes.write_text(f">candidate\n{sequence}\n")
+    orfs.write_text(f">candidate_ORF.1 [3-15]({strand})\n{coding}\n")
+    hits = pd.DataFrame(
+        {
+            "id_prompt": ["candidate_ORF.1"],
+            "sequence": ["MKP"],
+            "protein_database_mmseqs_target": ["phrog_1"],
+            "protein_database_mmseqs_percent_identity": [100.0],
+            "annot": ["test product"],
+            "category": ["test function"],
+        }
+    )
+    features = module.extract_orf_positions_from_protein_database_hits(
+        str(genomes), str(orfs), hits, {"candidate": "genome_0"}
+    )
+    module.create_gff_file(features, "candidate", "genome_0", str(sequence), str(root))
+    module.convert_gff_to_gbk(str(root / "genome_0.gff"), str(root / "genome_0.gbk"))
+    return features["genome_0"][0], SeqIO.read(root / "genome_0.gbk", "genbank")
+
+
+def _assert_cds_roundtrip(original, patched):
+    old_gff, old_record = original
+    new_gff, new_record = patched
+    assert (old_gff["start"], old_gff["end"]) == ("3", "15")
+    assert (new_gff["start"], new_gff["end"]) == ("4", "15")
+    old_cds = next(feature for feature in old_record.features if feature.type == "CDS")
+    new_cds = next(feature for feature in new_record.features if feature.type == "CDS")
+    assert old_cds.location == new_cds.location
+    assert (int(new_cds.location.start), int(new_cds.location.end)) == (3, 15)
+    assert str(old_cds.extract(old_record.seq)) == str(new_cds.extract(new_record.seq)) == "ATGAAACCCTAA"
+    assert str(new_cds.extract(new_record.seq).translate()) == "MKP*"
+    assert old_cds.qualifiers == new_cds.qualifiers
+
+
+@pytest.mark.parametrize("strand", ["+", "-"])
+def test_upstream_coordinate_roundtrip(tmp_path, strand):
+    """Fix GFF coordinates while preserving the original paired converter's CDS molecule."""
+    original = _load_arc_module(UPSTREAM_ARC_FIXTURE, "arc_original_coordinates")
+    patched = _load_arc_module(
+        _prepare_upstream_excerpt(tmp_path / "patched", coordinate_patch=True), "arc_patched_coordinates"
+    )
+    _assert_cds_roundtrip(
+        _coordinate_roundtrip(original, tmp_path / "original-output", strand),
+        _coordinate_roundtrip(patched, tmp_path / "patched-output", strand),
+    )
+
+
+@pytest.mark.parametrize("strand", ["+", "-"])
+def test_coordinate_parity_detects_half_fix(tmp_path, strand):
+    """Correcting only GFF starts must fail the independent CDS extraction oracle."""
+    original = _load_arc_module(UPSTREAM_ARC_FIXTURE, "arc_original_half_fix")
+    pipeline = _prepare_upstream_excerpt(tmp_path / "patched", coordinate_patch=True)
+    source = pipeline.read_text().replace(
+        "location=FeatureLocation(start - 1, end, strand=strand),",
+        "location=FeatureLocation(start, end, strand=strand),",
+    )
+    assert source != pipeline.read_text()
+    namespace = {}
+    exec(compile(source, str(pipeline), "exec"), namespace)
+    with pytest.raises(AssertionError):
+        _assert_cds_roundtrip(
+            _coordinate_roundtrip(original, tmp_path / "original-output", strand),
+            _coordinate_roundtrip(SimpleNamespace(**namespace), tmp_path / "mutated-output", strand),
+        )
 
 
 def _load_prepared_arc_pipeline(tmp_path: Path, module_name: str, monkeypatch):

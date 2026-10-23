@@ -22,6 +22,8 @@ tasks, and monitor long-running jobs.
 The current final screen combines circular-ORF AAI, core conservation, safety, and v3 syntenic
 diversity. See the [final-filter contract](skills/bionemo-phage-design/references/arc-final-filter-contract.md)
 for acceptance rules and the [screening evidence](docs/phix174-screening-evidence.md) for biological rationale.
+The [ARC validation notes](docs/arc-validation.md) distinguish upstream-parity tests
+from intentional scientific extensions and document remaining reproduction limits.
 
 ## Frozen rollout results
 

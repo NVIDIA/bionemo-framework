@@ -293,6 +293,21 @@ def summarize_arc_screen(
             or final_summary.get("passed_observations") != final_count
         ):
             raise ValueError("Final-filter contract summary disagrees with the completed Arc branch")
+        if config["final_arc_contract"] == "arc-circular-aai-syntenic-diversity-plus-nine-core-safety-v3":
+            route_counts = final_summary.get("syntenic_diversity_counts")
+            route_fields = ("original_arc_count", "add_one_gene", "both", "add_one_gene_only", "union")
+            if not isinstance(route_counts, dict) or any(
+                type(route_counts.get(field)) is not int or route_counts[field] < 0 for field in route_fields
+            ):
+                raise ValueError("Final-filter syntenic-diversity counts must be nonnegative integers")
+            original, added, overlap, added_only, union = (route_counts[field] for field in route_fields)
+            if (
+                overlap > min(original, added)
+                or added_only != added - overlap
+                or union != original + added - overlap
+                or union != final_count
+            ):
+                raise ValueError("Final-filter syntenic-diversity counts disagree with each other or the Arc branch")
         # Embed alternative-route counts in the target report and final rollout
         # evidence without treating overlapping categories as sequential filters.
         report["final_filter_contract"] = final_summary

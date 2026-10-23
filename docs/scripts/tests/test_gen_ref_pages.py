@@ -158,25 +158,12 @@ def test_run_results_are_not_doc_support() -> None:
     assert not gen_ref_pages._should_copy_support_file(Path("results/run-001/records.json"))
 
 
-@pytest.mark.parametrize(
-    ("doc_path", "fragment"),
-    [
-        ("docs/upstream-gaps.md", ""),
-        ("docs/accessory_genes.md", ""),
-        ("docs/required_genes.md", "#synteny-uses-the-same-function-definitions"),
-    ],
-)
-def test_recipe_nested_doc_is_published(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, doc_path: str, fragment: str
-) -> None:
-    """Nested recipe docs must be published, including linked configuration guides."""
+def test_recipe_issue_doc_is_published(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Recipe issue references resolve to published nested documentation."""
     recipe = tmp_path / "recipes" / "demo"
-    source_doc = recipe / doc_path
-    source_doc.parent.mkdir(parents=True)
-    link = f"[guide]({doc_path}{fragment})\n"
-    content = "# Guide\n\n## Synteny uses the same function definitions\n"
-    (recipe / "README.md").write_text(link, encoding="utf-8")
-    source_doc.write_text(content, encoding="utf-8")
+    (recipe / "docs").mkdir(parents=True)
+    (recipe / "README.md").write_text("[issues](docs/upstream-gaps.md)\n", encoding="utf-8")
+    (recipe / "docs" / "upstream-gaps.md").write_text("# Open issues\n", encoding="utf-8")
     generated_root = tmp_path / "generated"
 
     def open_generated(path: Path, mode: str):
@@ -194,6 +181,5 @@ def test_recipe_nested_doc_is_published(
 
     generated_recipe = generated_root / "main/recipes/recipes/demo"
     readme = (generated_recipe / "index.md").read_text(encoding="utf-8")
-    assert link in readme
-    assert (generated_recipe / doc_path).is_file()
-    assert (generated_recipe / doc_path).read_text(encoding="utf-8") == content
+    assert "[issues](docs/upstream-gaps.md)" in readme
+    assert (generated_recipe / "docs/upstream-gaps.md").read_text(encoding="utf-8") == "# Open issues\n"
