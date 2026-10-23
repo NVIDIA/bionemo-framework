@@ -4,7 +4,7 @@ alembic==1.16.5
 anndata==0.12.2
 annotated-types==0.7.0
 antlr4-python3-runtime==4.9.3
-anyio==4.9.0
+anyio==4.14.2
 argon2-cffi-bindings==25.1.0
 argon2-cffi==25.1.0
 array-api-compat==1.12.0
