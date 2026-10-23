@@ -1,50 +1,79 @@
 ---
 name: bionemo-phage-design-operate-nemo-rl
-description: Use when launching, monitoring, resuming, relaunching, or selecting checkpoints from a NeMo-RL Evo2 phage optimization run.
+description: Use when launching, monitoring, resuming, or selecting checkpoints from a NeMo-RL Evo2 phage optimization run.
 metadata:
   author: NVIDIA <bionemofeedback@nvidia.com>
 ---
 
 # Operate NeMo-RL Phage Training
 
-Work inside the recipe and result roots selected by the controller. Use the selected SFT checkpoint, approved objectives, and calibrated prompt/sampling settings. Before readiness, create or validate `RESULT_ROOT/rl/sft-checkpoint` with `evo2_phage_prepare_sft_checkpoint_for_rl`; pass the preparation manifest's direct model-only `iter_*` path to readiness and NeMo-RL as both policy initialization and the fixed SFT KL anchor. Keep the original full-state SFT checkpoint for SFT resume rather than asking NeMo-RL workers to deserialize its process-local training callbacks.
+Run the selected SFT checkpoint with the agreed objectives and sampling settings. Keep useful experimental notes and act within the user's existing authorization. The [PhiX example README](../../examples/README.md) owns the current launch commands, settings, stage markers, and resume procedure.
 
-The preparation manifest must have `schema_version: 2` and `model_object_state_preserved: true`. If strict loading reports a missing Transformer Engine `_extra_state` object shard and the matching preparation is schema 1, rerun the same top-level command: preparation atomically rebuilds that derived checkpoint while retaining the full-state SFT source and completed calibration. Do not weaken checkpoint strictness or patch NeMo-RL workers around an incomplete payload.
+## Start or resume
 
-Treat materialized training and validation prompt banks as run artifacts: readiness must check the result-root training bank, and the launch must use the matching result-root train/validation paths. When resuming the PhiX174 example, rerunning the same top-level command recreates missing banks and creates or reuses the prepared SFT checkpoint without repeating completed calibration; do not satisfy readiness by copying a run-specific bank into the shared template path. When adapting to a different NeMo-RL release or infrastructure, inspect the installed configuration classes and that release's upstream `examples/configs`; wheels may omit the examples.
+- Prepare the SFT checkpoint with `evo2_phage_prepare_sft_checkpoint_for_rl`. Use its direct model-only `iter_*` path for both policy initialization and the fixed SFT KL reference. Schema 2 preserves model object state, including Transformer Engine `_extra_state`; rerunning preparation upgrades a matching schema-1 copy without repeating SFT or calibration.
+- Before new scoring, use an Arc pipeline prepared from the current maintained patch. The example refreshes this derived code even when starting directly at stage 40 or 50; completed scientific outputs are still governed by stage markers.
+- Use the result-root train and validation banks. Repeating the example command reuses completed stages and prepares missing downstream inputs; `--resume-from` does not make unfinished stages complete.
+- For a compatible continuation, restore the full RL checkpoint and retain its original SFT KL anchor. A deliberate change to rewards, sampling, prompts, or model starts a separate result root. Record model-only recovery as fresh-optimizer continuation, not an exact resume.
+- Legacy synchronous GRPO stops at either `max_num_steps` or `max_num_epochs`. Make the epoch budget large enough for the requested number of updates.
 
-At the pilot and before full launch, reconcile the approved objective artifact, configured objective set, and emitted telemetry. A discrepancy is a diagnosis input, not an automatic stop or user wait. Continue with the strongest scientifically defensible portfolio, treating removal of an agreed term as a last resort and keeping unavailable terms visible in telemetry.
+## Qualify a new execution shape
 
-Record added, omitted, or redefined terms; their evidence and consequences; controls or restoration criteria; and the objective-set version and change point. Summarize key decisions in the next user update and whenever asked, without pausing useful work merely to obtain acknowledgment.
+Use the [compute guidance](../bionemo-phage-design-adapt-execution/references/compute-guidance.md) for CPU/GPU sizing. Test full-genome batches on the deployed topology: two optimizer updates, validation, then another update. Start with `val_at_start=false`; optimizer state and validation allocations make a one-update test insufficient. Test checkpoint save and a fresh-process reload too.
 
-Before the full run, execute a small full-shape preflight with positive and failure controls. Confirm every enabled reward runs, produces finite values in `[0, 1]`, is logged separately, and handles short genomes, missing genes/ORFs, empty tool output, invalid observations, and tool failure without crashing or receiving accidental positive credit. Confirm checkpoint writing and restart.
+The native packed adapter should process the whole mixed-length group in one call and return the original row order. With cache offload, look for actual memory release at `finish_generation` and successful reuse on the next rollout. Keep optimizer residency opt-in until a full-shape pilot demonstrates headroom.
 
-For the realized PhiX pilot and resume procedure, read the
-[example README](../../examples/README.md) as the source of truth. Preserve separate durable states
-for the pilot, its objective-health check, and the full RL run; skip a state only after its output
-is known to have completed successfully.
+Check selected-action generation log-probabilities against full teacher-forced replay before mismatch masking, including EOD and capped rows. Periodic error at KV-page boundaries, rejected rows, nonfinite values, or wrong action masks needs diagnosis. An isolated finite token tail with accepted sequence statistics is an observation to investigate, not a new stopping threshold. Detailed interpretation is in [monitoring guidance](references/monitoring-guidance.md).
 
-Save native Megatron-Bridge `torch_dist` checkpoints: set `checkpointing.model_save_format: null`, keep `checkpointing.save_consolidated: false`, `policy.megatron_cfg.enabled: true`, and `policy.dtensor_cfg.enabled: false`, and omit `_v2`. NeMo-RL writes `step_N/policy/weights/iter_0000000`, which this recipe resumes from and gives directly to Megatron rollout. Named formats such as `safetensors` belong to the Automodel/DTensor path, not this worker. Updating this recipe config in an editable checkout does not require `evo2_phage_setup_nemo_rl --force-reinstall`; rerun the failed pilot from the same top-level result root.
+## Reward and trajectory semantics
 
-Validate the configured checkpoint-selection metric against the actual validation metric names.
-The recipe's phage OpenAI-format dataset assigns both training and validation the stable task name
-`phage_qc` regardless of their result-root JSONL paths. The environment hook returns bare metric
-keys and NeMo-RL adds that task namespace exactly once, so the strict PhiX checkpoint endpoint is
-`val:phage_qc/binary_safety_qualified_full_qc_cluster_deduplicated_rate`. A logged `rl-train/` or
-`rl-validation/` prefix means the path-naming generic dataset was used; restore the recipe dataset
-rather than encoding the path into the checkpoint metric. Timing-marker keys remain unnamespaced
-for phase reporting. A missing metric is an integration error to diagnose; do not switch to another
-target environment or biological profile merely to make a key appear.
+Keep sampled EOD and its log-probability in the action loss; mask synthetic padding and post-EOD suffix. Biological scoring uses only the bases before EOD. A faithfully sampled invalid genome is a negative example, not a broken rollout.
 
-TensorBoard objective monitoring must discover the newest complete validation namespace containing
-both `mean_reward` and `num_sequences`. Current recipe runs normally emit `validation/phage_qc/...`,
-while older path-named runs may emit `validation/rl-validation/...`; do not hard-code the unscoped
-`validation/mean_reward` path or confuse these logging paths with the configured checkpoint metric.
+Report three termination outcomes: authentic EOD, capped without EOD, and below-cap without EOD. Use retained tokens and `max_new_tokens`, not allocator-rounded `max_model_len`. Bin authentic stops by total biological length, including prompt bases.
 
-Choose topology and batch settings from measured full-genome behavior. Preserve complete-genome context and the intended effective batch. Use GDPO and 99%-cluster inverse-frequency diversity for the default case study unless evidence supports another approved method.
+The PhiX configs enable `zero_reward_without_eod` by default with a 6,000-token generation budget. It zeros the **entire** scalar reward or GDPO vector, including safety channels, for no-EOD rows while retaining their actions in the loss (`overlong_filtering=false`). Raw QC and safety results remain diagnostics. An explicit `false` override supports ungated comparisons; keep existing runs on their recorded settings. Watch all-no-EOD and zero-variance prompt groups for lost learning signal. A longer cap adds no distance gradient above a flat-zero length reward, and frequent EOD does not establish correct placement.
 
-Follow the concise [monitoring guidance](references/monitoring-guidance.md). `max_num_steps` is a safety ceiling, not a target. At every fixed-bank validation event, persist a `continue | diagnose | stop | restart` decision from both validation and training-rollout evidence before extending beyond the next decision boundary. Set cadence to reveal sustained change without applying SFT-style patience to noisy RL; do not stop after a token number of steps or select the latest checkpoint automatically.
+Compare configured objectives with emitted scores and positive/failure controls. Separate valid zero or candidate-level safety failure from unavailable measurements. Diagnose missing scorers; keep sparse but measured objectives visible. Record deliberate objective changes and report them in the next useful update.
 
-Select a checkpoint from sustained validation quality and diversity using the approved component set. Do not compare aggregate scores across different component sets as if they were the same metric. A compatible full-state resume retains its original selected SFT checkpoint as the KL reference. Treat weights-only recovery as a new attempt anchored to that non-RL SFT checkpoint; use prior RL weights as a new baseline only for an explicitly approved stage change. Start a new attempt when objectives, prompts, data, or model semantics materially change.
+The current PhiX GDPO profile has 22 channels: 16 individual and six products, preserving
+the prior 18 and adding standalone `gene_b_integrity` plus three `gene_a_and_b_*` products.
+Use the [worked definitions](../../examples/README.md#current-phix174-gdpo-score-definitions)
+for exact factors. B uses canonical direct-reference protein evidence, while A retains its
+protein-plus-origin formula; both use smooth-reference measurement support. All 19
+non-safety channels require safety PASS, and no-EOD rows zero the entire 22-column vector.
+Base GRPO and final filters are unchanged; a changed objective inventory requires a new
+SFT-anchored result root and aggregate scores are comparable only within that inventory.
 
-Record the command, settings, environment, job/checkpoint locations, validation series, interruptions/resumes, selected checkpoint and rationale, and important failure diagnoses in the stage summary and `RUNLOG.md`.
+The readiness check treats complete reference FASTA records as constructed terminated-response
+controls and labels that evidence in its report. It retains the configured missing-EOD gate;
+control success verifies scoring, not the policy's ability to terminate. Use actual pilot tokens
+for termination and cap behavior.
+
+## Save and select
+
+Use native Megatron-Bridge `torch_dist` checkpoints: `checkpointing.model_save_format: null`, `save_consolidated: false`, Megatron enabled, DTensor disabled. Weights live at `step_N/policy/weights/iter_0000000`. Keep `save_optimizer: true` for compatible continuation; a model-only fallback restores step/dataloader/weights but initializes fresh Adam. Recipe config edits do not require reinstalling NeMo-RL.
+
+The recipe dataset uses task name `phage_qc` regardless of JSONL location. Primary retention uses `val:phage_qc/mean_reward`; TensorBoard normally emits `validation/phage_qc/...`. A path-derived task name such as `rl-validation` points to the generic dataset being used instead.
+
+The default PhiX update uses two interleaved origin prompts (16/24 bases), each with 384 generations,
+for 768 genomes total. GDPO groups identical prompt token sequences, including repeated input
+records; record count alone does not establish normalization-group count. Check training
+`reward_prompt_group_count` = 2 and `reward_prompt_group_size_min` /
+`reward_prompt_group_size_max` = 384 for the default layout; these use actual prompt tokens. Diversity instead pools
+eligible genomes across both prompts in the synchronous environment scoring batch. Validation
+still generates one completion for each of its 96 prompt records.
+
+Retain latest resumable, aggregate-best, and the best positive `all_objectives_max_score_rate` checkpoints. The supervisor hardlinks them. Final selection prefers the checkpoint with the highest fraction of sequences maximizing every configured objective; otherwise it chooses the best interior aggregate checkpoint and records `has_max_score_sequences: false`. This rate measures gated training scores, not final QC acceptance.
+
+Follow [monitoring guidance](references/monitoring-guidance.md) for scientific trends, W&B cluster-size histograms, and runtime diagnosis. Record commands, consequential settings, job/checkpoint paths, validation results, and decisions in `RUNLOG.md`; summarize the current finding and next step in `SUMMARY.md`. Use optimizer step for comparisons: W&B's history cursor is a logging counter, and its service can fail while training continues.
+
+For the PhiX profile, distinguish `core_gene_ordered_conservation` from
+`accessory_gene_diversification`. The former preserves the existing core order/copy
+rules; the latter rewards K/X repertoire changes, excludes partial core matches,
+and penalizes accessory copies. X must be outside K and the nine core families;
+K mutations do not supply X, while a distinct K-like family may qualify.
+It is an RL reward and diagnostic only, not a new
+final filter or a claim of exact agreement with Arc's historical cluster counts.
+Use the [accessory definition](../../docs/accessory_genes.md) before adapting
+families or thresholds. K-family absence requires available search evidence; a
+missing artifact is never a deletion reward. AAI includes all hit-bearing proteins.

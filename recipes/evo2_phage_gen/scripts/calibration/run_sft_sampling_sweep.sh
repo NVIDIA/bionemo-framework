@@ -10,17 +10,23 @@ RUN_ROOT="${RUN_ROOT:?RUN_ROOT is required}"
 CKPT_DIR="${CKPT_DIR:?CKPT_DIR is required}"
 
 PROMPT_LENGTHS="${PROMPT_LENGTHS:-0 1 2 4 6 8 10 12 16 24 32}"
+PROMPT_ANCHORS="${PROMPT_ANCHORS:-}"
+REFERENCE_FASTA="${REFERENCE_FASTA:-}"
 TEMPERATURES="${TEMPERATURES:-0.3 0.5 0.7 0.9 1.0 1.1 1.3}"
 NUM_PROMPTS="${NUM_PROMPTS:-64}"
+# Paired cells share a biological ceiling beyond PhiX's 5,800-nt reward zero.
+# Unlike RL max_new_tokens, this total includes prompt bases.
 TARGET_LENGTH="${TARGET_LENGTH:-6000}"
+# Fixed-length sampling remains available; set 1 to measure learned termination.
+STOP_ON_EOS="${STOP_ON_EOS:-0}"
 MARKER="${MARKER:-+~}"
-TOP_K="${TOP_K:-4}"
+TOP_K="${TOP_K:-5}"
 TOP_P="${TOP_P:-1.0}"
 SEED="${SEED:-7}"
 GPU_IDS="${GPU_IDS:-0 1 2 3 4 5 6 7}"
 TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"
 PROMPT_BATCH_SIZE="${PROMPT_BATCH_SIZE:-16}"
-MAX_SEQ_LENGTH="${MAX_SEQ_LENGTH:-10240}"
+MAX_SEQ_LENGTH="${MAX_SEQ_LENGTH:-6144}"
 MASTER_PORT_BASE="${MASTER_PORT_BASE:-29680}"
 MAX_RETRIES="${MAX_RETRIES:-1}"
 CELL_TIMEOUT_SECONDS="${CELL_TIMEOUT_SECONDS:-7200}"
@@ -36,6 +42,12 @@ declare -a CALIBRATION_PRECISION_ARGS=()
 if [[ "${HOPPER_FP8_INFERENCE}" == "1" ]]; then
   CALIBRATION_PRECISION_ARGS=(--hopper-fp8)
 fi
+declare -a TERMINATION_ARGS=()
+case "${STOP_ON_EOS}" in
+  0) ;;
+  1) TERMINATION_ARGS=(--stop-on-eos) ;;
+  *) echo "STOP_ON_EOS must be 0 or 1" >&2; exit 2 ;;
+esac
 
 if [[ "${SOURCE_ENV}" == "1" ]]; then
   # shellcheck source=/dev/null
@@ -45,6 +57,7 @@ fi
 read -r -a PREFIX_ARRAY <<< "${PROMPT_LENGTHS}"
 read -r -a TEMPERATURE_ARRAY <<< "${TEMPERATURES}"
 read -r -a GPU_ARRAY <<< "${GPU_IDS}"
+read -r -a ANCHOR_ARRAY <<< "${PROMPT_ANCHORS}"
 if (( ${#GPU_ARRAY[@]} == 0 || ${#GPU_ARRAY[@]} % TENSOR_PARALLEL_SIZE != 0 )); then
   echo "GPU count must be non-zero and divisible by TENSOR_PARALLEL_SIZE" >&2
   exit 2
@@ -52,10 +65,22 @@ fi
 REPLICA_COUNT=$(( ${#GPU_ARRAY[@]} / TENSOR_PARALLEL_SIZE ))
 
 mkdir -p "${RUN_ROOT}/logs" "${RUN_ROOT}/runtime"
+PROMPT_ARGS=()
+if (( ${#ANCHOR_ARRAY[@]} > 0 )); then
+  [[ -n "${REFERENCE_FASTA}" ]] || { echo "REFERENCE_FASTA is required with PROMPT_ANCHORS" >&2; exit 2; }
+  PROMPT_ARGS+=(--reference-fasta "${REFERENCE_FASTA}")
+  for anchor in "${ANCHOR_ARRAY[@]}"; do
+    PROMPT_ARGS+=(--prompt-anchor "${anchor}")
+  done
+elif [[ -n "${REFERENCE_FASTA}" ]]; then
+  echo "PROMPT_ANCHORS is required with REFERENCE_FASTA" >&2
+  exit 2
+fi
 python -m bionemo.evo2_phage_gen.sampling_calibration materialize \
   --run-root "${RUN_ROOT}" \
   --checkpoint "${CKPT_DIR}" \
   --prefix-lengths "${PREFIX_ARRAY[@]}" \
+  "${PROMPT_ARGS[@]}" \
   --temperatures "${TEMPERATURE_ARRAY[@]}" \
   --num-prompts "${NUM_PROMPTS}" \
   --marker "${MARKER}" \
@@ -68,6 +93,7 @@ python -m bionemo.evo2_phage_gen.sampling_calibration materialize \
   --prompt-batch-size "${PROMPT_BATCH_SIZE}" \
   --max-seq-length "${MAX_SEQ_LENGTH}" \
   "${CALIBRATION_PRECISION_ARGS[@]}" \
+  "${TERMINATION_ARGS[@]}" \
   > "${RUN_ROOT}/logs/materialize.log"
 
 if [[ "${DRY_RUN}" == "1" ]]; then
@@ -92,7 +118,7 @@ run_worker() {
   local worker_log="${RUN_ROOT}/logs/worker-${slot}.log"
   printf 'cell\tattempt\tstatus\tfinished_at\n' > "${worker_manifest}"
 
-  while IFS=$'\t' read -r -u 3 cell_index cell_key prefix_length temperature prompt_file output_file; do
+  while IFS=$'\t' read -r -u 3 cell_index cell_key prefix_length temperature prompt_file output_file _prompt_anchor _prompt_anchor_start; do
     [[ "${cell_index}" == "index" ]] && continue
     (( cell_index % REPLICA_COUNT == slot )) || continue
 
@@ -128,7 +154,8 @@ run_worker() {
         --max-seq-length "${MAX_SEQ_LENGTH}" \
         --top-k "${TOP_K}" \
         --top-p "${TOP_P}" \
-        "${CALIBRATION_PRECISION_ARGS[@]}"
+        "${CALIBRATION_PRECISION_ARGS[@]}" \
+        "${TERMINATION_ARGS[@]}"
     )
     if (( ${#inference_command[@]} == 0 )); then
       echo "${cell_key}: command builder returned no arguments" >&2

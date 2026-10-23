@@ -1,0 +1,289 @@
+# Reward APIs and module responsibilities
+
+| Module                                                                                                                                           | Responsibility                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| [`qc.py`](../../../src/bionemo/evo2_phage_gen/qc.py)                                                                                             | Sequence normalization, nucleotide measurements, NCBI DustMasker execution, and hard nucleotide acceptance.                    |
+| [`reward.py`](../../../src/bionemo/evo2_phage_gen/reward.py)                                                                                     | Reward shaping, weights, aggregation, and composition of the scoring pipeline. Private helpers execute and read Arc artifacts. |
+| [`protein_evidence.py`](../../../src/bionemo/evo2_phage_gen/protein_evidence.py)                                                                 | Alignment coverage, named-function evidence, reference-locus matching, circular order, and origin scoring.                     |
+| [`arc_pipeline.py`](../../../src/bionemo/evo2_phage_gen/arc_pipeline.py), [`external_qc.py`](../../../src/bionemo/evo2_phage_gen/external_qc.py) | Prepare the pinned Arc source and check external-tool prerequisites.                                                           |
+| [`nemo_rl_env.py`](../../../src/bionemo/evo2_phage_gen/nemo_rl_env.py)                                                                           | Convert rollout messages to scored sequences, build gated GDPO objectives, and report training metrics.                        |
+
+## Public scoring entry points
+
+`score_sequences` runs nucleotide measurement, optional Arc and cluster scoring, configured sequence-safety scanning, and scalar aggregation. `score_fasta` supplies its FASTA/CSV interface.
+
+### Batch diversity
+
+`add_mmseqs_cluster_diversity_rewards` treats each scoring call as one design goal and pools all
+eligible genomes across its prompts. Different goals require separate calls or RL environments.
+Eligibility requires valid nucleotide characters, hard length and GC intervals, and the homopolymer
+limit. Each member of a cluster of size N receives `1/N`; excluded rows and missing MMseqs output
+receive zero. Tool failures raise rather than supplying singleton credit. Cluster IDs are opaque
+and identify clusters within a scoring batch; populations from different calls are not reclustered.
+
+Online and final clustering pass sequences to MMseqs in their supplied order, with 99% identity
+and 95% reciprocal coverage. The default PhiX prompts share coordinate 1. A sequence-dependent
+rotation can change drastically after a point mutation and prevent near-clones from meeting
+coverage, so the recipe does not rotate or reverse-complement inputs before clustering. Arbitrary
+rotations are not guaranteed to cluster together; alternative prompt origins need separate
+qualification. Circular ORF and synteny handling remain independent of this alignment convention.
+One MMseqs job uses the configured `threads` for the entire pool. The synchronous trainer gathers task rows before
+scoring, so the pool spans generation workers; per-sample async scoring would need aggregation
+before this reward can express batch diversity. GDPO normalization remains separate, grouping by
+identical prompt token sequences rather than by design goal or input-record ID.
+
+### Nucleotide scoring
+
+For a target-specific workflow that already has measurements, use `add_nucleotide_rewards` independently. It copies its input and invokes no external tools:
+
+```python
+from bionemo.evo2_phage_gen.qc import (
+    NucleotideQCConfig,
+    add_nucleotide_metrics,
+    nucleotide_pass_mask,
+)
+from bionemo.evo2_phage_gen.reward import add_nucleotide_rewards
+
+config = NucleotideQCConfig()
+measured = add_nucleotide_metrics(sequences, config)
+scored = add_nucleotide_rewards(measured, config)
+accepted = nucleotide_pass_mask(measured, config)
+```
+
+`accepted` means nucleotide acceptance only. `reward_nucleotide_pass` uses exactly this predicate, including both homopolymer bounds. It does not replace protein, synteny, or safety screening.
+
+| Public function in `reward.py`        | Inputs and result                                                                                                                                                        |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `score_genome_length`                 | Length in nucleotides and a configured four-point envelope; returns a score in [0, 1], independent of hard min/max.                                                      |
+| `score_tropism_identity`              | Percent identity, explicit measured-hit status, and an identity threshold; no hit earns zero. This is the identity curve used when smooth reference scoring is disabled. |
+| `score_aai_novelty`                   | Mean protein identity in percent; full credit through 95%, then a taper with a 0.25 floor. This curve is a PhiX preference, not a universal viability rule.              |
+| `score_aai_evidence`                  | Number of measured proteins; linear credit up to ten. Multiply by novelty so absent evidence cannot earn novelty credit.                                                 |
+| `score_core_gene_conservation_counts` | Matched reference loci, fixed reference count, excess copies, and order violations; returns (reward, reference coverage, copy balance, reference deficit).               |
+| `aggregate_rewards`                   | Scored columns and positive component weights; adds the bounded weighted scalar reward subject to the safety gate. GDPO instead uses its configured objective columns.   |
+
+The protein-evidence, synteny, and origin functions are public in `protein_evidence.py`: `smooth_protein_match_integrity`, `summarize_smooth_reference_evidence`, `score_core_gene_ordered_conservation`, `score_function_matches`, `summarize_core_gene_ordered_conservation`, and `score_gene_a_origin`. The [worked PhiX reward definitions](../../../examples/README.md#current-phix174-gdpo-score-definitions) identify which functions the shipped profile selects. Keep CSV readers, subprocess arguments, and artifact reconciliation private; those helpers are not standalone biological scoring APIs.
+
+The shared reference search in `reference_search.py` runs the protein `createdb`, `align -e 1`,
+and `convertalis` stages explicitly. Its private exhaustive candidate database contains
+the complete target index plus a NUL terminator, included in every query entry's length;
+the original target index is unchanged. This avoids the pinned MMseqs `fake_pref`
+unterminated-stream fault without changing alignment parameters or retrying native failures.
+It aligns the small reference-protein panel against every called candidate ORF, avoiding
+heuristic prefilter misses before grading significance and coverage. This cost depends on
+the number of reference proteins and candidate ORFs; benchmark it when adapting to larger
+panels. Separate hard-QC searches keep their own acceptance rules.
+
+Reference-search E-values depend on the current target pool's total protein residues.
+Changing scoring-call size or ORF content can change weak-hit credit and E=1 hit inclusion;
+record this context when comparing scores. Removing the significance factor from shaping
+alone would not remove the search cutoff. The [worked definitions](../../../examples/README.md#protein-evidence-synteny-and-diversity)
+document the measured scope and its effect on closely grouped candidates. Do not claim
+unconditional batch-composition invariance for this scorer.
+
+`smooth_protein_match_integrity` combines significance, baseline-adjusted protein identity,
+and native query/target coverage with a four-term geometric mean. Its keyword settings are
+`identity_zero_credit` (default 0.05), `identity_full_credit`,
+`reference_coverage_full_credit`, `candidate_coverage_full_credit`, and the guarded
+`significance_zero_evalue` / `significance_full_evalue` endpoints (defaults 1 and 1e-5).
+Identity settings are fractions; the measured identity argument is in percent. There is no
+additional integrity cutoff, minimum-credit bonus, or adjustable exponent. All endpoints must
+be finite and ordered. The shared score feeds smooth synteny, tropism, gene-A origin, and gene-B integrity evidence;
+retain their separate full-credit targets and final-QC rules. The 5% baseline is a shaping
+choice, not a homology acceptance threshold. The [worked definitions](../../../examples/README.md#protein-evidence-synteny-and-diversity)
+provide the exact factors and config values.
+
+The PHROGs consensus annotation search is configured separately by
+`mmseqs_protein_database_sensitivity` (7.5) and `mmseqs_threads` (16) in the
+[maintained Arc template](../../../configs/arc_genome_design_filtering_local.yaml).
+`protein_database_search` enables this evidence and annotation stage for required
+functions, synteny, and final screening; it does not filter by total family count. Higher
+sensitivity recovers significant partial hits missed by the prefilter; it does not relax
+native-coverage thresholds or the requirement for distinct functions. Benchmark the
+search stage and end-to-end scoring with representative protein workloads and CPU threads.
+Do not apply its measured relative slowdown to the entire training step.
+
+## Required functions
+
+`summarize_required_gene_evidence(hits_df, sequences_df, required_families, ...)`
+accepts a mapping such as `{"A": ["phrog:713"], "J": ["phrog:2354", "phrog:3780"]}`.
+Each key names one required function; its explicit families are alternatives. Families
+must be disjoint across functions. Native target IDs are normalized, but annotation
+labels do not define matches. The Arc config field is `required_gene_families`.
+
+The reward is maximum one-to-one assigned coverage credit divided by the number of
+configured functions. Each edge earns `min(1,qcov/qmin,tcov/tmin)`; defaults and
+family-specific overrides have the same normalization. Extra genes and copies cannot
+replace missing functions or increase the denominator. Final required-function
+acceptance requires all functions to have distinct ORFs meeting both coverage targets.
+The PhiX profile's nine distinct matches also cover the paper's ≥7-hit condition;
+there is no additional generic family-count gate.
+The private CSV reader checks producer availability and finite, consistent counts;
+unavailable evidence earns zero and remains unavailable. Keep this separate from a
+successful search with no matching genes.
+
+Use the [biological profile](../../../docs/required_genes.md) for the PhiX function
+map, alternate J, conditional essentiality evidence, calibrated coverage, and guidance
+for new profiles. `required_genes_integrity_sum` is summed normalized coverage in
+this term, not the smooth reference-protein geometric mean. Any profile change needs
+replay on viable and disrupted controls before interpreting a new run against old scores.
+
+## Core gene ordered conservation entry points
+
+| Function in `protein_evidence.py`          | Result and role                                                                                                                             |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `score_core_gene_ordered_conservation`     | Returns `CoreGeneOrderedConservationScore`: the continuous synteny reward, content, circular-order, excess-copy components, and assignment. |
+| `summarize_core_gene_ordered_conservation` | Measures matched functions, order violations, and extra copies for hard synteny using curated families.                                     |
+| `measure_reference_cluster_synteny`        | Writes hard-synteny measurements from LoVis4u protein clusters for an unmapped profile.                                                     |
+| `core_gene_ordered_conservation_pass_mask` | Applies the configured completeness, order, and copy rules to hard-synteny measurements.                                                    |
+| `summarize_smooth_reference_evidence`      | Combines reference/family evidence for smooth synteny and direct-reference evidence for tropism, gene-A origin, and gene-B integrity.       |
+
+In `reward.py`, `_add_core_gene_count_rewards` reads hard measurements, derives the
+count-based reward, and records the hard pass. `_add_smooth_reference_rewards`
+then replaces the reward when smooth scoring is enabled; it preserves the hard
+pass. These are private pipeline readers, not additional objectives.
+
+Arc's separate `genetic_architecture.py` computes start/stop-codon landmark
+similarity. It has no active RL objective. The maintained final-screening and
+filter-7 diagnostic branches still use it; see the
+[Arc configuration distinction](../../../configs/README.md#synteny-and-arcs-codon-landmark-score).
+Do not confuse its flags with the upstream visualization/synteny measurement stage.
+
+## Function-aware synteny
+
+`score_function_matches(hits_df, required_families, ...)` returns per-ORF/function
+`credit` and `full_length` columns plus measurement availability. Both completeness
+and synteny consume this evidence. Supply all search-admitted hits against PHROG
+consensuses, before selecting a displayed annotation or filtering by family.
+The search writes `mmseqs2_all_hits.csv` for these scoring and final-screening
+readers; `mmseqs2_hits.csv` retains the lowest-E-value annotation per ORF.
+Global assignment maximizes total coverage credit subject to one ORF per function
+and one function per ORF. Alternatives for one function use their maximum credit,
+not a sum. Stronger unrelated-family matches must not erase partial evidence;
+no competing-hit multiplier or additional identity threshold is applied to
+allowed-family coverage credit. The current command inherits MMseqs's 1e-3 E-value
+cutoff; this is an admission gate, not a continuous significance multiplier in
+family credit. This is distinct from the individual-member AAI search.
+
+The Arc config's `core_gene_reference_functions` maps canonical reference GFF locus
+IDs to distinct names in `required_gene_families`. Pass that mapping and measured
+`function_matches` to `summarize_smooth_reference_evidence`. Each mapped slot uses
+`max(direct_reference_integrity, family_coverage_credit)`; only mapped loci enter
+the synteny denominator. A fully covered allowed-family match earns full
+slot credit without the direct route's 90% identity target. The PhiX profile maps
+A/B/C/D/E/F/G/H/J and excludes K/A\*. Order and excess-copy penalties still apply.
+Tropism, gene-A origin, and standalone gene-B integrity use direct-reference evidence;
+the family's core-slot credit cannot replace standalone A/B evidence.
+
+`summarize_core_gene_ordered_conservation` supplies the final hard-synteny measurements
+from full-coverage family matches and called-ORF coordinates. The current profile
+allows no missing functions, order violations, or extra qualifying copies. Partial
+matches remain graded RL evidence. When complete assignments tie, accept a
+circularly ordered alternative instead of depending on an arbitrary content-only
+tie. An unmapped profile still uses reference-only
+synteny and its LoVis cluster gate. Use the
+[biological profile](../../../docs/required_genes.md#synteny-uses-the-same-function-definitions)
+for the 72-nt short-J calling threshold, family-specific coverage calibration, and
+rotation-tested natural-homolog scope. A family-recognition score does not establish
+compatibility of an arbitrary gene swap in a new genomic background.
+
+## Gene-A origin
+
+`score_gene_a_origin` scans complete 28-nt sites in the assigned A ORF within the configured
+offset window and frame. Recognition is the first 10 nt, binding the next 18 nt, and the
+overlapping nicking core is positions 4–7. For each region, rescale its match fraction
+with `max(0, (fraction - 0.25) / 0.75)`, then compute
+`M = nicking² × recognition × binding`. Use the best eligible site's M and combine it
+with A-protein integrity, position, and uniqueness as `(A × M × position × uniqueness)**0.25`,
+where `uniqueness = 1/max(1,strong_site_count)`.
+The position factor is 1 for a selected positive site inside the accepted window/frame,
+otherwise 0; there is no distance taper within that window.
+
+The strong-site count scans the circular genome using raw recognition ≥8/10, binding ≥14/18,
+and an exact nicking core. These thresholds control the copy penalty only; partial motif
+credit does not require passing them. Uniqueness participates in the geometric mean, so two
+strong sites multiply the reward by `0.5**0.25 ≈ 0.841`. No A evidence or no above-baseline eligible site gives
+zero. The 25% anchor is a uniform-DNA shaping baseline, not a significance test: maximizing
+over candidate offsets can give shuffled windows positive credit. This is an online objective,
+not a separate final acceptance gate or evidence of whole-genome viability.
+
+## Gene-B integrity
+
+`summarize_smooth_reference_evidence` also supplies `reward_gene_b_integrity`: the
+direct-reference `smooth_protein_match_integrity` for canonical B `NC_001422.1_ORF.14`
+and the candidate selected by the existing one-to-one direct-reference assignment, using
+circular-aware ORFs. It reuses the existing reference search and core
+protein-match settings: the geometric mean of significance, baseline-adjusted identity,
+and native query/target coverage reaches one at E ≤1e-5, identity ≥90%, and both coverages
+≥95%. Partial evidence follows the existing curves; a zero factor, missing/invalid evidence,
+or no admitted hit gives zero. Successful no-hit is measured; failed or unavailable
+measurement is not. This score does not use a motif or PHROG-family substitute and does
+not change core thresholds, order/copy scoring, or final filters.
+
+The GDPO profile sets `external_qc.enable_gene_b_integrity: true` and
+`external_qc.gene_b_reference_locus: NC_001422.1_ORF.14`, and selects the standalone
+objective. The optional scalar-summary weight is `weight_gene_b_integrity`; base GRPO
+does not enable B and remains unchanged.
+A continues to mean the complete `reward_gene_a_origin` protein-plus-origin score.
+Both A and B report smooth-reference measurement support, which must participate in
+row-wise product-support intersections. High direct-reference integrity does not establish
+protein function or whole-genome viability. Controls include full B, fragments, missing/no-hit
+and malformed evidence, family-only hits, and circular rotations/reverse complements.
+
+## Optional adaptation utilities
+
+GDPO accepts explicitly configured scored-column names with mean, product, or minimum reduction. A target-specific scorer can therefore add its own bounded columns without extending a generic plugin system. Biological objectives must retain safety and EOD gating. Built-in `external_qc.enable_orf` and `enable_coding_density` enable Arc filters; their `reward_external_orf` and `reward_external_coding_density` columns may be selected explicitly as GDPO objectives. They describe the combined Arc ORF filter outcome, not independent graded density curves.
+
+For joint objectives use `gdpo_objectives: [{name: joint_name, columns: [reward_a, reward_b], reducer: product, requires_safety_eligibility: true}]`. Names in `columns` are scored columns,
+not other objective names. Components are validated then clipped to `[0, 1]` before reduction;
+an invalid component zeros the product, and a missing column raises. Original individual
+entries remain independent. PhiX has 22 objectives: 16 individual and six products, with
+19 non-safety channels. The original 18 retain their behavior, including `aai_with_core`,
+`accessory_with_core`, and `aai_with_core_and_accessory`. Standalone `gene_b_integrity`
+and these three products extend that inventory:
+
+| Product name                           | Scored columns, in order                                                                                                                                                                          |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gene_a_and_b_with_accessory`          | `reward_gene_a_origin`, `reward_gene_b_integrity`, `reward_external_accessory_gene_diversification`                                                                                               |
+| `gene_a_and_b_with_core`               | `reward_gene_a_origin`, `reward_gene_b_integrity`, `reward_external_core_gene_ordered_conservation`                                                                                               |
+| `gene_a_and_b_with_core_aai_accessory` | `reward_gene_a_origin`, `reward_gene_b_integrity`, `reward_external_core_gene_ordered_conservation`, `reward_external_average_protein_identity`, `reward_external_accessory_gene_diversification` |
+
+These reuse the generic reducer and existing measurements, without a new registry or
+additional search. They are unit-coefficient GDPO channels after normalization, not GRPO
+scalar terms or hard filters. The exact safety-PASS mask applies to all 19 biological
+channels; the missing-EOD gate zeros all 22, including safety channels. Arc filter 7 remains
+diagnostic-only. Product availability intersects every factor's row-wise support, including
+smooth-reference availability for A and B; absent telemetry stays unknown.
+
+`binary_cluster_deduplicated_pass_mask(scored, pass_mask)` selects one representative per existing cluster from an explicitly supplied acceptance mask. This utility defines no acceptance rules. Final-screening workflows should construct their mask from the actual configured filters and cluster the appropriate candidate pool.
+
+[`host_evidence.py`](../../../src/bionemo/evo2_phage_gen/host_evidence.py) supports collecting auditable host metadata. Use `resolve_ncbi_host_evidence` to acquire and cache accession evidence, then `HostEvidenceTable` and `write_host_evidence_table` to persist the collection. For an existing collection, call `load_host_evidence_table` and `validate_host_evidence_artifacts(table, table_path=path)`; a row's `to_task1_host_evidence()` converts it to the `HostEvidence` consumed by design-scope and safety configuration. The resolver currently handles bacterial host-domain evidence; it does not establish strain-specific host range. These utilities are optional preparation APIs, not automatically invoked by RL.
+
+## Objective weighting
+
+The shipped scalar reward configurations use equal weights for enabled components.
+Optional scalar weights default to zero when omitted; this does not disable any
+listed GDPO objective. GDPO standardizes each configured objective within identical
+prompt token sequences and sums those advantages with coefficient 1 before final
+normalization. Preserve the current gating and normalization unless the objective
+plan explicitly changes them. See [configuration details](../../../configs/README.md#reward-weights-and-gdpo-groups).
+
+## Accessory repertoire entry points
+
+`accessory_genes.score_accessory_diversification(k, x)` implements the two-state K/X
+surface. `summarize_accessory_gene_evidence` consumes all admitted PHROGs hits plus
+core ORF reservations and returns per-genome metrics and per-ORF assignments.
+`measure_accessory_gene_artifacts(config, sequences_df, env=...)` reuses saved search artifacts
+or the shared exhaustive search in `reference_search.run_reference_protein_search`.
+Pass the configured tool environment when a new search may be needed. Completed
+search tables are published atomically, so failed partial output cannot become
+evidence for a later objective. This helper never filters sequences. The online reward reader maps these measurements back
+to rollout IDs; failed or empty measurements cannot earn K-loss credit.
+
+Use the [accessory definition](../../../docs/accessory_genes.md) for formulas,
+family alternatives, coverage, copy penalties, and the relationship
+to AAI. `accessory_gene_diversification` is separate from required functions and
+`core_gene_ordered_conservation`; the latter retains its previous formula and gate.
+Do not add an Arc acceptance filter merely to implement this RL objective.
+X requires eligible evidence outside both the configured K families and the core
+gene pool. K sequence variants never supply X; a distinct family with a K-like
+annotation can qualify. No reference-K identity threshold enters this reward.

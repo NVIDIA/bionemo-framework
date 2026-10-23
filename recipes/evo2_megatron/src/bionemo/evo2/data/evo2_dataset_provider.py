@@ -22,13 +22,12 @@ from typing import Any, Type
 
 from megatron.bridge.training.config import DatasetBuildContext, DatasetProvider
 from megatron.core.datasets.blended_megatron_dataset_builder import BlendedMegatronDatasetBuilder
-from megatron.core.datasets.gpt_dataset import GPTDatasetConfig
 from megatron.core.datasets.megatron_dataset import MegatronDataset
 from megatron.core.datasets.utils import get_blend_from_list
 from megatron.core.tokenizers.megatron_tokenizer import MegatronTokenizerBase
 
 from bionemo.evo2.data.megatron.hyena.config import parse_dataset_config
-from bionemo.evo2.data.megatron.hyena.evo2_dataset import Evo2Dataset
+from bionemo.evo2.data.megatron.hyena.evo2_dataset import Evo2Dataset, Evo2DatasetConfig
 
 
 @dataclass
@@ -48,6 +47,7 @@ class Evo2DatasetProvider(DatasetProvider):
     reset_attention_mask: bool | None = False
     create_attention_mask: bool = False
     eod_mask_loss: bool | None = False
+    mask_phylogenetic_tags: bool = True
     dataloader_type: str = "single"  # critical
     dataset_cls: Type[MegatronDataset] = Evo2Dataset
 
@@ -70,10 +70,8 @@ class Evo2DatasetProvider(DatasetProvider):
 
         return train_ds, val_ds, test_ds
 
-    def get_gpt_dataset_config(self, tokenizer: MegatronTokenizerBase) -> "GPTDatasetConfig":
-        """Get the GPT dataset configuration."""
-        from megatron.core.datasets.gpt_dataset import GPTDatasetConfig
-
+    def get_gpt_dataset_config(self, tokenizer: MegatronTokenizerBase) -> Evo2DatasetConfig:
+        """Get the GPT sampling and Evo2 loss-mask configuration."""
         assert self.dataset_config_path is not None
         paths = parse_dataset_config(
             dataset_config_path=str(self.dataset_config_path),
@@ -92,7 +90,7 @@ class Evo2DatasetProvider(DatasetProvider):
             build_kwargs["object_storage_cache_path"] = self.object_storage_cache_path
             build_kwargs["mmap_bin_files"] = False
 
-        return GPTDatasetConfig(
+        return Evo2DatasetConfig(
             random_seed=self.random_seed,
             sequence_length=self.seq_length,
             tokenizer=tokenizer,
@@ -101,6 +99,7 @@ class Evo2DatasetProvider(DatasetProvider):
             create_attention_mask=self.create_attention_mask,
             reset_attention_mask=self.reset_attention_mask,
             eod_mask_loss=self.eod_mask_loss,
+            mask_phylogenetic_tags=self.mask_phylogenetic_tags,
             num_dataset_builder_threads=self.num_dataset_builder_threads,
             **build_kwargs,
         )

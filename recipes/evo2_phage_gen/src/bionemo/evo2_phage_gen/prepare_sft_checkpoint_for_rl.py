@@ -13,9 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-Apache2
-
 """Prepare an SFT Megatron Bridge checkpoint for NeMo-RL.
 
 The preparation preserves model weights, tokenizer assets, configuration, and checkpoint
@@ -116,6 +113,16 @@ def _resolve_iteration(checkpoint: Path) -> Path:
     return iteration.resolve()
 
 
+def validate_mbridge_checkpoint(checkpoint: Path) -> Path:
+    """Validate the files required to reuse a converted Megatron Bridge checkpoint."""
+    iteration = _resolve_iteration(checkpoint)
+    required = (iteration / "common.pt", iteration / "metadata.json")
+    missing = [str(path) for path in required if not path.is_file()]
+    if missing:
+        raise FileNotFoundError("incomplete Megatron Bridge checkpoint; missing " + ", ".join(missing))
+    return iteration
+
+
 def _sanitize_run_config(path: Path) -> tuple[list[str], list[str]]:
     config = yaml.safe_load(path.read_text())
     if not isinstance(config, dict):
@@ -146,6 +153,46 @@ def _load_manifest(path: Path) -> Mapping[str, Any]:
     if not isinstance(manifest, dict):
         raise FileExistsError(f"existing prepared SFT checkpoint manifest is not a mapping: {path}")
     return manifest
+
+
+def validate_prepared_sft_checkpoint(output_dir: Path) -> Path:
+    """Validate and return a prepared model-only checkpoint without its source tree."""
+    try:
+        output = output_dir.expanduser().resolve(strict=True)
+    except OSError as error:
+        raise FileExistsError(f"prepared SFT checkpoint directory is unavailable: {output_dir}") from error
+
+    manifest = _load_manifest(output / "preparation-manifest.json")
+    prepared_value = manifest.get("prepared_sft_checkpoint")
+    if not all(
+        (
+            manifest.get("schema_version") == PREPARATION_SCHEMA_VERSION,
+            manifest.get("state") == "succeeded",
+            manifest.get("copy_mode") == "model-only-dcp-rewrite",
+            manifest.get("model_object_state_preserved") is True,
+            isinstance(prepared_value, str),
+        )
+    ):
+        raise FileExistsError(f"prepared SFT checkpoint manifest is not a succeeded schema-2 payload: {output}")
+
+    try:
+        recorded_prepared = Path(prepared_value).expanduser()
+        prepared = _resolve_iteration(output)
+        file_count, payload_bytes = _tree_stats(prepared)
+        output_matches = all(
+            (
+                prepared.parent == output,
+                recorded_prepared.name == prepared.name,
+                _sha256(prepared / "run_config.yaml") == manifest.get("prepared_run_config_sha256"),
+                file_count == manifest.get("payload_file_count"),
+                payload_bytes == manifest.get("payload_bytes"),
+            )
+        )
+    except (OSError, TypeError, ValueError):
+        output_matches = False
+    if not output_matches:
+        raise FileExistsError(f"prepared SFT checkpoint payload is incomplete or changed: {output}")
+    return prepared
 
 
 def _reuse_existing(source: Path, output: Path, source_facts: Mapping[str, Any]) -> Path | None:
@@ -183,22 +230,9 @@ def _reuse_existing(source: Path, output: Path, source_facts: Mapping[str, Any])
             "inspect it and choose a different --output-dir or remove it explicitly"
         )
 
-    try:
-        _resolve_iteration(expected_checkpoint)
-        file_count, payload_bytes = _tree_stats(expected_checkpoint)
-        output_matches = (
-            _sha256(expected_checkpoint / "run_config.yaml") == manifest.get("prepared_run_config_sha256")
-            and file_count == manifest.get("payload_file_count")
-            and payload_bytes == manifest.get("payload_bytes")
-        )
-    except (OSError, ValueError):
-        output_matches = False
-    if not output_matches:
-        raise FileExistsError(
-            f"existing prepared SFT checkpoint {output} is incomplete or changed; inspect it and remove it explicitly"
-        )
-    logger.info("Reusing prepared SFT checkpoint for RL at %s", expected_checkpoint)
-    return expected_checkpoint
+    prepared = validate_prepared_sft_checkpoint(output)
+    logger.info("Reusing prepared SFT checkpoint for RL at %s", prepared)
+    return prepared
 
 
 def _install_prepared_output(candidate: Path, output: Path, staging: Path, replace_existing: bool) -> None:

@@ -3,118 +3,148 @@
   "evals": [
     {
       "id": "bionemo-phage-design-calibrate-rl-sampling-001-format",
-      "prompt": "The paper used one prompt format and short PhiX prefixes, but our selected SFT preprocessing may differ. Build the RL sampling sweep.",
-      "expected_output": "A fresh sweep based on the selected SFT checkpoint's actual serialization.",
+      "prompt": "Review a proposed calibration for a selected SFT checkpoint. Its export manifest says: prefix='+~'; forward deposited coordinate 1; tokenizer=one base per token; no BOS or chat wrapper; EOD after DNA; padding masked; no rotation augmentation. Related assemblies align their starts at coordinate 1 in 94/100 records. Proposed prompts are '<user>design</user><assistant>'+internal 100-nt segments, and the sweep uses TARGET_LENGTH=6000, STOP_ON_EOS=0 to measure learned stopping. The draft pairs generation seeds 700–763 across calibration cells, then replays the same prompt/seed pairs for fixed validation and the first final-rollout samples. Planned RL uses max_new_tokens=6000 with 16/24-nt prompts, and the length score reaches zero at 5800. Provide the corrected sweep and cohort specification and identify what the two 6000 settings mean.",
+      "expected_output": "A serialization-compatible, termination-aware calibration proposal with correct token and biological-length accounting.",
       "assertions": [
-        "The response reconstructs the SFT conditioning, orientation, wrappers, BOS/EOS, padding, masking, tokenization, and continuation boundary.",
-        "It uses only cues present during SFT and does not copy the paper format when the selected checkpoint differs.",
-        "It sweeps a reasonable temperature and prefix range with paired seeds and enough samples to compare uncertainty.",
-        "It materializes the selected prompt mixture and sampling settings in the eventual commands and treats simultaneous nonzero top-k/top-p as temperature, then top-k, then top-p.",
-        "Calibration samples remain separate from RL validation and final rollout."
+        "Uses the observed +~ conditioning and represented coordinate 1 context, without inventing chat wrappers, BOS, or automatically deploying internal starts absent SFT exposure.",
+        "Proposes short represented prompt strata such as16/24 bases and paired seeds, explaining that alternative starts need evidence instead of importing a paper format.",
+        "Sets STOP_ON_EOS=1 in a fresh sweep directory to measure learned stopping; fixed-length STOP_ON_EOS=0 cannot establish termination placement.",
+        "Computes calibration assistant budgets5984/5976 for TARGET_LENGTH6000, versus RL biological caps6016/6024 for 6000 generated tokens, and notes all exceed5800; control tokens/EOD are excluded from biological length.",
+        "Retains paired seeds across calibration cells but replaces reuse of those prompt/seed pairs in fixed validation and final rollout with reproducible disjoint generation cohorts. Shared prompt strata are allowed; reusing selection samples as independent evidence is not. It does not claim the sweep alone qualifies deployed RL capacity."
       ],
       "expected_skill": "bionemo-phage-design-calibrate-rl-sampling",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-calibrate-rl-sampling-002-selection",
-      "prompt": "One sampling cell has the highest hard-QC rate but nearly copies the reference; another is slightly lower in QC with target retention, changed synteny, and many clusters. Temperature 1.0 is competitive. Pick settings.",
-      "expected_output": "A robust quality-diversity selection rather than the noisiest maximum.",
+      "prompt": "Choose a sampling cell from these paired-seed results, 200 genomes/cell. A(T=.8, k=5, p=1): actual final-screen pass160, accepted MMseqs representatives8, exact reference copies142, target-signal mean .91±.02. B(T=1, k=5, p=1): pass132, representatives68, copies6, target.88±.03. C(T=1.1, k=5, p=1): pass136, representatives69, copies7, target.87±.03. The paired95% CI for C-minus-B pass rate is[-.025, .065]. All required measurements are available. Calibration reward summaries omit legacy hard-QC fields, but the pass/representative counts above come from matched final-screen reports. All cells use the same two prompt lengths. Explain the choice and limits.",
+      "expected_output": "A quality/diversity selection grounded in actual screening counts and paired uncertainty.",
       "assertions": [
-        "The response compares raw and cluster-deduplicated QC yield, target evidence, copying, diversity, and uncertainty.",
-        "It rejects a high-yield cell when the gain is mainly reference copying.",
-        "It prefers a stable plateau and temperature 1.0 when practically equivalent.",
-        "It keeps multiple prompt strata only when they improve the frontier and does not require their count to divide the microbatch or GPU count because packed dynamic prefill supports mixed lengths.",
-        "It records the selected settings and rationale."
+        "Computes or explicitly compares raw pass rates80%, 66%, 68% and deduplicated yields4%, 34%, 34.5%; does not confuse representative counts with pass counts.",
+        "Recognizes A's nominal pass advantage is dominated by copying/low diversity and does not select it from pass rate alone.",
+        "Favors B at temperature1 because C's two-point nominal gain is unresolved by the supplied paired interval and diversity/target evidence is similar; accepts C only with a concrete supported tradeoff and uncertainty disclosure.",
+        "Uses the supplied final-screen reports for QC yield and does not convert omitted calibration fields into zero or claim a statistically established optimum."
       ],
       "expected_skill": "bionemo-phage-design-calibrate-rl-sampling",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-calibrate-rl-sampling-003-topology-and-restart",
-      "prompt": "Eight GPUs are available. TP2 works, pure data parallelism might fit and be faster. The new sweep also changes the prefix distribution after a paused RL checkpoint.",
-      "expected_output": "A full-shape topology comparison and a new SFT-anchored RL attempt for materially changed sampling.",
+      "prompt": "Review rollout topology and restart choice. With the same selected SFT weights, seeds, 16/24 prompts and6000-token cap, TP2/DP4 delivers31 valid genomes/min at 64 GiB peak; TP1/DP8 delivers39/min at 74 GiB, passes two-update/validation/save/reload, and matches scoring controls. A third run delivers46/min after lowering the cap to 4096. A paused RL attempt R used only 16-base prompts; the reviewed new selection uses a50:50 mixture of 16 and24. Its canonical selection is under R/calibration/. Return the deployment and result-root proposal.",
+      "expected_output": "A measured faster topology that preserves semantics, plus a separate attempt for changed sampling.",
       "assertions": [
-        "The response benchmarks plausible layouts with the same checkpoint, prompts, seeds, completion length, and effective batch.",
-        "It compares valid candidate throughput and scientific parity rather than device utilization alone.",
-        "It does not silently alter full-genome length or sampling semantics to make a layout fit.",
-        "Because the prompt distribution changed materially, it does not treat the paused RL state as an unchanged resume.",
-        "It does not overwrite the paused run's canonical sampling-selection file or reuse its result root for the changed distribution.",
-        "The new attempt starts from the selected SFT baseline while retaining the paused checkpoint as prior evidence."
+        "Selects or justifiably retains one of the full6000-token layouts using throughput and headroom; does not rank the46/min truncated layout as scientifically equivalent.",
+        "Uses the lifecycle/score parity evidence to justify TP1/DP8 without treating GPU utilization alone as qualification.",
+        "Identifies the16-only to 50:50 prompt-mixture change as a new SFT-anchored attempt and preserves R's checkpoint/canonical selection.",
+        "Distinguishes that scientific distribution change from the execution-only TP/DP adaptation, which by itself need not invalidate a selection."
       ],
       "expected_skill": "bionemo-phage-design-calibrate-rl-sampling",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-calibrate-rl-sampling-004-metric-preflight",
-      "prompt": "Generation works, but required-gene and synteny scores were previously fixed at zero and one tool exists only in a run-specific environment. Score the sweep.",
-      "expected_output": "A metric preflight that proves every enabled component works before selecting sampling settings.",
+      "prompt": "A sweep has completed generation. In scoring runtime A, the positive reference and a gene-deletion control both report gene_score=0, synteny=0, available=false; stderr says diamond: command not found. A random-sequence control has a completed search, zero hits, gene_score=0, available=true in runtime B. Runtime B's reference scores are .98 and1 with matching tool/database versions. The current aggregate CSV replaces unavailable values with 0 and ranks cellC first. Give the scoring/selection decision and the minimal evidence to repair it.",
+      "expected_output": "A runtime-specific diagnosis that separates measured zero from absent execution.",
       "assertions": [
-        "The response resolves the actual scoring runtime and tool availability before trusting zeros.",
-        "A positive control proves each enabled component executes and has the expected direction.",
-        "Random or baseline, empty, no-hit, too-short, missing-gene, invalid, and tool-failure cases have explicit behavior.",
-        "It distinguishes a measured biological zero from a missing or skipped measurement.",
-        "It does not select a sweep cell while required scores remain unexplained or fixed at zero."
+        "Uses missing DIAMOND and available=false to reject A's reference zeros as biological measurements; identifies B's completed no-hit zero as interpretable.",
+        "Does not select C from an aggregate that silently replaces missing values with zero.",
+        "Proposes rerunning affected scoring in a resolved reproducible runtime with the matching assets and a positive/deletion/no-hit control panel, preserving raw availability and failures.",
+        "Requires restored component execution/direction and matched record coverage before choosing cells, rather than demanding all controls or all genomes score1."
       ],
       "expected_skill": "bionemo-phage-design-calibrate-rl-sampling",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-calibrate-rl-sampling-005-resume-selection",
-      "prompt": "The realized PhiX174 script completed calibration generation and scoring, then stopped because the new evidence does not support its historical default. I approved autonomous evidence-based continuation and am offline. Resume it.",
-      "expected_output": "An evidence-based canonical sampling selection and a marker-aware rerun, not a silent historical-default override.",
+      "prompt": "Prepare a response-only handoff for a delegated calibration decision. Result root /runs/R has completed generation/scoring markers but no prompt-bank or RL markers. The reviewed selection-evidence.csv uses64 paired samples per cell and all external/safety measurements are available: default D(T1, k5, p1, origin16/24) has3 accepted representatives and45 exact copies; E(T.95, k5, p1, origin16/24) has27 representatives and2 copies; F(T1.05, k5, p1, origin16/24) has26 representatives and3 copies. E/F quality intervals overlap. The recorded chosen seeds are rl42, rollout7, stride1000003; the generated-token budget is6000. I delegated evidence-based selection and am offline. Supply the proposed selection YAML and resume command.",
+      "expected_output": "A complete evidence-based selection and marker-aware resume proposal without pretending to write or execute it.",
       "assertions": [
-        "The response inspects calibration/scoring/selection-evidence.csv and the underlying score and novelty evidence before choosing settings.",
-        "It writes the reviewed choice to calibration/sampling-selection.yaml with the complete script-supported schema and records its rationale.",
-        "It follows the current example README's selection handoff and restart markers when that launcher is compatible, while retaining completed calibration evidence if execution must be adapted.",
-        "It does not pass examples/default-sampling-selection.yaml merely to bypass the failed hard check.",
-        "It distinguishes a user-requested --sampling-selection override from the agent's evidence-based autonomous path."
+        "Chooses E or F with a reasoned quality/diversity/uncertainty comparison and does not use D solely to bypass a bundled-default check.",
+        "Provides supported YAML fields temperature, top_k, top_p, max_new_tokens, prompt_lengths, named prompt_anchors with start_1_based, rl_seed, rollout_seed, seed_stride using the supplied values and chosen cell.",
+        "Uses /runs/R/calibration/sampling-selection.yaml as the canonical proposed handoff and the maintained --resume-from 30/--sampling-selection procedure, reusing completed evidence.",
+        "Explains that explicit override mechanics carry the reviewed evidence-based choice here; does not claim the bundled file itself was selected by fresh evidence or ask for redundant acknowledgment."
       ],
       "expected_skill": "bionemo-phage-design-calibrate-rl-sampling",
       "expected_script": "examples/phix174_8xh100.sh"
     },
     {
       "id": "bionemo-phage-design-calibrate-rl-sampling-006-intentional-review-stop",
-      "prompt": "Run the PhiX example through fresh sampling calibration, but stop before RL so I can inspect the evidence and let the agent choose custom settings. The eventual GPU environment may differ from the example host.",
-      "expected_output": "Follow the current PhiX review workflow, choose from evidence, and adapt execution without changing scientific semantics.",
+      "prompt": "I want a command proposal that stops this invocation for my review after fresh calibration. Existing /runs/Q has only stages00 and10 complete; no SFT/calibration artifacts exist. A teammate proposes --resume-from 40 --sampling-selection examples/default-sampling-selection.yaml because the eventual machine is four GPUs instead of eight. I have not delegated launching RL. Explain the appropriate review boundary and what can be reused when the GPU host changes.",
+      "expected_output": "A calibration-only invocation proposal with an explicit review boundary and separate runtime qualification.",
       "assertions": [
-        "The response reads evo2_phage_gen/examples/README.md as the source of truth for the current review and resume procedure.",
-        "It inspects calibration/scoring/selection-evidence.csv and the neighboring score and novelty evidence before choosing settings.",
-        "It creates an intentional review boundary before RL prompt materialization or RL launch and records the selected settings durably.",
-        "It uses examples/default-sampling-selection.yaml only as the complete schema or as an explicitly chosen historical override.",
-        "It may adapt topology, batch, workers, scheduler integration, or launch commands to measured hardware while preserving whole-genome context, effective batch, sampling semantics, and validation independence."
+        "Uses the maintained --calibrate-only workflow for /runs/Q and identifies that resume-from 40 does not make missing SFT/calibration stages complete.",
+        "Does not pass the bundled selection merely to skip fresh review or propose launching RL without the requested review.",
+        "Names selection-evidence.csv and neighboring score/novelty evidence as the review deliverables, before prompt-bank materialization/RL.",
+        "Preserves scientific selection/evidence across an execution-only host change while requiring full-shape qualification of four-GPU topology with unchanged context/effective batch/sampling semantics."
       ],
       "expected_skill": "bionemo-phage-design-calibrate-rl-sampling",
       "expected_script": "examples/phix174_8xh100.sh"
     },
     {
       "id": "bionemo-phage-design-calibrate-rl-sampling-007-prompt-cohort-bias",
-      "prompt": "A whole-genome RL run uses long prompts centered on a region the model should be free to redesign. Fixed-order prompt cohorts produce a repeating reward sawtooth every few steps. Redesign the train and validation prompt banks without changing the endpoint.",
-      "expected_output": "Short, distributed, shuffled prompt banks whose rollout batches do not confound prompt composition with learning.",
+      "prompt": "Review these prompt-bank and reward records. SFT start alignment is coordinate 1 for 98% of related records, with no rotations. The RL bank has 64 consecutive coordinate 1/16-base rows followed by 64 coordinate 2500/400-base rows. The latter fixes bases 2500–2899; editable interval is 2600–2660. Each update consumes 32 prompt rows. Training rewards repeat .62, .61, .83, .84; within each stratum the mean has changed less than .01 across 40 updates. Fixed validation contains only coordinate 1/16-base prompts and stays .62. The bank export records prompt text and row order but no generation-seed provenance. What explains the evidence, and what reproducible bank proposal fits the intended endpoint?",
+      "expected_output": "A prompt-confounding diagnosis and an exposure-aware, non-locking bank proposal.",
       "assertions": [
-        "The response distributes starts around the circular genome rather than centering prompts on key regions intended to change.",
-        "It selects prompts short enough not to lock complete key or essential features while preserving the checkpoint's actual conditioning format.",
-        "Training starts are shuffled or interleaved and each global rollout batch represents the intended position and length mixture instead of cycling through fixed cohorts.",
-        "The fixed validation bank is independent but comparably distributed, with seeds and starts recorded.",
-        "It stratifies existing metrics by prompt position, length, and composition before interpreting the sawtooth as policy improvement or regression.",
-        "Every configured external measurement must be available for selectable calibration cells; successful no-hit and scorer failure remain distinct."
+        "Relates the two-high/two-low reward cycle to four 32-row cohorts and stable within-stratum values, rather than claiming learning from the aggregate sawtooth.",
+        "Identifies that the400-base prompt fixes the editable2600–2660 interval and that internal coordinate 2500 lacks established SFT exposure.",
+        "Proposes short represented starts or paired calibration of any justified alternative, excluding editable bases; does not automatically distribute circular origins.",
+        "Interleaves the selected mixture across global batches and makes fixed validation comparably stratified, recording starts and a reproducible policy that keeps training and validation generation seeds disjoint. A documented seed namespace, derivation rule, or saved disjoint manifest suffices; arbitrary numeric seed choices are not required."
       ],
       "expected_skill": "bionemo-phage-design-calibrate-rl-sampling",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-calibrate-rl-sampling-008-circular-editable-regions",
-      "prompt": "Build circular RL prompt banks for a long phage. An evenly spaced candidate grid uses prompts equal to 0.5% of the genome, but several intervals partially overlap genes and modules that RL is supposed to redesign. Longer prompts are operationally convenient. Choose the prompt strategy.",
-      "expected_output": "Short, percentage-aware prompts placed in neutral circular intervals so redesign targets remain generated rather than fixed.",
+      "prompt": "Review candidate anchors for a synthetic circular12,000-base genome using one-based inclusive intervals. Bases11990–12000 and1–30 form an editable interval across coordinate 1; bases400–450 are also editable. Candidate prompts are A:start 11980, length 60; B:start 380, length 60; C:start 800, length 16; D:start 800, length 160. SFT exposure supports starts11980 and800, not380. C and D both avoid annotated editable bases; paired calibration gives target signal .71±.04 versus .72±.04 with no supported yield gain. The draft chooses A because60 bases is only 0.5% and proposes longer prompts for convenience. Which candidates remain defensible?",
+      "expected_output": "An explicit circular-overlap calculation and evidence-based short-anchor choice.",
       "assertions": [
-        "The response treats every prompt base as fixed sequence and checks circular interval overlap, including origin-wrapping prompts.",
-        "It excludes any overlap with intended-to-change bases, not only prompts containing a complete target gene or centered on one.",
-        "It reports prompt bases and genome fraction and recognizes that even a sub-percent prompt may fix substantial sequence on a smaller genome.",
-        "It starts from the shortest prompt compatible with the selected SFT serialization and does not scale prompt length linearly with genome size.",
-        "A longer prompt is retained only with a model- and design-specific rationale supported by calibration evidence.",
-        "If neutral anchors cannot support the bank, it revisits the prompt strategy rather than locking target elements; selected training starts remain shuffled or interleaved and validation stays fixed and independent."
+        "Computes A's wrapped fixed interval11980–12000 plus1–39 and rejects its overlap; computes B380–439 and rejects its overlap400–439 as well as unqualified start exposure.",
+        "Prefers C's16 bases at a represented start over D's160 absent a supported benefit, while reporting fractions about .133% and1.333%.",
+        "Explains that a small genome fraction does not exempt fixed editable bases and that missing annotations are not proof of regulatory neutrality.",
+        "Treats retaining D's longer prompt as requiring an endpoint-specific benefit supported by calibration; operational convenience and the unresolved .01 target-signal difference do not establish that benefit."
       ],
       "expected_skill": "bionemo-phage-design-calibrate-rl-sampling",
       "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-calibrate-rl-sampling-009-topology-aware-anchors",
+      "prompt": "Review prompt deployment for two synthetic targets. C is confirmed circular; 85/90 aligned SFT relatives use deposited coordinate 1, and rotation augmentation is absent. Paired reference-control scoring at starts 1 and 900 gives invariant gene/length scores but MMseqs cluster representatives 12 versus 15. L is fixed-end dsDNA; its deposited record is rotated, has a collapsed terminal repeat, and its biological termini are unresolved. The draft deploys starts 1/900 for C and four evenly spaced internal starts for L, then ranks all designs by raw whole-sequence likelihood. The approved deployment specification fixes a 50:50 mixture of 16/24-base prompts for each qualified target; this review may change anchor eligibility but must retain that length mixture. Give a defensible revised proposal and identify blocked choices.",
+      "expected_output": "A topology-aware decision that separates biological rotation, model exposure, and origin-sensitive statistics.",
+      "assertions": [
+        "Does not infer model competence at C:start 900 from circularity or invariant reference scores; keeps represented start 1 unless alternate-start generation evidence qualifies900.",
+        "Treats C's12-versus15 MMseqs representatives as start-sensitive clustering evidence, not automatically a failure of intrinsic gene/length invariance.",
+        "Defers L's anchor selection until termini and packaged/deposited representation are resolved, then considers strand-equivalent terminal prompts rather than arbitrary internal rotations.",
+        "Rejects global raw-likelihood ranking across origins absent normalization and preserves the approved 50:50 mixture of 16/24-base prompts for each qualified target, with independently generated fixed validation representing the same qualified strata. It need not deploy L before its termini are resolved."
+      ],
+      "expected_skill": "bionemo-phage-design-calibrate-rl-sampling",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-calibrate-rl-sampling-010-safety-parity",
+      "prompt": "Assess calibration readiness against online RL. Online contract is policy P3, asset manifest A7, confirmed bacterial host evidence H2. Calibration rows have: r1 AMR=PASS/toxin=PASS/lysogeny=INDETERMINATE with an exact policy-defined inapplicability reason, all executions recorded; r2 AMR=PASS/toxin=NOT_RUN(reason='config absent')/lysogeny=PASS; r3 allPASS under policy P2/assets A6. An aggregate fills missing values with 0 and labels the default cell selectable. Give the selection decision and the smallest scientifically valid repair.",
+      "expected_output": "A contract-parity repair that retains interpretable inapplicability and rejects missing or mismatched evidence.",
+      "assertions": [
+        "Separates r1's documented INDETERMINATE from r2's unavailable toxin execution; does not promote r1 to hard-QC PASS or convert r2 to a measured zero.",
+        "Identifies r3's policy/assets mismatch as lacking parity with online P3/A7/H2 even though its status labels say PASS.",
+        "Withholds a selection from the mixed aggregate and proposes rescoring affected evidence under the exact online contract, preserving raw status/reason/availability.",
+        "Does not change online safety objectives or use a historical default to bypass the unavailable measurements."
+      ],
+      "expected_skill": "bionemo-phage-design-calibrate-rl-sampling",
+      "expected_script": "scripts/calibration/run_sampling_calibration_scoring.sh"
+    },
+    {
+      "id": "bionemo-phage-design-calibrate-rl-sampling-011-terminal-support",
+      "prompt": "At four authentic endpoints, temperature1/top-k5 renormalized probabilities in descending token order are S1:[.70, .20, .08, .0195, .0005(EOD)], S2:[.80, .15, .04, .0098, .0002(EOD)], S3:[.60, .25, .149(EOD), .0008, .0002], S4:[.45, .30, .20, .049(EOD), .001]. The deployed shifted top-p cutoff is.999. An existing sweep used STOP_ON_EOS=0. Keep weights and prompt bank fixed and review whether the proposed sampling chain can support EOD in every stratum; propose a bounded follow-up and say what transfers to another target.",
+      "expected_output": "A calculation of filtered EOD reachability with a target-specific termination follow-up.",
+      "assertions": [
+        "Computes cumulative mass strictly before EOD as.9995, .9998, .85, .95; identifies removal in S1/S2 and retention in S3/S4 under shifted top-p.999.",
+        "Prefers top-p1 with top-k5 as the simple robust correction for these strata, or supports another cutoff with a justified margin across every endpoint; raw top-five membership alone is insufficient.",
+        "Uses a fresh STOP_ON_EOS=1 sweep because the existing fixed-length mode suppresses EOD and cannot establish correct learned stopping.",
+        "Separates reachability from frequency and biological length placement, including early/full-credit/overshoot bins and capped/below-cap-no-EOD outcomes.",
+        "Requires target-specific endpoint-support and biological-length evidence before transferring the cutoff; it does not promote the PhiX numerical policy, prompt coordinates, or length thresholds to universal defaults."
+      ],
+      "expected_skill": "bionemo-phage-design-calibrate-rl-sampling",
+      "expected_script": "examples/phix174_8xh100.sh"
     }
   ]
 }

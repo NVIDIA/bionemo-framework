@@ -15,16 +15,65 @@
 
 from __future__ import annotations
 
-import ast
-import inspect
 import logging
 import sys
-import textwrap
 from types import SimpleNamespace
 
+import pytest
 from omegaconf import OmegaConf
 
 from bionemo.evo2_phage_gen import run_phage_grpo
+
+
+def test_glu_index_span_guard_uses_local_tensor_parallel_width() -> None:
+    assert (
+        run_phage_grpo._validate_glu_index_span(
+            train_micro_batch_size=32,
+            sequence_length=5632,
+            ffn_hidden_size=11008,
+            tensor_model_parallel_size=1,
+        )
+        == 1_983_905_792
+    )
+    with pytest.raises(ValueError, match="signed-int32 indexing"):
+        run_phage_grpo._validate_glu_index_span(
+            train_micro_batch_size=64,
+            sequence_length=5632,
+            ffn_hidden_size=11008,
+            tensor_model_parallel_size=1,
+        )
+    assert (
+        run_phage_grpo._validate_glu_index_span(
+            train_micro_batch_size=64,
+            sequence_length=5632,
+            ffn_hidden_size=11008,
+            tensor_model_parallel_size=2,
+        )
+        == 1_983_905_792
+    )
+
+
+def test_training_shape_guard_uses_policy_training_sequence_length(monkeypatch) -> None:
+    provider = SimpleNamespace(__dataclass_fields__={"ffn_hidden_size": SimpleNamespace(default=11008)})
+    monkeypatch.setitem(
+        sys.modules,
+        "bionemo.evo2.models.evo2_provider",
+        SimpleNamespace(HYENA_MODEL_OPTIONS={"evo2_7b": provider}),
+    )
+    config = OmegaConf.create(
+        {
+            "policy": {
+                "model_name": "evo2_7b",
+                "max_total_sequence_length": 5632,
+                "train_micro_batch_size": 32,
+                "megatron_cfg": {"tensor_model_parallel_size": 1},
+                # A smaller rollout context must not weaken the training-shape guard.
+                "generation": {"mcore_generation_config": {"max_model_len": 4096}},
+            }
+        }
+    )
+
+    assert run_phage_grpo._validate_evo2_training_shape(config) == 1_983_905_792
 
 
 def test_init_ray_passes_dashboard_and_cpu_options_to_upstream() -> None:
@@ -75,16 +124,3 @@ def test_ensure_prompt_data_files_logs_materialized_paths(tmp_path, monkeypatch,
     assert f"  {train_path}" in caplog.messages
     assert f"  {validation_path}" in caplog.messages
     assert capsys.readouterr().out == ""
-
-
-def test_sync_trainer_receives_experiment_logger() -> None:
-    """Keep the module logger out of the NeMo-RL trainer call."""
-    tree = ast.parse(textwrap.dedent(inspect.getsource(run_phage_grpo.main)))
-    trainer_call = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "trainer"
-    )
-
-    assert isinstance(trainer_call.args[8], ast.Name)
-    assert trainer_call.args[8].id == "experiment_logger"

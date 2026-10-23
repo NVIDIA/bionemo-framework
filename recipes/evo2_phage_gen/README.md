@@ -9,25 +9,45 @@ reinforcement learning (RL) stage, which optimizes generation toward user-define
 design criteria rather than relying only on post-generation filtering.
 
 The included PhiX174 example follows Samuel King's recommended set of filters (1–6, 8, and 9) from
-[Figure 2H](https://www.science.org/doi/10.1126/science.aec2657#F2). These become RL objectives with
-partial credit for candidates that approach each threshold. See the
+[Figure 2H](https://www.science.org/doi/10.1126/science.aec2657#F2). Their measurable constraints are
+represented as separate graded or categorical RL objectives; reward full-credit regions, final
+per-genome gates, and set-level diversity selection are distinct. See the
 [PhiX174 GDPO score definitions](examples/README.md#current-phix174-gdpo-score-definitions) for the
-objective definitions and partial-credit rules. The publication reported 15 filter passers among
-110,000 generated sequences. An earlier completed end-to-end GDPO run produced 610 target-profile
-passes among 1,000 designs, while the latest run retained 511 post-QC accepted representatives among
-1,000 designs. These results are descriptive rather than a controlled enrichment comparison because
-the runs used different checkpoints, screening pipelines, and selection procedures.
-
-| Run                                                  | Reported computational outcome                     |
-| :--------------------------------------------------- | :------------------------------------------------- |
-| GDPO replication using Arc's Microviridae checkpoint | 358/1,000 target-profile passes (35.8%)            |
-| End-to-end GDPO replication 1                        | 610/1,000 target-profile passes (61.0%)            |
-| End-to-end GDPO replication 2                        | 511/1,000 post-QC accepted representatives (51.1%) |
-| Published workflow without RL                        | 15/110,000 filter passers (approximately 0.014%)   |
+objective definitions and hard-filter relationships.
 
 The recipe includes agent skills led by the top-level `bionemo-phage-design` skill. They can adapt
 the example launcher to the available GPU environment, help plan and implement related design
 tasks, and monitor long-running jobs.
+
+The current final screen combines circular-ORF AAI, core conservation, safety, and v3 syntenic
+diversity. See the [final-filter contract](skills/bionemo-phage-design/references/arc-final-filter-contract.md)
+for acceptance rules and the [screening evidence](docs/phix174-screening-evidence.md) for biological rationale.
+The [ARC validation notes](docs/arc-validation.md) distinguish upstream-parity tests
+from intentional scientific extensions and document remaining reproduction limits.
+
+## Frozen rollout results
+
+**Current state — 2026-10-22:** the fresh cosine-decay checkpoint **`fea26289`, step 900**
+rollout and current v3 screening are complete. Seed 12 generated 10,000 genomes on one GB300
+with batch size 64; all 10,000 received finite SFT likelihood scores.
+
+| Cohort under the v3 screen                              | Raw generations | Passing observations | Final cluster representatives |
+| ------------------------------------------------------- | --------------: | -------------------: | ----------------------------: |
+| **Cosine step 900, fresh seed-12 rollout**              |      **10,000** |      **355 (3.55%)** |                        **16** |
+| Earlier cosine pool, train 789–801 + validation 790/800 |          10,176 |          352 (3.46%) |                            16 |
+| Canonical A/B step 400 (`1cfffb21`), rescored           |          10,000 |            6 (0.06%) |                             5 |
+
+The current 355 passers comprise **351 original ARC-count passes and four structured K+X-only
+passes**, with no overlap. Clustering at 99% nucleotide identity / 95% reciprocal coverage
+leaves one 340-member cluster and 15 singletons; score summaries weight the 16 representatives
+equally. The separate filter-7 diagnostic passes 27 designs and is not the headline gate.
+
+Final yield is similar to the earlier cosine pool; these different checkpoint/cohort evaluations
+are not a controlled comparison or evidence that the same clusters recur. Computational
+acceptance does not establish experimental viability.
+[Detailed results and artifact hashes](skills/bionemo-phage-design/references/case-study-results.md#2026-10-22-fresh-cosine-step-900-rollout-v3)
+retain the denominators and provenance. The older step-1000 rollout is **held at 2,791/10,000
+completed records**, not a finalized comparison cohort.
 
 ## Quick start
 
@@ -35,15 +55,17 @@ See the [example README](examples/README.md) for additional launch options and o
 
 The end-to-end run takes approximately 4 days on a server with 8 H100 GPUs, and uses 1.5TB of storage.
 
-Run the following from `recipes/evo2_phage_gen` to reproduce the `7b-base` end-to-end configuration
-summarized above:
+Run the following from `recipes/evo2_phage_gen` for the current `7b-base` end-to-end configuration.
+All default prompts start at reference coordinate 1; see the
+[prompt-origin rationale](examples/README.md#prompt-origin) for the related-assembly and SFT evidence.
+The [frozen rollout results](#frozen-rollout-results) are separate checkpoint evaluations; the launcher defaults to 1,000 final designs.
 
 ```bash
 ./.ci_build.sh
 ./examples/phix174_8xh100.sh \
   --model-variant 7b-base  \
   --sampling-selection "examples/default-sampling-selection.yaml" \
-  --result-root "$PWD/results/phix174-8xh100"
+  --result-root "$PWD/results/phix174-8xh100-origin"
 ```
 
 Like the Evo 2 recipe, `.ci_build.sh` creates an editable Python 3.12 virtual
@@ -56,7 +78,8 @@ running individual recipe commands by hand.
 
 Use tmux or a scheduler for long runs. `NUM_GPUS` defaults to 8, `NUM_CPUS` to `nproc`, and
 `SFT_TENSOR_PARALLEL_SIZE` may adapt a measured smaller topology.
-The [8×H100 example](examples/README.md) documents dry runs, preparation-only mode, stage markers,
+The [8×H100 example](examples/README.md) documents dry runs, an opt-in
+[quick live E2E check](examples/README.md#quick-live-end-to-end-check), preparation-only mode, stage markers,
 sampling overrides, outputs, and all RL objectives.
 
 ## Run with an agent
@@ -79,3 +102,12 @@ Use $bionemo-phage-generation to adapt the PhiX174 example for this GB300 node, 
 Thanks to Samuel King, Jessica Sacher, Jan Zheng, Avery Noonan, Michael Poon, and colleagues at
 Tabula Bio, and to Eric Bastien and Nick Conley at Locus Biosciences, for discussions, guidance, and
 feedback that shaped the recipe and its safety controls.
+
+## Appendix: Filter rationale and evidence
+
+The [screening evidence](docs/phix174-screening-evidence.md) preserves the selected-cohort
+waterfall, length/coverage rationale, and experimental-outcome limitations.
+The [accessory score definition](docs/accessory_genes.md) distinguishes the online K/X reward
+from v3's independently measured final acceptance route; mutations within K do not supply X.
+Historical screening versions remain in the
+[case-study notes](skills/bionemo-phage-design/references/case-study-results.md).

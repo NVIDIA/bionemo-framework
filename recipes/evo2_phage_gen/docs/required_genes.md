@@ -1,0 +1,208 @@
+# Required genes in the PhiX profile
+
+The [Arc configuration](../configs/arc_genome_design_filtering_local.yaml) defines nine named
+functions for a PhiX-like productive-infection cycle. Each function has an explicit
+list of allowed PHROG families in `required_gene_families`. These are detection
+targets for biologically motivated functions, not a claim that homology proves
+function or that every viable microvirus must retain the same genes.
+
+## Biological rationale and detection targets
+
+The family assignments below were checked against the recipe's pinned PHROGs
+consensus database and PhiX174 reference. Gene names and experimental roles govern
+selection; shared annotation text does not establish interchangeability.
+
+| Function                              | Allowed PHROGs | Experimental basis and scope                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A: replication initiation             | 713            | Gene-A mutant work connects A to replicative-form DNA replication and distinguishes additional A-region phenotypes. [Funk & Snover, 1976](https://pmc.ncbi.nlm.nih.gov/articles/PMC515532/)                                                                                                                                                             |
+| B: internal scaffolding               | 1473           | Mutant/complementation experiments connect B to coat conformational changes and assembly. [Novak & Fane, 2004](https://doi.org/10.1016/j.jmb.2003.09.050)                                                                                                                                                                                               |
+| C: replication/packaging coordination | 1465           | C-mutant infections accumulate empty procapsids and show altered replication intermediates. The database label “terminase” does not capture this role. [Fujisawa & Hayashi, 1977](https://pmc.ncbi.nlm.nih.gov/articles/PMC353851/)                                                                                                                     |
+| D: external scaffolding               | 1386           | D participates in organizing assembly intermediates into procapsids; structural and in-vitro assembly work identifies its contacts with coat proteins. [Procapsid assembly experiments](https://pmc.ncbi.nlm.nih.gov/articles/PMC5165185/)                                                                                                              |
+| E: host lysis                         | 1472           | E inhibits host MraY. Its PHROGs “endolysin” annotation is not a mechanistic description. The endpoint here includes progeny release, not only intracellular replication. [Zheng et al., 2008](https://pubmed.ncbi.nlm.nih.gov/18791230/)                                                                                                               |
+| F: major capsid                       | 514            | Coat-protein experiments and procapsid structures establish F's structural and assembly role. [Procapsid assembly experiments](https://pmc.ncbi.nlm.nih.gov/articles/PMC5165185/)                                                                                                                                                                       |
+| G: major spike                        | 1483           | Cloned G complements G amber mutants in otherwise nonpermissive hosts; it does not rescue the tested A/E mutants. [Humayun & Chambers, 1978](https://pmc.ncbi.nlm.nih.gov/articles/PMC411339/)                                                                                                                                                          |
+| H: DNA delivery pilot                 | 1471           | Structural, genetic, and biochemical evidence identifies an H tube needed for DNA delivery and infectivity. [Sun et al., 2014](https://pubmed.ncbi.nlm.nih.gov/24336205/)                                                                                                                                                                               |
+| J: DNA binding/packaging              | 2354 or 3780   | In-vitro work distinguishes a requirement for packaging infectious phage from DNA synthesis. [In-vitro J study](https://pmc.ncbi.nlm.nih.gov/articles/PMC254803/) The second family detects the 25-aa alternate J in the viable Evo-Φ36 G1 control from [King et al.](https://doi.org/10.1126/science.aec2657), so either family fills the same J slot. |
+
+This profile favors the usual PhiX architecture. It is deliberately narrower than
+all possible viable architectures: selected mutants can bypass B's usual scaffolding
+requirement through compensatory changes. That exception does not justify treating
+B as optional in every background. [Chen et al., 2007](https://doi.org/10.1016/j.jmb.2007.07.064)
+
+K is outside the required set. K-deficient mutants produced viable progeny with
+reduced burst size, so omitting this requirement is compatible with a viability
+endpoint but does not imply equal fitness. [Tessman et al., 1980](https://pubmed.ncbi.nlm.nih.gov/6445011/)
+A\* is also outside this term. Progeny were recovered without detectable A\* in a
+mutant study using amber-suppressor hosts; this is conditional experimental evidence,
+not a universal dispensability claim. ORFipy's failure to emit A\* separately is an
+independent measurement limitation. [Colasanti & Denhardt, 1987](https://pubmed.ncbi.nlm.nih.gov/2960819/)
+
+## Scoring and acceptance
+
+`score_function_matches` supplies shared family evidence to
+[`summarize_required_gene_evidence`](../src/bionemo/evo2_phage_gen/protein_evidence.py)
+and synteny. It consumes admitted PHROGs hits with native query and target
+coverage. For each allowed ORF-to-family hit, its function credit is:
+
+```text
+credit = min(1, query_coverage / query_min, target_coverage / target_min)
+reward = maximum one-to-one assigned credit sum / number of required functions
+```
+
+One ORF can fill one function; one function can use one ORF. Multiple allowed
+families are alternatives for that function, not additional requirements. A family
+cannot be declared under two functions. Extra genes or copies neither increase the
+denominator nor replace missing functions. An unrelated gene with the same
+annotation label earns no required-function credit. With 12 configured functions,
+the denominator is 12; adding three unrelated genes to the nine-function profile
+leaves the denominator at nine.
+
+Hard acceptance requires a distinct qualifying ORF for every function, with both
+coverage thresholds met. The scorer independently finds the largest all-qualifying
+assignment, so a fractional-score tie cannot accidentally lose a possible hard
+pass. Missing functions receive zero credit individually and do not erase progress
+on other functions. Missing or invalid measurement artifacts receive zero reward
+and unavailable status. An empty profile supplies no reward or acceptance.
+
+The historical column name `required_genes_integrity_sum` means **summed normalized
+coverage credit** here. It is distinct from the geometric-mean direct-reference
+protein score. Synteny can use either evidence route; tropism and origin use
+the direct-reference score. E-value and identity affect upstream hit
+admission; neither is an extra multiplier in this required-function reward.
+
+The generic query/target thresholds are 0.75/0.75. This is an inherited recipe
+heuristic for PHROG consensus matches, introduced in commit `be3f821c9` with the
+rationale that consensus lengths differ from individual proteins. The recorded
+rationale does not establish 75% as an optimal cutoff or an experimentally measured
+functional boundary. The exceptions were selected from observed viable controls:
+
+| Function               | Query / target thresholds | Observation behind the changed bound                                                                                              |
+| ---------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| C                      | 0.70 / 0.47               | Viable Evo-Φ75/100 hits reach query coverage 0.702 and target coverage 32/68 = 0.471. These minima come from separate alignments. |
+| E                      | 0.58 / 0.75               | Viable extended E calls include a 74-residue match within a 127-aa ORF: query coverage 0.583.                                     |
+| B                      | 0.75 / 0.68               | Viable Evo-Φ316's shortened B covers 80/117 consensus residues: target coverage 0.684.                                            |
+| Alternate J, PHROG3780 | 0.64 / 0.75               | Natural ID21/NC29 have a 24-aa J inside a 37-aa upstream-start ORF: query coverage 0.649.                                         |
+
+Changed bounds are rounded down from these observed values; unchanged bounds
+retain the 0.75 default. B/C/E allowances predate function-aware synteny, which
+reuses them; the J allowance came from its expanded natural-genome replay.
+These are control-based detection allowances, not thresholds established by
+gene-essentiality experiments. Their positive-control pass rates are calibration
+evidence, not independent validation. Coverage measures how much aligns, not
+whether the critical functional region is retained. Native coverage counts residues,
+whereas alignment-column counts can include gaps. Passing coverage does not establish
+catalytic activity, correct regulation, compatibility, or whole-genome viability.
+
+## Natural homologs and plausible replacements
+
+An allowed PHROG is a homologous protein family, not a list of the exact sequences
+seen in PhiX174 or the King designs. Divergent and previously untested sequences
+can earn credit when they match that family with the required coverage. In a
+September 2026 replay, 135 annotated A/B/C/D/E/F/G/H/J proteins from 15 natural
+G4/alpha3-group relatives all received full required-function credit under this
+profile. Their J proteins matched PHROG3780; the other eight functions matched the
+existing family IDs. A subsequent genome replay used the production ORF wrappers
+and installed ORFipy 0.0.4, PHROGs search, reward reader, and emitted Arc synteny
+filter: all 15 relatives, PhiX174, and viable Evo-Φ36 G1 received full required-gene
+and synteny scores across five rotations each (85 rows). It exposed two detection
+limits now addressed in the profile: the 72-nt ORF minimum retains alpha3's 24-aa J
+(the stop codon is excluded), and the PHROG3780 coverage allowance retains the
+upstream-start extensions above. These genomes helped calibrate the profile; this
+is neither independent validation nor a test of arbitrary constructed hybrids.
+
+For example, B proteins from PhiX174, G4, and alpha3 cross-complement despite
+substantial sequence divergence, with a temperature-dependent exception. They map
+to the already allowed PHROG1473. [Burch et al., 1999](https://pubmed.ncbi.nlm.nih.gov/9931252/)
+Natural [G4](https://www.ncbi.nlm.nih.gov/nuccore/NC_001420.2) and
+[alpha3](https://www.ncbi.nlm.nih.gov/nuccore/NC_001330.1) J proteins independently
+support the PHROG3780 alternative; its inclusion need not rest solely on Evo-Φ36.
+
+A required-function score estimates plausible function presence. It cannot establish
+that a replacement will interact correctly with every other gene in a PhiX genome.
+More distant gokushovirus VP2 proteins are candidate functional analogs of H, based
+on predicted fold and DNA-interacting residues, but are beyond the close-relative
+validation above. Their family assignments need separate review before default
+inclusion; shared pilot-protein annotation text is insufficient by itself.
+[VP2/H comparison](https://pmc.ncbi.nlm.nih.gov/articles/PMC9645218/)
+
+## Synteny uses the same function definitions
+
+`core_gene_reference_functions` maps nine canonical reference GFF locus IDs to
+A/B/C/D/E/F/G/H/J. Their genomic positions define circular order; K and A\* are
+outside both the required-function set and this synteny denominator.
+
+For each candidate ORF and mapped slot, smooth synteny uses:
+
+```text
+edge credit = max(direct PhiX protein-match integrity, allowed-family coverage credit)
+```
+
+The direct-reference route reaches full credit at 90% identity, E ≤1e-5, and 95%
+coverage of both proteins. **Those identity and E-value targets do not apply to
+the family route.** That route searches all PHROG consensus sequences and retains
+every admitted hit in an allowed family as an ORF/function alternative. Global
+assignment maximizes total coverage credit with at most one ORF per function and
+one function per ORF. A stronger hit to an unrelated family does not discard
+partial evidence for a required function. Alternatives for the same function
+use their highest coverage credit; they do not add together. The current search
+inherits MMseqs's E-value cutoff of 1e-3 (the command does not supply `-e`), with
+sensitivity 7.5 and no minimum percent identity. Search admission is a hard gate;
+E-value is not a further smooth multiplier, so an admitted hit meeting both
+coverage thresholds can receive full family credit even near that cutoff.
+Normalized coverage supplies partial credit below those thresholds. It does not search
+individual PHROGs members or impose a 90% consensus-identity requirement.
+For example, native alpha3 F receives full family credit at 23.9% consensus
+identity, E=2.4e-22, and approximately 95–98% coverage. This percentage is not its
+identity to PhiX F.
+
+The search writes `mmseqs2_all_hits.csv` under
+`mmseqs_protein_database_results_dir_save_location` for online scoring and final
+required-function/synteny screening. The separate `mmseqs2_hits.csv` keeps the
+lowest-E-value hit per ORF for displayed annotations. AAI still uses its own
+individual-member search and lowest-E-value hit per ORF. Family credit has no
+competing-hit multiplier: weakening an unrelated alignment should not improve
+the required-function score when its own alignment is unchanged. Search admission
+and curated family membership establish the candidate evidence; coverage sets
+its credit. These assignments are sequence evidence, not proof of function.
+
+A supported family alternative can therefore fill a slot completely even with a
+weak direct PhiX match. Reference-only partial evidence remains useful before a
+family hit is admitted. Maximum one-to-one matching, circular order, and excess
+homolog mass still determine the final smooth score; an extra unrelated gene
+cannot fill a missing slot or increase the denominator. An extra homologous copy
+can reduce synteny, including a partial copy in the smooth score.
+
+Final synteny acceptance uses the same family definitions and coverage thresholds:
+all nine functions must have distinct qualifying ORFs in circular order, with no
+extra qualifying copies. When full-coverage alternatives tie, a complete assignment
+in circular order is sufficient; an arbitrary conflicting tie does not reject it.
+Partial hits guide RL but do not count as intact copies
+for this gate. Tropism still measures PhiX G and origin still uses PhiX A evidence
+and its origin motif; full synteny is not full credit on those objectives or proof
+of genome viability. Profiles without `core_gene_reference_functions` retain
+reference-locus scoring and the LoVis cluster gate.
+
+## Adapting the profile
+
+Choose named functions from deletion, complementation, or other functional evidence
+for the intended host and endpoint. Record assay conditions and distinguish normal
+fitness from merely producing viable progeny. Build the detection set from diverse natural homologs, not only substitutions found
+in one design study. A family need not have a published successful PhiX swap to be
+considered: conserved domains, profile-to-profile homology, and its role in naturally
+occurring relatives can support the function assignment. PHROGs supplies member
+sequences, alignments, and HMM profiles for this purpose. [Terzian et al., 2021](https://pmc.ncbi.nlm.nih.gov/articles/PMC8341000/)
+
+Keep function recognition separate from whole-genome compatibility. The G4-like J
+in Evo-Φ36 illustrates why: it is a natural J homolog, while prior direct transfers
+into PhiX failed in other backgrounds. [King et al., preprint](https://www.biorxiv.org/content/10.1101/2025.09.12.675911v1.full)
+The current explicit alternatives are a starting profile, not an exhaustive catalogue
+of possible replacements. Broadening it requires checking function evidence and
+false matches, not restricting it to experimentally demonstrated swaps. Related-phage
+cross-complementation can depend on both gene and direction. [Borrias et al., 1979](https://pmc.ncbi.nlm.nih.gov/articles/PMC353451/)
+
+Check the installed search, ORF caller, scorer, and hard gate on known viable genomes
+and targeted missing/truncated-gene controls. Recheck database versions and family
+IDs together. Positive controls used to select targets or tune coverage are
+calibration evidence; retain independent measured failures and viable variants to
+test generalization. A broader architecture with a demonstrated bypass needs an
+explicitly revised profile rather than an annotation-label fallback.

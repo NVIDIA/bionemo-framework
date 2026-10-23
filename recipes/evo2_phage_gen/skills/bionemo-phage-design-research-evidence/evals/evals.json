@@ -3,39 +3,42 @@
   "evals": [
     {
       "id": "bionemo-phage-design-research-evidence-001-new-objective-evidence",
-      "prompt": "Research evidence for RL and final-QC objectives for a newly selected jumbo bacteriophage. We want viable, diverse whole-genome designs with a target-specific change, but do not know which essentiality, synteny, completeness, or model thresholds transfer.",
-      "expected_output": "A concise, source-grounded assessment of the evidence that is actually needed for this target.",
+      "prompt": "Review a proposed evidence claim for a non-therapeutic comparative phage study. The following evidence packet is synthetic. E1: in the selected phage, loss of gene U prevents plaques on host H1; complementation restores plaques; host H2 was not tested. E2: gene V occurs in 96 of 100 complete genomes from a related family; no perturbation assay. E3: transposon insertions in W are depleted in a pooled experiment on a relative; the paper notes a possible polar effect on the downstream gene. E4: a genome model separated previously labeled complete from fragmented assemblies with AUROC 0.98 on a random split; 41% of test genomes have a >99%-identity training neighbor; no reboot assay. Draft conclusion: 'U, V and W are universally essential, and model score >0.9 certifies viable whole genomes.' Which parts are supported, which require revision, and which missing evidence would most change the decision? Use the packet as a fixture, not as real literature.",
+      "expected_output": "A claim-by-claim assessment distinguishing a direct condition-specific result from conservation, indirect depletion and a confounded predictive endpoint.",
       "assertions": [
-        "The response prioritizes primary biological evidence and distinguishes measured results, author claims, and inference.",
-        "It covers complete-genome viability and the productive-infection lifecycle rather than reducing the problem to one host or similarity score.",
-        "It does not transfer a threshold or essential-gene claim without discussing target relevance and uncertainty.",
-        "It identifies unresolved decisions and experimental validation without demanding unrelated process artifacts."
+        "It identifies E1 as direct evidence of U's requirement for plaque formation under the tested H1 conditions with complementation support, without extending it to all hosts, relatives or lifecycle mechanisms.",
+        "It does not equate E2's 96/100 conservation with essentiality and identifies E3's polar-effect ambiguity and relative-phage transfer limit.",
+        "It rejects E4 as validation of a >0.9 viability cutoff: the endpoint is assembly completeness, high-identity split leakage compromises the estimate, and AUROC alone specifies no operating threshold.",
+        "It revises the universal-essentiality and viability-certification claims separately, retaining supported condition-specific observations instead of discarding all four sources.",
+        "It prioritizes evidence that resolves the stated gaps, such as target-specific functional evidence and independent whole-genome productive-infection outcomes with lineage-held-out model validation; a generic lifecycle checklist or citation list without E1-E4 decisions is insufficient."
       ],
       "expected_skill": "bionemo-phage-design-research-evidence",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-research-evidence-002-no-specialist-skill",
-      "prompt": "Find current public evidence needed to calibrate a bacterial-phage host prediction score. No specialist literature or database skill appears to be installed in this harness.",
-      "expected_output": "A practical evidence search using the best available primary sources and public databases.",
+      "prompt": "An offline evidence review has no installed specialist literature/database tool. Decide what can be concluded from this synthetic host-model packet and give the next bounded evidence request. Version A reports 94% accuracy on 1,000 interaction rows randomly split; identical phage-host pairs occur in train and test, and untested pairs were labeled negative. Version B reports TP=18, FP=12, FN=2, TN=68 on 100 independently assayed interactions held out by phage cluster; those data cover two laboratory strains of the relevant species, while our intended assay strain is absent. A collaborator proposes adopting score 0.8 because both versions used it and accuracy exceeds 85%. No calibrated probability curve or target-strain labels are supplied. We need an assessment, not a new model or experimental protocol.",
+      "expected_output": "A quantitative appraisal of predictive evidence and an actionable source request without treating missing specialist tooling as the scientific blocker.",
       "assertions": [
-        "The response uses available web, literature, or biological database access rather than treating the missing specialist skill as a blocker.",
-        "It looks for relevant labeled host interactions, target-domain coverage, negative examples, and known confounders.",
-        "It states source versions or access dates where they affect interpretation and reports evidence limits.",
-        "It does not present a predictive score as proof of productive infection."
+        "It computes Version B precision 18/30=60%, recall 18/20=90%, and accuracy 86/100=86%; accuracy alone obscures its 12 false positives.",
+        "It identifies both repeated-pair leakage and untested-as-negative label contamination in A, so A's 94% cannot establish superiority over B or justify the shared threshold.",
+        "It treats B as more informative for the measured held-out population but does not infer calibrated performance or productive infection on the absent intended strain.",
+        "It does not endorse 0.8 as a universal cutoff from the repeated setting or the 85% accuracy criterion; it names deployment-relevant positive and negative assay evidence, calibration and intended error tradeoffs as unresolved.",
+        "It gives a bounded public-source or accession/assay request that could be pursued with ordinary web/database access when available, specifying strain identity, assay endpoint and data version. It neither invents retrieved sources nor treats installation of a specialist tool as necessary to reason about the supplied packet."
       ],
       "expected_skill": "bionemo-phage-design-research-evidence",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-research-evidence-003-use-documents-as-needed",
-      "prompt": "Briefly answer two questions: what does supervised fine-tuning mean in ordinary machine-learning usage, and how did the Evo 2 phage study construct its target-conditioned training examples? Use source material only where it helps.",
-      "expected_output": "A concise answer that uses common knowledge for the general concept and the relevant public study for its specific method.",
+      "prompt": "Review this draft methods sentence: 'Supervised fine-tuning retrains a pretrained model from scratch; the released Microviridae .fna is raw DNA, so any punctuation must be corrupt; the current recipe parser proves that the original publication masked prefix-token loss.' Explain which clauses can be settled from ordinary ML knowledge and the checked-in recipe, and what still requires the publication's methods or supplement. Inspect the maintained downloader/parser. Do not download the corpus or modify files; if the primary methods cannot be inspected, identify the unresolved claim rather than filling it in.",
+      "expected_output": "A concise source-scoped correction that uses the actual parser to distinguish conditioned data from corrupt DNA and refuses historical inference from current code.",
       "assertions": [
-        "The general explanation of supervised fine-tuning does not pretend that reading a paper is necessary for common knowledge.",
-        "The study-specific answer consults and cites the relevant paper or supplement rather than guessing from general practice.",
-        "The response distinguishes the historical study method from the current recipe and does not inspect unrelated documents.",
-        "It answers the question directly without creating an unrelated project workflow."
+        "It corrects 'from scratch': SFT continues training a pretrained model on task/domain examples; the general definition does not require a primary-paper lookup.",
+        "It identifies the downloader's default processed Microviridae FASTA and its separate optional raw file from the maintained code, rather than treating a .fna extension as proof of unprefixed biological sequence.",
+        "It gives a concrete parser example such as +! or +# as a recognized two-character conditioning prefix removed before validating biological A/C/G/T/N, and does not treat arbitrary punctuation elsewhere as valid.",
+        "It explains that the current parser's prefix handling establishes neither the original publication's loss masking nor even the current training loss mask by itself; those are separate implementation/method questions.",
+        "It either supports the historical loss-masking statement with an inspected primary-method passage and its version, or explicitly leaves it unverified. A generic paper citation or current-code citation alone cannot satisfy that historical claim."
       ],
       "expected_skill": "bionemo-phage-design-research-evidence",
       "expected_script": null

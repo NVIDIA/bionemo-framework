@@ -22,6 +22,7 @@ import pytest
 import yaml
 
 from bionemo.evo2_phage_gen import nemo_rl_env, rl_readiness
+from bionemo.evo2_phage_gen.accessory_genes import summarize_accessory_gene_evidence
 from bionemo.evo2_phage_gen.rl_readiness import check_rl_readiness
 
 
@@ -82,11 +83,12 @@ def _write_minimal_config(
     return config_path
 
 
-def _write_control_config(tmp_path: Path) -> Path:
+def _write_control_config(tmp_path: Path, *, zero_reward_without_eod: bool = False) -> Path:
     config_path = _write_minimal_config(tmp_path, include_adapter=True)
     config = yaml.safe_load(config_path.read_text())
     config["env"]["phage_qc"] = {
         "reward_output_mode": "gdpo",
+        "zero_reward_without_eod": zero_reward_without_eod,
         "weight_valid_nt_chars": 1.0,
         "weight_tropism": 1.0,
         "weight_mmseqs_cluster_diversity": 1.0,
@@ -132,9 +134,8 @@ def _write_control_config(tmp_path: Path) -> Path:
         },
         "external_qc": {
             "enabled": True,
-            "enable_protein_hit_count": False,
             "enable_tropism": True,
-            "enable_synteny": False,
+            "enable_core_gene_ordered_conservation": False,
             "enable_average_protein_identity": False,
             "enable_required_genes": False,
         },
@@ -177,8 +178,9 @@ def _control_scores(sequence: str) -> pd.DataFrame:
     return pd.DataFrame([row])
 
 
-def test_environment_control_runs_exact_step(tmp_path, monkeypatch):
-    config_path = _write_control_config(tmp_path)
+@pytest.mark.parametrize("zero_reward_without_eod", [False, True])
+def test_environment_control_runs_exact_step(tmp_path, monkeypatch, zero_reward_without_eod):
+    config_path = _write_control_config(tmp_path, zero_reward_without_eod=zero_reward_without_eod)
     control_fasta = tmp_path / "phix.fna"
     sequence = "ACGT" * 5
     control_fasta.write_text(f">phix\n{sequence}\n")
@@ -197,6 +199,11 @@ def test_environment_control_runs_exact_step(tmp_path, monkeypatch):
     result = rl_readiness.run_environment_control(config_path, control_fasta, tmp_path / "control")
 
     assert result["record_id"] == "phix"
+    assert result["termination_evidence"] == "constructed_complete_genome_control"
+    assert (
+        yaml.safe_load(config_path.read_text())["env"]["phage_qc"]["zero_reward_without_eod"]
+        is zero_reward_without_eod
+    )
     assert result["sequence_length"] == 20
     assert result["objectives"] == {
         "valid_nt_chars": 1.0,
@@ -217,6 +224,30 @@ def test_environment_control_runs_exact_step(tmp_path, monkeypatch):
     assert yaml.safe_load((tmp_path / "control" / "result.json").read_text()) == result
 
 
+@pytest.mark.parametrize("name", ["gene_a_origin", "gene_b_integrity"])
+@pytest.mark.parametrize("measured", [None, 0.0, 1.0])
+def test_ab_control_support(tmp_path, monkeypatch, name, measured):
+    """An enabled A/B scorer must actually measure the control, even when its score is zero."""
+    config_path = _write_control_config(tmp_path)
+    config = yaml.safe_load(config_path.read_text())
+    config["env"]["phage_qc"]["external_qc"][f"enable_{name}"] = True
+    config_path.write_text(yaml.safe_dump(config))
+    sequence = "ACGT" * 5
+    fasta = tmp_path / "phix.fna"
+    fasta.write_text(f">phix\n{sequence}\n")
+    scored = _control_scores(sequence)
+    scored[f"reward_{name}"] = 0.0
+    if measured is not None:
+        scored["smooth_reference_measurement_available"] = measured
+    monkeypatch.setattr(nemo_rl_env, "score_message_logs", lambda *_args, **_kwargs: scored)
+    if measured == 1.0:
+        result = rl_readiness.run_environment_control(config_path, fasta, tmp_path / "control")
+        assert result["support"][name] is True
+    else:
+        with pytest.raises(rl_readiness.RLEnvironmentControlError, match="not measured|smooth_reference"):
+            rl_readiness.run_environment_control(config_path, fasta, tmp_path / "control")
+
+
 def test_environment_control_rejects_skipped_metric(tmp_path, monkeypatch):
     config_path = _write_control_config(tmp_path)
     control_fasta = tmp_path / "phix.fna"
@@ -227,6 +258,102 @@ def test_environment_control_rejects_skipped_metric(tmp_path, monkeypatch):
     monkeypatch.setattr(nemo_rl_env, "score_message_logs", lambda *_args, **_kwargs: scored)
 
     with pytest.raises(rl_readiness.RLEnvironmentControlError, match=r"tropism.*not measured"):
+        rl_readiness.run_environment_control(config_path, control_fasta, tmp_path / "control")
+
+
+@pytest.mark.parametrize("has_proteins", [True, False])
+def test_accessory_environment_control(tmp_path, monkeypatch, has_proteins):
+    """Real accessory telemetry must pass readiness only when its evidence is available."""
+    config_path = _write_control_config(tmp_path)
+    config = yaml.safe_load(config_path.read_text())
+    config["env"]["phage_qc"]["external_qc"]["enable_accessory_gene_diversification"] = True
+    config["env"]["phage_qc"]["gdpo_objectives"].append(
+        {"name": "accessory", "columns": ["reward_external_accessory_gene_diversification"]}
+    )
+    config_path.write_text(yaml.safe_dump(config))
+    control_fasta = tmp_path / "phix.fna"
+    sequence = "ACGT" * 5
+    control_fasta.write_text(f">phix\n{sequence}\n")
+    hits = pd.DataFrame(
+        {
+            "id_prompt": ["phix_ORF.1"],
+            "protein_database_mmseqs_target": [1713],
+            "protein_database_mmseqs_e_value": [1e-20],
+            "protein_database_mmseqs_percent_identity": [100.0],
+            "protein_database_mmseqs_alignment_length": [100],
+            "protein_database_mmseqs_query_length": [100],
+            "protein_database_mmseqs_target_length": [100],
+            "protein_database_mmseqs_query_coverage": [1.0],
+            "protein_database_mmseqs_target_coverage": [1.0],
+        }
+    )
+    accessory, _ = summarize_accessory_gene_evidence(
+        hits if has_proteins else hits.iloc[:0],
+        pd.DataFrame({"id_prompt": ["phix"]}),
+        reserved_core_orfs=set(),
+        core_families={"phrog:713"},
+        k_families={"phrog:1713"},
+        candidate_proteins={"phix_ORF.1": "M" + "A" * 99} if has_proteins else {},
+    )
+    scored = pd.concat([_control_scores(sequence), accessory], axis=1)
+    monkeypatch.setattr(nemo_rl_env, "score_message_logs", lambda *_args, **_kwargs: scored)
+    if has_proteins:
+        result = rl_readiness.run_environment_control(config_path, control_fasta, tmp_path / "control")
+        assert result["support"]["accessory_gene_diversification"] is True
+        assert result["objectives"]["accessory"] == 0.5
+    else:
+        with pytest.raises(
+            rl_readiness.RLEnvironmentControlError, match="accessory_gene_diversification was not measured"
+        ):
+            rl_readiness.run_environment_control(config_path, control_fasta, tmp_path / "control")
+
+
+def test_rotation_control_compares_intrinsic_scores(tmp_path, monkeypatch):
+    config_path = _write_control_config(tmp_path, zero_reward_without_eod=True)
+    control_fasta = tmp_path / "phix-rotations.fna"
+    sequence = "AAAACCCCGGGGTTTTACGT"
+    rotated = sequence[8:] + sequence[:8]
+    control_fasta.write_text(f">origin\n{sequence}\n>rotated\n{rotated}\n")
+
+    def score(message_log_batch, **_kwargs):
+        assert len(message_log_batch) == 2
+        scores = pd.concat([_control_scores(sequence), _control_scores(rotated)], ignore_index=True)
+        scores["mmseqs_cluster_size"] = [1, 2]
+        scores["reward_mmseqs_cluster_diversity"] = [1.0, 0.5]
+        scores["reward"] = [0.9, 0.8]
+        return scores
+
+    monkeypatch.setattr(nemo_rl_env, "score_message_logs", score)
+
+    result = rl_readiness.run_environment_control(config_path, control_fasta, tmp_path / "control")
+
+    assert result["intrinsic_scores_rotation_invariant"] is True
+    assert result["termination_evidence"] == "constructed_complete_genome_control"
+    assert result["excluded_objectives"] == ["diversity"]
+    assert [row["objectives"]["diversity"] for row in result["records"]] == [1.0, 0.5]
+    assert [row["record_id"] for row in result["records"]] == ["origin", "rotated"]
+
+
+def test_environment_control_rejects_non_rotation_controls(tmp_path):
+    config_path = _write_control_config(tmp_path)
+    control_fasta = tmp_path / "not-rotations.fna"
+    control_fasta.write_text(">origin\nAAAACCCCGGGGTTTTACGT\n>mutant\nAAAACCCCGGGGTTTTACGA\n")
+
+    with pytest.raises(rl_readiness.RLEnvironmentControlError, match="equivalent circular rotations"):
+        rl_readiness.run_environment_control(config_path, control_fasta, tmp_path / "control")
+
+
+def test_environment_control_rejects_rotation_dependent_metric(tmp_path, monkeypatch):
+    config_path = _write_control_config(tmp_path)
+    control_fasta = tmp_path / "phix-rotations.fna"
+    sequence = "AAAACCCCGGGGTTTTACGT"
+    rotated = sequence[8:] + sequence[:8]
+    control_fasta.write_text(f">origin\n{sequence}\n>rotated\n{rotated}\n")
+    scores = pd.concat([_control_scores(sequence), _control_scores(rotated)], ignore_index=True)
+    scores.loc[1, "reward_external_tropism"] = 0.5
+    monkeypatch.setattr(nemo_rl_env, "score_message_logs", lambda *_args, **_kwargs: scores)
+
+    with pytest.raises(rl_readiness.RLEnvironmentControlError, match="objectives differ"):
         rl_readiness.run_environment_control(config_path, control_fasta, tmp_path / "control")
 
 

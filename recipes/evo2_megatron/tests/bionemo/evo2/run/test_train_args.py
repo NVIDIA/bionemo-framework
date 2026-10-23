@@ -33,6 +33,22 @@ def test_no_save_optim_flag_can_be_enabled():
     assert args.no_save_optim is True
 
 
+@pytest.mark.parametrize("backend", [None, "fused", "flash", "unfused", "auto"])
+def test_attention_backend(monkeypatch, backend):
+    from megatron.core.transformer.enums import AttnBackend
+
+    cfg = MagicMock()
+    cfg.checkpoint.load = None
+    cfg.model.attention_backend = AttnBackend.flash
+    monkeypatch.setattr(train_module, "pretrain_config", MagicMock(return_value=cfg))
+    monkeypatch.setattr(train_module, "pretrain", MagicMock())
+    monkeypatch.setattr(train_module, "get_rank_safe", lambda: 1)
+    monkeypatch.setattr(train_module.torch.distributed, "is_initialized", lambda: False)
+    extra = [] if backend is None else ["--attention-backend", backend]
+    train_module.train(parse_args(["--mock-data", *extra]))
+    assert cfg.model.attention_backend == (AttnBackend.flash if backend is None else AttnBackend[backend])
+
+
 def test_best_checkpoint_args():
     args = parse_args(
         [
@@ -137,3 +153,24 @@ def test_train_installs_metric_retention(monkeypatch):
     assert callback.keep_recent_k == 1
     assert callback.step_tolerance == 3
     assert callback.strict_metric is True
+
+
+def test_finetune_base_keeps_resume_mode(tmp_path, monkeypatch):
+    checkpoint = tmp_path / "base"
+    checkpoint.mkdir()
+    (checkpoint / "run_config.yaml").write_text("model: {}\n")
+
+    cfg = MagicMock()
+    cfg.checkpoint.load = str(tmp_path / "run" / "evo2" / "checkpoints")
+    cfg.checkpoint.finetune = False
+    mocked_pretrain = MagicMock()
+    monkeypatch.setattr(train_module, "pretrain_config", MagicMock(return_value=cfg))
+    monkeypatch.setattr(train_module, "pretrain", mocked_pretrain)
+    monkeypatch.setattr(train_module, "get_rank_safe", lambda: 1)
+    monkeypatch.setattr(train_module.torch.distributed, "is_initialized", lambda: False)
+
+    args = parse_args(["--mock-data", "--finetune-ckpt-dir", str(checkpoint)])
+    train_module.train(args)
+
+    assert cfg.checkpoint.pretrained_checkpoint == str(checkpoint.resolve())
+    assert cfg.checkpoint.finetune is False

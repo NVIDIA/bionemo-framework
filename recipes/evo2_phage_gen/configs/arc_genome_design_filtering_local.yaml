@@ -28,6 +28,12 @@ prompt: ""
 initialized_seqs_csv_file_save_location: "qc1_initial_seqs.csv"
 initialized_seqs_fasta_file_save_location: "qc1_initial_seqs.fasta"
 
+# The final-rollout launcher supplies these saved safety artifacts. Safety PASS
+# is intersected after gene/synteny QC and before diversification; RL does not
+# apply this offline gate. Null leaves standalone Arc screening safety-unqualified.
+sequence_safety_manifest: null
+sequence_safety_input_fasta: null
+
 ################################
 ### 2. NUCLEOTIDE FILTERING ####
 ################################
@@ -35,7 +41,12 @@ initialized_seqs_fasta_file_save_location: "qc1_initial_seqs.fasta"
 nucleotide_filtering: true
 nucleotide_character_filter: true
 genome_length_filter: true
-genome_length_range: [4000, 6000]
+# Viable PhiX insertion mutants up to 5,730 nt, with instability above 5,550:
+# https://doi.org/10.1128/jvi.52.3.822-827.1984. King et al.'s 16 released viable
+# genomes span 5,349-5,654 nt: https://doi.org/10.1126/science.aec2657 and
+# https://github.com/ArcInstitute/evo2/blob/main/phage_gen/data/viable_generated_phage_genomes.fasta.
+# Screening envelope only; the RL reward separately prefers <=5,550 nt.
+genome_length_range: [5306, 5730]
 gc_content_filter: true
 gc_content_range: [30, 65]
 nucleotide_homopolymer_filter: true
@@ -87,18 +98,31 @@ orfipy_threads: 16
 orfipy_strand: "f"
 orfipy_start_codons: "ATG"
 orfipy_stop_codons: "TAA,TGA,TAG"
-orfipy_min_max_orf_lengths: [90, 1800]
+# Keep the short natural J alternatives: G4/Evo-Φ36 is 25 aa; alpha3 is 24 aa
+# (NC_001330.1 / NP_039596.1). ORFipy's length cutoff excludes the stop codon.
+orfipy_min_max_orf_lengths: [72, 1800]
 orfipy_orfs_file_save_location: "qc4_orfipy_orfs.fasta"
 orfipy_tmp_proteins_file_save_location: "qc4_orfipy_proteins_tmp.fasta"
 orfipy_proteins_file_save_location: "qc4_orfipy_proteins.fasta"
 homology_filter_seqs_circular_fasta_file_save_location: "qc4_homology_filter_seqs_pseudocircularized.fasta"
 
-protein_database_hit_count_filter: true
+# Search PHROGs for required-function and synteny evidence; this is not a hit-count gate.
+protein_database_search: true
 mmseqs_threads: 16
 mmseqs_db_protein_database: "recipes/evo2_phage_gen/data/external/phrogs/phrogs_consensus_db_pad"
+# AAI uses individual natural proteins, not the annotation consensuses above:
+# lowest-E-value hit per called ORF, then arithmetic mean percent identity.
+# King et al., https://doi.org/10.1126/science.aec2657, Data S1 (Sheets 1 and 4).
+# The AAI <=95% diversification criterion is not a universal viability condition.
+mmseqs_db_aai_database: "recipes/evo2_phage_gen/data/external/phrogs/phrogs_member_db"
 mmseqs_protein_database_results_dir_save_location: "qc4_mmseqs_results_protein_database"
-mmseqs_protein_database_sensitivity: 4.0
-protein_database_hit_count: 7
+# Recover significant partial-function hits that the lower-sensitivity prefilter can miss.
+# Shared by online required-function/synteny evidence and final Arc screening.
+mmseqs_protein_database_sensitivity: 7.5
+# Default coverage for required-family matches; family-specific thresholds override this.
+# PHROG targets are profile consensuses; the exact G target stays strict.
+protein_match_min_reciprocal_coverage: 0.75
+tropism_match_min_reciprocal_coverage: 0.95
 
 training_data_sequence_identity_filter: false
 training_data_genomes_fasta: "recipes/evo2_phage_gen/data/external/zenodo/microviridae_sft_training_data_raw.fna"
@@ -109,6 +133,8 @@ training_data_sequence_identity_metrics_file_save_location: "qc4_training_data_s
 
 checkv_filter: false
 checkv_threads: 16
+# Final screening enables this gate: only listed qualities survive. Missing or
+# unclassified results, including Not-determined, do not pass this profile.
 checkv_quality_range: ["Low-quality", "Medium-quality", "High-quality", "Complete"]
 checkv_results_dir_save_location: "qc4_checkv_results"
 
@@ -116,6 +142,9 @@ reference_genome_sequence_identity_filter: false
 reference_genome_fasta: "recipes/evo2_phage_gen/data/external/arc_evo2/phage_gen/data/NC_001422_1.fna"
 reference_genome_sequence_identity_range: [60, 100]
 
+# Arc's start/stop-codon landmark score, separate from protein synteny.
+# Disabled for RL; the final-screening launcher enables this composite-score
+# keep range. See configs/README.md#synteny-and-arcs-codon-landmark-score.
 genetic_architecture_filter: false
 genetic_architecture_reference_genome: "recipes/evo2_phage_gen/data/external/arc_evo2/phage_gen/data/NC_001422_1.fna"
 genetic_architecture_score_range: [0, 10]
@@ -126,6 +155,8 @@ mmseqs_db_tropism_protein: "recipes/evo2_phage_gen/data/external/mmseqs/NC_00142
 mmseqs_tropism_protein_results_dir_save_location: "qc4_mmseqs_results_tropism_protein"
 mmseqs_tropism_protein_sensitivity: 4.0
 tropism_protein_sequence_identity_range: [60, 100]
+# King's >=60% identity filter has no explicit reciprocal-coverage threshold;
+# the separate 0.95 coverage setting above is our additional fragment guard.
 
 homology_filter_counts_file_save_location: "qc4_homology_filter_counts.csv"
 homology_filter_seqs_csv_file_save_location: "qc4_homology_filter_seqs.csv"
@@ -134,6 +165,11 @@ homology_filter_seqs_fasta_file_save_location: "qc4_homology_filter_seqs.fasta"
 ######################################
 ### 5. DIVERSIFICATION FILTERING ####
 ######################################
+
+# Execution follows the protein-completeness/synteny stage below and safety PASS.
+# qc5/qc6 names are retained artifact names, not execution-order numbers. Optional
+# novelty exclusions run here; AAI runs last. Final clustering is handled outside
+# Arc after all individual-genome gates.
 
 diversification_filtering: false
 use_homology_filtered_df: true
@@ -150,6 +186,9 @@ mmseqs_reference_genome_sensitivity: 7.5
 mmseqs_reference_genome_results_dir_save_location: "qc5_mmseqs_results_reference_genome"
 reference_genome_sequence_identity_metrics_file_save_location: "qc5_reference_genome_sequence_identity_metrics.csv"
 
+# Filter 7: optionally remove genomes near the PhiX codon-landmark score.
+# The final launcher enables this only in its separate diagnostic branch, not RL
+# or the target-profile passing set. These names belong to upstream Arc.
 genetic_architecture_remove_filter: false
 genetic_architecture_score_mode: "genome"
 genetic_architecture_score_range_to_remove: [0.9, 1.1]
@@ -162,6 +201,8 @@ diversification_filter_seqs_fasta_file_save_location: "qc5_diversification_filte
 ### 6. VISUALIZATION AND SYNTENY QC ####
 ########################################
 
+# Upstream stage name: emits protein synteny, AAI, and required-function metrics.
+# Enabling this stage does not enable either codon-landmark filter above.
 genetic_architecture_visualization_and_synteny_filtering: false
 genetic_architecture_visualization_script: "recipes/evo2_phage_gen/data/arc_pipeline_patched/genetic_architecture_visualization.py"
 protein_annotation_file: "recipes/evo2_phage_gen/data/external/phrogs/phrog_annot_v4.tsv"
@@ -169,33 +210,70 @@ lovis4u_conda_env: "genome_visualization"
 # Per Arc pipeline run. Arc's visualization helper also receives this as n_parallel_jobs.
 lovis4u_parallel_jobs: 12
 lovis4u_chunk_size: 12
-# RL scoring needs LoVis4u's MMseqs metadata, AAI, and required-gene metrics, but not copied PDFs.
+# The visualization stage supplies AAI/required-gene metrics, but RL does not need copied PDFs.
+# Mapped synteny uses PHROGs family evidence; unmapped profiles use LoVis4u's clusters.
 lovis4u_collect_pdfs: false
 
 use_reference_genome: false
 reference_genome_gff_file_save_location: "recipes/evo2_phage_gen/data/external/arc_evo2/phage_gen/data/NC_001422.1_pseudocircular.gff"
 allow_gff_product_order_synteny_fallback: false
 
+# Applied last, after required functions, synteny, safety and optional novelty
+# exclusions. Near-reference candidates retain biological evidence even if AAI
+# rejects them; the enabled threshold is unchanged.
 average_protein_sequence_identity_filter: true
 average_protein_sequence_identity_range: [0, 95]
 average_protein_sequence_identity_metrics_file_save_location: "qc6_average_protein_sequence_identity_metrics.csv"
 
 required_genes_filter: true
-required_genes_list:
-  - "terminase"
-  - "endolysin"
-  - "major spike protein"
-  - "DNA replication initiation"
-  - "DNA condensation"
-  - "major head protein"
-  - "head morphogenesis"
-  - "nan" # Arc annotates NC_001422.1_ORF.15 as product=nan, function=unknown function.
-  - "pilot protein for DNA ejection"
+# Nine named functions on distinct ORFs also satisfy the paper's >=7 protein-hit
+# requirement, without a separate generic family-count/coverage gate.
+# Specific PhiX functions for productive infection; annotation labels cannot
+# substitute for these families. Experimental rationale and limits, including
+# optional K/A*, are documented in docs/required_genes.md.
+required_gene_families:
+  A: ["phrog:713"]   # Replication initiation
+  B: ["phrog:1473"]  # Internal scaffolding
+  C: ["phrog:1465"]  # DNA packaging/replication switch
+  D: ["phrog:1386"]  # External scaffolding
+  E: ["phrog:1472"]  # Host lysis through MraY inhibition
+  F: ["phrog:514"]   # Major capsid
+  G: ["phrog:1483"]  # Major spike
+  H: ["phrog:1471"]  # DNA delivery pilot
+  J: ["phrog:2354", "phrog:3780"]  # DNA packaging; PhiX-like and natural G4/alpha3-like J alternatives
 required_genes_metrics_file_save_location: "qc6_required_genes_metrics.csv"
-required_genes_evidence_target: 9.0
+# Minimum native [query, PHROG-target] coverage. Other families retain 0.75/0.75.
+# Measured viable C/B truncations and E extensions, rounded down by <1 residue;
+# retain significant PHROG function evidence and distinct ORF/family assignments.
+# King et al. (https://doi.org/10.1126/science.aec2657): Evo-Φ75/100 C, Φ316 B, Φ4/46 E; these are context-dependent
+# viable observations, not evidence that arbitrary combinations are viable.
+required_gene_family_coverage:
+  "phrog:1465": [0.70, 0.47]  # C: native target coverage 32/68; 33 alignment columns include a gap.
+  "phrog:1472": [0.58, 0.75]  # E: smallest observed query coverage 74/127.
+  "phrog:1473": [0.75, 0.68]  # B: smallest observed target coverage 80/117.
+  # Natural ID21/NC29 J is 24 aa inside a 37-aa upstream-start ORF (qcov 0.649).
+  # Keep full family-target coverage evidence while admitting that called extension.
+  "phrog:3780": [0.64, 0.75]
 
 syntenic_gene_count_filter: true
-# Strict Arc-template/paper-ready automated synteny gate.
+# Map reference positions to the same curated functions used for completeness.
+# Family alternatives fill one slot; K/A* are outside this nine-function profile.
+# Smooth synteny retains weak reference-hit credit below family admission, but
+# gives full gene credit to supported family matches meeting coverage thresholds.
+# The direct-reference 90% identity target does not apply to family credit.
+# Hard synteny requires all nine full-length functions in order without extra copies.
+core_gene_reference_functions:
+  NC_001422.1_ORF.23: A
+  NC_001422.1_ORF.14: B
+  NC_001422.1_ORF.1: C
+  NC_001422.1_ORF.16: D
+  NC_001422.1_ORF.2: E
+  NC_001422.1_ORF.12: F
+  NC_001422.1_ORF.3: G
+  NC_001422.1_ORF.22: H
+  NC_001422.1_ORF.11: J
+core_gene_max_missing_functions: 0
+# Legacy Arc call arguments; the patched gate uses the allowance above plus order/copy checks.
 syntenic_gene_count_range: [10, 12]
 total_gene_count_range: [10, 12]
 syntenic_total_gene_count_remove:
@@ -209,3 +287,10 @@ synteny_filter_counts_file_save_location: "qc6_synteny_filter_counts.csv"
 synteny_metrics_file_save_location: "qc6_synteny_filter_metrics.csv"
 synteny_filter_seqs_csv_file_save_location: "qc6_synteny_filter_seqs.csv"
 synteny_filter_seqs_fasta_file_save_location: "qc6_synteny_filter_seqs.fasta"
+
+# Accessory RL reward / diagnostic profile; this does not add a final Arc filter.
+# See docs/accessory_genes.md for the K/X surface, evidence and copy penalties.
+accessory_gene_k_families: ["phrog:1713"]  # PhiX/G4-like K; distant K-like families remain eligible X.
+# X requires a family outside K and the reserved core genes; K mutations are not X.
+accessory_gene_min_reciprocal_coverage: 0.75
+accessory_gene_metrics_file_save_location: "qc6_accessory_genes_metrics.csv"

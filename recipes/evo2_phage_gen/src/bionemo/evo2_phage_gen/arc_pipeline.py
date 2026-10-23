@@ -13,9 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Prepare a runnable local copy of Arc's phage filtering pipeline."""
+"""Prepare Arc's filtering pipeline and wire in the recipe's protein/synteny scorers.
+
+Upstream ``genetic_architecture.py`` scores start/stop-codon landmarks; its
+similarly named visualization module emits protein measurements. Neither
+module name identifies an additional RL objective.
+"""
 
 import argparse
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -33,170 +39,6 @@ ARC_EVO2_REV = "53f195997257c56c00e5ef8d33a54f5baad143a6"
 ARC_LEGACY_GENETIC_ARCHITECTURE_IMPORT_FASTA = (
     "/large_storage/hielab/samuelking/phage_design/data/phix174_only/microviridae_genomes_NC_001422_1.fna"
 )
-ARC_LEGACY_PRODIGAL_CMD = (
-    "cmd = f'/home/samuelking/prodigal/prodigal -i {input_sequences} "
-    "-d {output_orf_file} -a {output_protein_file} -p meta'"
-)
-PATCHED_PRODIGAL_CMD = "cmd = f'prodigal -i {input_sequences} -d {output_orf_file} -a {output_protein_file} -p meta'"
-ARC_LEGACY_CHECKV_ENV = (
-    "env = {**os.environ, 'CHECKVDB': \"/large_experiments/hielab/brianhie/dna-gen/checkv/checkv-db-v1.5\"}"
-)
-PATCHED_CHECKV_ENV = "env = os.environ.copy()"
-ARC_LEGACY_LOVIS4U_CONDA_WRAPPER = '''def run_lovis4u_in_conda_env(env_name: str, command: str) -> None:
-    """
-    Activate a Conda environment and run a command within it.
-
-    Args:
-        env_name (str): The name of the Conda environment to activate.
-        command (str): The command to run inside the activated environment.
-    """
-    try:
-        # Full command to initialize Conda and activate environment before running the given command
-        full_command = f"""
-        eval "$(conda shell.bash hook)"
-        conda activate {env_name}
-        {command}
-        """
-        subprocess.run(full_command, shell=True, executable="/bin/bash", check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Error while running command in Conda environment {env_name}: {e}")
-'''
-PATCHED_LOVIS4U_CONDA_WRAPPER = '''def run_lovis4u_in_conda_env(env_name: str, command: str) -> None:
-    """Run LoVis4u command in the active environment.
-
-    The original Arc script activates a separate conda environment here. The
-    recipe installs LoVis4u into its uv-managed venv, so the active PATH is the
-    reproducible environment boundary.
-    """
-    try:
-        subprocess.run(command, shell=True, executable="/bin/bash", check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Error while running LoVis4u command with active environment instead of {env_name}: {e}")
-        raise
-'''
-ARC_LEGACY_MMSEQS_EMPTY_GUARD_ANCHOR = """    # Drop the sequences column in mmseqs_df (if any) since we don't want to redundantly add it to sequences_df
-    if 'sequence' in mmseqs_df.columns:
-        mmseqs_df = mmseqs_df.drop(columns=['sequence'])
-"""
-PATCHED_MMSEQS_EMPTY_GUARD = """    if mmseqs_df.empty:
-        sequences_df[f'valid_{descriptive_prefix}_pident'] = False
-        sequences_df[f'{descriptive_prefix}_mmseqs_percent_identity'] = pd.NA
-        return sequences_df[sequences_df[f'valid_{descriptive_prefix}_pident']]
-
-    # Drop the sequences column in mmseqs_df (if any) since we don't want to redundantly add it to sequences_df
-    if 'sequence' in mmseqs_df.columns:
-        mmseqs_df = mmseqs_df.drop(columns=['sequence'])
-"""
-ARC_LEGACY_EMPTY_DIVERSIFICATION_ANCHOR = """            else:
-                raise ValueError("Unsupported file format. Please provide a .fna or .fasta file.")
-        filtered_df = seq_df.copy()
-"""
-PATCHED_EMPTY_DIVERSIFICATION_GUARD = """            else:
-                raise ValueError("Unsupported file format. Please provide a .fna or .fasta file.")
-        filtered_df = seq_df.copy()
-        if len(filtered_df) == 0:
-            print("No sequences available for diversification filtering; writing empty diversification outputs.")
-            config["mmseqs_clustering_filter"] = False
-            config["mmseqs_reference_genome_sequence_identity_remove_filter"] = False
-            config["genetic_architecture_remove_filter"] = False
-"""
-ARC_LEGACY_EMPTY_ORF_ANCHOR = """        ### Initialize counts ###
-        filter_counts_df['count_initial_before_orf_metrics'] = len(seq_df)
-        print(f"Initializing ORF filtering. Sequences to filter: {filter_counts_df['count_initial_before_orf_metrics'].values[0]}.")
-
-        ### Run Prodigal to call ORFs ###
-"""
-PATCHED_EMPTY_ORF_GUARD = """        ### Initialize counts ###
-        filter_counts_df['count_initial_before_orf_metrics'] = len(seq_df)
-        print(f"Initializing ORF filtering. Sequences to filter: {filter_counts_df['count_initial_before_orf_metrics'].values[0]}.")
-        filtered_df = seq_df.copy()
-        if len(filtered_df) == 0:
-            print("No sequences available for ORF filtering; writing empty ORF outputs.")
-            config["prodigal_based_filters"] = False
-
-        ### Run Prodigal to call ORFs ###
-"""
-ARC_LEGACY_EMPTY_HOMOLOGY_ANCHOR = """        ### Run orfipy to call ORFs ###
-        # Pseudo-circularize ORFs
-        print(f"Pseudo-circularizing {len(seq_df)} genomes...")
-        append_upstream_of_last_frame_stop(seq_fasta, f'{config["results_save_dir"]}/{config["homology_filter_seqs_circular_fasta_file_save_location"]}')
-        # Call ORFs by orfipy
-        print(f"Running orfipy on {len(seq_df)} genomes...")
-        run_orfipy(f'{config["results_save_dir"]}/{config["homology_filter_seqs_circular_fasta_file_save_location"]}',
-                    config["orfipy_threads"],
-                    config["orfipy_start_codons"],
-                    config["orfipy_stop_codons"],
-                    config["orfipy_strand"],
-                    config["orfipy_min_max_orf_lengths"][0],
-                    config["orfipy_min_max_orf_lengths"][1],
-                    config["results_save_dir"],
-                    config["orfipy_orfs_file_save_location"],
-                    config["orfipy_tmp_proteins_file_save_location"],
-                    config["orfipy_proteins_file_save_location"])
-"""
-PATCHED_EMPTY_HOMOLOGY_GUARD = """        filtered_df = seq_df.copy()
-        if len(filtered_df) == 0:
-            print("No sequences available for homology filtering; writing empty homology outputs.")
-            config["protein_database_hit_count_filter"] = False
-            config["training_data_sequence_identity_filter"] = False
-            config["checkv_filter"] = False
-            config["reference_genome_sequence_identity_filter"] = False
-            config["genetic_architecture_filter"] = False
-            config["tropism_protein_sequence_identity_filter"] = False
-
-        ### Run orfipy to call ORFs ###
-        # Pseudo-circularize ORFs
-        if len(filtered_df) > 0:
-            print(f"Pseudo-circularizing {len(seq_df)} genomes...")
-            append_upstream_of_last_frame_stop(seq_fasta, f'{config["results_save_dir"]}/{config["homology_filter_seqs_circular_fasta_file_save_location"]}')
-            # Call ORFs by orfipy
-            print(f"Running orfipy on {len(seq_df)} genomes...")
-            run_orfipy(f'{config["results_save_dir"]}/{config["homology_filter_seqs_circular_fasta_file_save_location"]}',
-                        config["orfipy_threads"],
-                        config["orfipy_start_codons"],
-                        config["orfipy_stop_codons"],
-                        config["orfipy_strand"],
-                        config["orfipy_min_max_orf_lengths"][0],
-                        config["orfipy_min_max_orf_lengths"][1],
-                        config["results_save_dir"],
-                        config["orfipy_orfs_file_save_location"],
-                        config["orfipy_tmp_proteins_file_save_location"],
-                        config["orfipy_proteins_file_save_location"])
-"""
-ARC_LEGACY_EMPTY_SYNTENY_ANCHOR = """    ### Annotate & visualize genomes ###
-    if config["genetic_architecture_visualization_and_synteny_filtering"] == True:
-"""
-PATCHED_EMPTY_SYNTENY_GUARD = """    ### Annotate & visualize genomes ###
-    if config["genetic_architecture_visualization_and_synteny_filtering"] == True:
-        if config["diversification_filtering"] == True:
-            synteny_input_csv = f'{config["results_save_dir"]}/{config["diversification_filter_seqs_csv_file_save_location"]}'
-            synteny_counts_csv = f'{config["results_save_dir"]}/{config["diversification_filter_counts_file_save_location"]}'
-        else:
-            synteny_input_csv = f'{config["results_save_dir"]}/{config["homology_filter_seqs_csv_file_save_location"]}'
-            synteny_counts_csv = f'{config["results_save_dir"]}/{config["homology_filter_counts_file_save_location"]}'
-        if os.path.exists(synteny_input_csv):
-            synteny_preview_df = pd.read_csv(synteny_input_csv)
-            if len(synteny_preview_df) == 0:
-                print("No sequences available for genome visualization and synteny filtering; writing empty synteny outputs.")
-                if os.path.exists(synteny_counts_csv):
-                    synteny_filter_counts = pd.read_csv(synteny_counts_csv)
-                    synteny_filter_counts.to_csv(f'{config["results_save_dir"]}/{config["synteny_filter_counts_file_save_location"]}', index=False)
-                synteny_preview_df.to_csv(f'{config["results_save_dir"]}/{config["synteny_filter_seqs_csv_file_save_location"]}', index=False)
-                save_df_as_fasta(synteny_preview_df, f'{config["results_save_dir"]}/{config["synteny_filter_seqs_fasta_file_save_location"]}')
-                filtered_df = synteny_preview_df
-                config["genetic_architecture_visualization_and_synteny_filtering"] = False
-
-    if config["genetic_architecture_visualization_and_synteny_filtering"] == True:
-"""
-ARC_LEGACY_LOVIS4U_PDF_COLLECTION = """        move_genetic_architecture_pdfs(f'{config["results_save_dir"]}/{config["genetic_architecture_visualization_dir_save_location"]}',
-                                       f'{config["results_save_dir"]}/{config["genetic_architecture_visualization_pdf_dir_save_location"]}')
-"""
-PATCHED_LOVIS4U_PDF_COLLECTION = """        if config.get("lovis4u_collect_pdfs", True):
-            move_genetic_architecture_pdfs(f'{config["results_save_dir"]}/{config["genetic_architecture_visualization_dir_save_location"]}',
-                                           f'{config["results_save_dir"]}/{config["genetic_architecture_visualization_pdf_dir_save_location"]}')
-        else:
-            print("Skipping LoVis4u PDF collection; synteny, AAI, and required-gene metrics do not need copied PDFs.")
-"""
 ARC_LEGACY_LOVIS4U_PARALLEL_CONFIG = """        # Get parallelization settings from config if available
         max_workers = config.get("n_parallel_jobs", None)
         chunk_size = config.get("chunk_size", 10)
@@ -251,77 +93,109 @@ PATCHED_ONLINE_GBK_CONVERSION = """        ### Save GBK files only for offline f
             batch_convert_gff_to_gbk(input_dir=f'{config["results_save_dir"]}/{config["gff_dir_save_location"]}',
                                      output_dir=f'{config["results_save_dir"]}/{config["gbk_dir_save_location"]}')
 """
-ARC_LEGACY_MMSEQS_PROTEIN_SEARCH_RUN = """    mmseqs_out = mmseqs_search_proteins(query_fasta, mmseqs_db, results_dir, threads, split, sensitivity)
-    hits = parse_mmseqs_results(mmseqs_out)
-    df = mmseqs_results_to_df(hits, query_fasta, output_csv, descriptive_prefix, only_top_hits)
-"""
-PATCHED_MMSEQS_PROTEIN_SEARCH_RUN = """    try:
-        mmseqs_out = mmseqs_search_proteins(query_fasta, mmseqs_db, results_dir, threads, split, sensitivity)
-        hits = parse_mmseqs_results(mmseqs_out)
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        print(f"MMseqs protein search produced no usable {descriptive_prefix} hit table: {e}")
-        hits = []
-    if not hits:
-        df = pd.DataFrame(
-            columns=[
-                "id_prompt",
-                "sequence",
-                f"{descriptive_prefix}_mmseqs_target",
-                f"{descriptive_prefix}_mmseqs_e_value",
-                f"{descriptive_prefix}_mmseqs_percent_identity",
-            ]
+ORFIPY_GFF_COORDINATE_ASSIGNMENT = re.compile(
+    r"^(?P<indent>[ \t]*)start, end = match\.groups\(\)[ \t]*$",
+    flags=re.MULTILINE,
+)
+PATCHED_ORFIPY_GFF_START = "start = str(int(start) + 1)"
+ARC_GFF_TO_GBK_LOCATION = "location=FeatureLocation(start, end, strand=strand),"
+PATCHED_GFF_TO_GBK_LOCATION = "location=FeatureLocation(start - 1, end, strand=strand),"
+ORFIPY_CALL_PATTERN = re.compile(
+    r'^(?P<indent>[ ]*)run_orfipy\(.*?config\["orfipy_proteins_file_save_location"\]\)',
+    flags=re.MULTILINE | re.DOTALL,
+)
+PATCHED_PSEUDOCIRCULAR_ORF_CALL = "remove_pseudocircular_extension_orfs("
+ARC_MMSEQS_PROTEIN_FORMAT_OUTPUT = "--format-output 'query,target,evalue,pident'"
+PATCHED_MMSEQS_PROTEIN_FORMAT_OUTPUT = "--format-output 'query,target,evalue,pident,alnlen,qlen,tlen,qcov,tcov'"
+ARC_MMSEQS_PROTEIN_PARSE_FIELDS = "query, target, evalue, pident = line.strip().split('\\t')"
+PATCHED_MMSEQS_PROTEIN_PARSE_FIELDS = "query, target, evalue, pident, alignment_length, query_length, target_length, query_coverage, target_coverage = line.strip().split('\\t')"
+ARC_MMSEQS_PROTEIN_HIT_TUPLE = "hits.append((query, target, float(evalue), float(pident)))"
+PATCHED_MMSEQS_PROTEIN_HIT_TUPLE = (
+    "hits.append((query, target, float(evalue), float(pident), int(alignment_length), "
+    "int(query_length), int(target_length), float(query_coverage), float(target_coverage)))"
+)
+ARC_MMSEQS_PROTEIN_HIT_LOOP = "for query, target, evalue, pident in hits:"
+PATCHED_MMSEQS_PROTEIN_HIT_LOOP = "for query, target, evalue, pident, alignment_length, query_length, target_length, query_coverage, target_coverage in hits:"
+ARC_MMSEQS_PROTEIN_DATA_ROW = "data.append([query, sequences[query], target, evalue, pident])"
+PATCHED_MMSEQS_PROTEIN_DATA_ROW = "data.append([query, sequences[query], target, evalue, pident, alignment_length, query_length, target_length, query_coverage, target_coverage])"
+ARC_MMSEQS_PROTEIN_DATAFRAME = (
+    'df = pd.DataFrame(data, columns=["id_prompt", "sequence", f"{descriptive_prefix}_mmseqs_target", '
+    'f"{descriptive_prefix}_mmseqs_e_value", f"{descriptive_prefix}_mmseqs_percent_identity"])'
+)
+PATCHED_MMSEQS_PROTEIN_DATAFRAME = (
+    'df = pd.DataFrame(data, columns=["id_prompt", "sequence", f"{descriptive_prefix}_mmseqs_target", '
+    'f"{descriptive_prefix}_mmseqs_e_value", f"{descriptive_prefix}_mmseqs_percent_identity", '
+    'f"{descriptive_prefix}_mmseqs_alignment_length", f"{descriptive_prefix}_mmseqs_query_length", '
+    'f"{descriptive_prefix}_mmseqs_target_length", f"{descriptive_prefix}_mmseqs_query_coverage", '
+    'f"{descriptive_prefix}_mmseqs_target_coverage"])'
+)
+ARC_MMSEQS_PROTEIN_EMPTY_COLUMNS = """                f"{descriptive_prefix}_mmseqs_percent_identity",
+            ]"""
+PATCHED_MMSEQS_PROTEIN_EMPTY_COLUMNS = """                f"{descriptive_prefix}_mmseqs_percent_identity",
+                f"{descriptive_prefix}_mmseqs_alignment_length",
+                f"{descriptive_prefix}_mmseqs_query_length",
+                f"{descriptive_prefix}_mmseqs_target_length",
+                f"{descriptive_prefix}_mmseqs_query_coverage",
+                f"{descriptive_prefix}_mmseqs_target_coverage",
+            ]"""
+SYNTENY_METRICS_FUNCTION_PATTERN = re.compile(
+    r"^def count_syntenic_genes_all\(.*?(?=^def valid_syntenic_gene_count\()",
+    flags=re.MULTILINE | re.DOTALL,
+)
+PATCHED_SYNTENY_METRICS_FUNCTION = '''def count_syntenic_genes_all(
+    root_dir: str,
+    gff_dir: str,
+    input_csv: str,
+    output_csv: str,
+    reference_gff_path=None,
+    config=None,
+) -> None:
+    """Measure protein synteny from curated functions or reference clusters."""
+    from bionemo.evo2_phage_gen.protein_evidence import (
+        measure_reference_cluster_synteny, score_function_matches,
+        summarize_core_gene_ordered_conservation, load_candidate_orf_context, write_reference_protein_fasta,
+    )
+
+    if config is not None and config.get("core_gene_reference_functions") is not None:
+        functions = config["core_gene_reference_functions"]
+        families = config["required_gene_families"]
+        if not set(functions.values()).issubset(families):
+            raise ValueError("Synteny functions must be defined in required_gene_families")
+        results = config["results_save_dir"]
+        hits = pd.read_csv(os.path.join(results, config["mmseqs_protein_database_results_dir_save_location"], "mmseqs2_all_hits.csv"))
+        matches, available = score_function_matches(
+            hits, families, config.get("protein_match_min_reciprocal_coverage", 0.75),
+            config.get("required_gene_family_coverage"),
         )
-        df.to_csv(output_csv, index=False)
-        return df
-    df = mmseqs_results_to_df(hits, query_fasta, output_csv, descriptive_prefix, only_top_hits)
-"""
-ARC_LEGACY_SYNTENY_COUNT_SIGNATURE = """def count_syntenic_genes_all(root_dir: str, gff_dir: str, input_csv: str, output_csv: str) -> None:
-"""
-PATCHED_SYNTENY_COUNT_SIGNATURE = """def count_syntenic_genes_all(root_dir: str, gff_dir: str, input_csv: str, output_csv: str, reference_gff_path=None) -> None:
-"""
-ARC_LEGACY_SYNTENY_MISSING_ROOT = """    if not os.path.exists(root_dir):
-        print(f"Error: Directory '{root_dir}' does not exist.")
+        if not available:
+            raise ValueError("Function-aware synteny requires native PHROGs alignment coverage")
+        _, orders = load_candidate_orf_context(os.path.join(results, config["orfipy_orfs_file_save_location"]))
+        order = write_reference_protein_fasta(reference_gff_path, os.path.join(results, "synteny_reference_proteins.fasta"))
+        sequences = pd.read_csv(input_csv)
+        metrics = summarize_core_gene_ordered_conservation(
+            matches, sequences, candidate_orders=orders, reference_order=order, reference_functions=functions,
+        )
+        columns = [column for column in metrics if column not in ("id_prompt", "genome_id")]
+        sequences = sequences.drop(columns=[column for column in columns if column in sequences])
+        sequences.merge(metrics, on=["id_prompt", "genome_id"], how="left").to_csv(output_csv, index=False)
         return
-"""
-PATCHED_SYNTENY_MISSING_ROOT = """    if not os.path.exists(root_dir):
-        print(f"Error: Directory '{root_dir}' does not exist; writing zero synteny metrics.")
-        input_df = pd.read_csv(input_csv)
-        input_df["num_syntenic_genes"] = 0
-        input_df["non_syntenic_genes"] = ""
-        input_df["non_syntenic_annotations"] = ""
-        input_df["missing_synteny_output"] = True
-        input_df.to_csv(output_csv, index=False)
-        return
-"""
-ARC_LEGACY_SYNTENY_OUTPUT_COLUMNS = """    input_df["num_syntenic_genes"] = input_df["genome_id"].map(syntenic_counts).fillna(0).astype(int)
-    input_df["non_syntenic_genes"] = input_df["genome_id"].map(non_syntenic_genes_dict).fillna("")
-    input_df["non_syntenic_annotations"] = input_df["genome_id"].map(non_syntenic_annotations_dict).fillna("")
-"""
-PATCHED_SYNTENY_OUTPUT_COLUMNS = """    input_df["num_syntenic_genes"] = input_df["genome_id"].map(syntenic_counts).fillna(0).astype(int)
-    input_df["non_syntenic_genes"] = input_df["genome_id"].map(non_syntenic_genes_dict).fillna("")
-    input_df["non_syntenic_annotations"] = input_df["genome_id"].map(non_syntenic_annotations_dict).fillna("")
-    input_df["missing_synteny_output"] = ~input_df["genome_id"].astype(str).isin(syntenic_counts)
-"""
+
+    measure_reference_cluster_synteny(
+        root_dir,
+        gff_dir,
+        input_csv,
+        output_csv,
+        reference_gff_path,
+    )
+
+
+'''
 ARC_ONLINE_MODE_CONFIG_ANCHOR = """    with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
 """
 PATCHED_ONLINE_MODE_CONFIG = """    with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
     online_measurement_mode = bool(config.get("online_measurement_mode", False))
-"""
-ARC_ONLINE_PROTEIN_FILTER = """            filtered_df = valid_protein_database_hit_count(mmseqs_results_df, seq_df, 'id_prompt', config["protein_database_hit_count"])
-"""
-PATCHED_ONLINE_PROTEIN_FILTER = """            if online_measurement_mode:
-                hit_genome_ids = mmseqs_results_df["id_prompt"].astype(str).str.rsplit("_", n=1).str[0]
-                hit_counts = hit_genome_ids.value_counts()
-                filtered_df = seq_df.copy()
-                filtered_df["protein_database_hit_count"] = (
-                    filtered_df["id_prompt"].map(hit_counts).fillna(0).astype(int)
-                )
-            else:
-                filtered_df = valid_protein_database_hit_count(
-                    mmseqs_results_df, seq_df, 'id_prompt', config["protein_database_hit_count"]
-                )
 """
 ARC_ONLINE_TROPISM_FILTER = """            filtered_df = valid_mmseqs_pident(mmseqs_results_df, "tropism_protein", config["tropism_protein_sequence_identity_range"], filtered_df)
 """
@@ -332,93 +206,92 @@ PATCHED_ONLINE_TROPISM_FILTER = """            save_mmseqs_pident_metrics(
                 f'{config["results_save_dir"]}/{config.get("tropism_protein_sequence_identity_metrics_file_save_location", "qc4_tropism_protein_sequence_identity_metrics.csv")}',
             )
             if not online_measurement_mode:
-                filtered_df = valid_mmseqs_pident(
+                filtered_df = valid_coverage_aware_mmseqs_pident(
                     mmseqs_results_df,
                     "tropism_protein",
                     config["tropism_protein_sequence_identity_range"],
                     filtered_df,
+                    config.get("tropism_match_min_reciprocal_coverage", 0.95),
                 )
-"""
-ARC_REQUIRED_GENE_SIGNATURE = """    sequences_df: pd.DataFrame,
-    metrics_csv: str = None,
-) -> pd.DataFrame:
-"""
-PATCHED_REQUIRED_GENE_SIGNATURE = """    sequences_df: pd.DataFrame,
-    metrics_csv: str = None,
-    filter_results: bool = True,
-) -> pd.DataFrame:
-"""
-ARC_REQUIRED_GENE_DELETE = """        else:
-            print(f"Discarded: {gff_file}")
-            os.remove(gff_file)
-
-            gbk_file = os.path.join(input_gbk_dir, f"{genome_id}.gbk")
-            if os.path.exists(gbk_file):
-                os.remove(gbk_file)
-                print(f"Deleted: {gbk_file}")
-
-            genome_dir = os.path.join(input_gff_dir, genome_id)
-            if os.path.exists(genome_dir):
-                shutil.rmtree(genome_dir)
-                print(f"Deleted directory: {genome_dir}")
-"""
-PATCHED_REQUIRED_GENE_DELETE = """        elif filter_results:
-            print(f"Discarded: {gff_file}")
-            os.remove(gff_file)
-
-            gbk_file = os.path.join(input_gbk_dir, f"{genome_id}.gbk")
-            if os.path.exists(gbk_file):
-                os.remove(gbk_file)
-                print(f"Deleted: {gbk_file}")
-
-            genome_dir = os.path.join(input_gff_dir, genome_id)
-            if os.path.exists(genome_dir):
-                shutil.rmtree(genome_dir)
-                print(f"Deleted directory: {genome_dir}")
-"""
-ARC_REQUIRED_GENE_RETURN = """    # Filter and return DataFrame
-    filtered_df = sequences_df[sequences_df["genome_id"].isin(surviving_genome_ids)].copy()
-    return filtered_df
-"""
-PATCHED_REQUIRED_GENE_RETURN = """    # Online reward measurement retains every input for later objectives.
-    if not filter_results:
-        return sequences_df.copy()
-    filtered_df = sequences_df[sequences_df["genome_id"].isin(surviving_genome_ids)].copy()
-    return filtered_df
 """
 ARC_REQUIRED_GENE_CALL_SUFFIX = """                                   sequences_df=filtered_df,
                                    metrics_csv=f'{config["results_save_dir"]}/{config.get("required_genes_metrics_file_save_location", "qc6_required_genes_metrics.csv")}')
 """
 PATCHED_REQUIRED_GENE_CALL_SUFFIX = """                                   sequences_df=filtered_df,
                                    metrics_csv=f'{config["results_save_dir"]}/{config.get("required_genes_metrics_file_save_location", "qc6_required_genes_metrics.csv")}',
-                                   filter_results=not online_measurement_mode)
+                                   filter_results=not online_measurement_mode,
+                                   protein_database_hits_df=pd.read_csv(f'{config["results_save_dir"]}/{config["mmseqs_protein_database_results_dir_save_location"]}/mmseqs2_all_hits.csv'),
+                                   minimum_reciprocal_coverage=config.get("protein_match_min_reciprocal_coverage", 0.75),
+                                   family_coverage_thresholds=config.get("required_gene_family_coverage"))
 """
-ARC_AAI_SIGNATURE = """def valid_average_protein_percent_identity(gff_directory: str, gbk_directory: str, results_csv: str, output_csv: str, identity_range: tuple) -> None:
-"""
-PATCHED_AAI_SIGNATURE = """def valid_average_protein_percent_identity(gff_directory: str, gbk_directory: str, results_csv: str, output_csv: str, identity_range: tuple, filter_results: bool = True) -> None:
-"""
-ARC_AAI_DELETE_MARK = """            if not (min_value <= average_percent_identity <= max_value):
-                files_to_delete.append(gff_path)  # Delete GFF
-"""
-PATCHED_AAI_DELETE_MARK = """            if filter_results and not (min_value <= average_percent_identity <= max_value):
-                files_to_delete.append(gff_path)  # Delete GFF
-"""
-ARC_AAI_FILTER_RESULT = (
-    "    filtered_df = merged_df[(merged_df['average_protein_percent_identity'] >= min_value) & \n"
-    "                            (merged_df['average_protein_percent_identity'] <= max_value)]\n"
+AAI_FUNCTION_PATTERN = re.compile(
+    r"^def valid_average_protein_percent_identity\(.*?(?=^def count_total_num_genes\()",
+    flags=re.MULTILINE | re.DOTALL,
 )
-PATCHED_AAI_FILTER_RESULT = """    if filter_results:
-        filtered_df = merged_df[(merged_df['average_protein_percent_identity'] >= min_value) &
-                                (merged_df['average_protein_percent_identity'] <= max_value)]
-    else:
-        filtered_df = merged_df
-"""
+PATCHED_AAI_FUNCTION = '''def valid_average_protein_percent_identity(
+    gff_directory: str,
+    gbk_directory: str,
+    results_csv: str,
+    output_csv: str,
+    identity_range: tuple,
+    filter_results: bool = True,
+    metrics_csv: str = None,
+    identity_database: str = None,
+    query_fasta: str = None,
+    threads: int = 2,
+) -> None:
+    """Measure natural-protein best-hit AAI using the configured reference database."""
+    from bionemo.evo2_phage_gen.protein_evidence import summarize_best_hit_aai
+
+    sequences_df = pd.read_csv(results_csv)
+    if not identity_database or not query_fasta:
+        raise ValueError("Natural-protein AAI requires a reference database and called ORF proteins")
+    search_dir = os.path.join(os.path.dirname(output_csv), "qc6_mmseqs_aai")
+    hits_df = run_mmseqs_search_proteins(
+        query_fasta=query_fasta, mmseqs_db=identity_database, results_dir=search_dir,
+        output_csv=os.path.join(search_dir, "mmseqs2_hits.csv"),
+        descriptive_prefix="protein_database", threads=threads, split=0,
+        sensitivity=4.0, only_top_hits=True,
+    )
+    metrics_df = summarize_best_hit_aai(hits_df)
+    metrics_df = sequences_df[["id_prompt"]].merge(metrics_df, on="id_prompt", how="left")
+    metrics_df["average_protein_percent_identity"] = metrics_df["average_protein_percent_identity"].fillna(0.0)
+    metrics_df["average_protein_identity_gene_count"] = metrics_df["average_protein_identity_gene_count"].fillna(0)
+    if metrics_csv is not None:
+        metrics_df.to_csv(metrics_csv, index=False)
+
+    merged_df = sequences_df.merge(metrics_df, on="id_prompt", how="left")
+    lower, upper = identity_range
+    passing = (
+        (merged_df["average_protein_identity_gene_count"] > 0)
+        & merged_df["average_protein_percent_identity"].between(lower, upper)
+    )
+    filtered_df = merged_df.loc[passing].copy() if filter_results else merged_df
+    filtered_df.to_csv(output_csv, index=False)
+    if not filter_results:
+        return
+
+    passing_genome_ids = set(filtered_df["genome_id"].astype(str))
+    for genome_id in set(sequences_df["genome_id"].astype(str)) - passing_genome_ids:
+        for path in (
+            os.path.join(gff_directory, f"{genome_id}.gff"),
+            os.path.join(gbk_directory, f"{genome_id}.gbk"),
+        ):
+            if os.path.exists(path):
+                os.remove(path)
+
+
+'''
 ARC_AAI_CALL_SUFFIX = """                                                   f'{config["results_save_dir"]}/{config["synteny_filter_seqs_csv_file_save_location"]}',
                                                    config["average_protein_sequence_identity_range"])
 """
 PATCHED_AAI_CALL_SUFFIX = """                                                   f'{config["results_save_dir"]}/{config["synteny_filter_seqs_csv_file_save_location"]}',
                                                    config["average_protein_sequence_identity_range"],
-                                                   filter_results=not online_measurement_mode)
+                                                   filter_results=not online_measurement_mode,
+                                                   identity_database=config.get("mmseqs_db_aai_database"),
+                                                   query_fasta=f'{config["results_save_dir"]}/{config["orfipy_proteins_file_save_location"]}',
+                                                   threads=config["mmseqs_threads"],
+                                                   metrics_csv=f'{config["results_save_dir"]}/{config.get("average_protein_sequence_identity_metrics_file_save_location", "qc6_average_protein_sequence_identity_metrics.csv")}' )
 """
 ARC_SYNTENY_SIGNATURE = """def valid_syntenic_gene_count(input_csv: str, output_csv: str,
                               syntenic_gene_count_range: list, total_gene_count_range: list, syntenic_total_gene_count_remove: set,
@@ -427,13 +300,14 @@ ARC_SYNTENY_SIGNATURE = """def valid_syntenic_gene_count(input_csv: str, output_
 PATCHED_SYNTENY_SIGNATURE = """def valid_syntenic_gene_count(input_csv: str, output_csv: str,
                               syntenic_gene_count_range: list, total_gene_count_range: list, syntenic_total_gene_count_remove: set,
                               gff_dir: str, gbk_dir: str, pdf_dir: str, metadata_dir: str,
-                              filter_results: bool = True) -> None:
+                              filter_results: bool = True, max_missing_reference_genes: int = 0) -> None:
 """
 ARC_SYNTENY_FILTER_RESULT = """    filtered_df = df[df[['num_syntenic_genes', 'total_num_genes']].apply(tuple, axis=1).isin(valid_combinations)]
     removed_ids = set(df["genome_id"]) - set(filtered_df["genome_id"])
 """
 PATCHED_SYNTENY_FILTER_RESULT = """    if filter_results:
-        filtered_df = df[df[['num_syntenic_genes', 'total_num_genes']].apply(tuple, axis=1).isin(valid_combinations)]
+        from bionemo.evo2_phage_gen.protein_evidence import core_gene_ordered_conservation_pass_mask
+        filtered_df = df[core_gene_ordered_conservation_pass_mask(df, max_missing_reference_genes)]
         removed_ids = set(df["genome_id"]) - set(filtered_df["genome_id"])
     else:
         filtered_df = df
@@ -444,7 +318,8 @@ ARC_SYNTENY_CALL_SUFFIX = """                                      pdf_dir=f'{co
 """
 PATCHED_SYNTENY_CALL_SUFFIX = """                                      pdf_dir=f'{config["results_save_dir"]}/{config["genetic_architecture_visualization_pdf_dir_save_location"]}',
                                       metadata_dir=f'{config["results_save_dir"]}/{config["genetic_architecture_visualization_dir_save_location"]}',
-                                      filter_results=not online_measurement_mode)
+                                      filter_results=not online_measurement_mode,
+                                      max_missing_reference_genes=config.get("core_gene_max_missing_functions", 0))
 """
 ARC_PIPELINE_FILES = (
     "genome_design_filtering_pipeline.py",
@@ -496,64 +371,6 @@ def _apply_arc_pipeline_patch(output_dir: Path, patch_path: Path) -> None:
         raise RuntimeError(f"Failed to apply Arc pipeline patch {patch_path}:\n{result.stdout}")
 
 
-def _apply_legacy_string_patches(output_dir: Path) -> None:
-    """Apply small string patches used by synthetic tests that omit the maintained patch."""
-    filtering_pipeline_path = output_dir / "genome_design_filtering_pipeline.py"
-    text = filtering_pipeline_path.read_text()
-    patched_text = (
-        text.replace(ARC_LEGACY_PRODIGAL_CMD, PATCHED_PRODIGAL_CMD)
-        .replace(ARC_LEGACY_CHECKV_ENV, PATCHED_CHECKV_ENV)
-        .replace(ARC_LEGACY_LOVIS4U_CONDA_WRAPPER, PATCHED_LOVIS4U_CONDA_WRAPPER)
-        .replace(ARC_LEGACY_LOVIS4U_PDF_COLLECTION, PATCHED_LOVIS4U_PDF_COLLECTION)
-        .replace(ARC_LEGACY_MMSEQS_PROTEIN_SEARCH_RUN, PATCHED_MMSEQS_PROTEIN_SEARCH_RUN)
-        .replace(ARC_LEGACY_SYNTENY_COUNT_SIGNATURE, PATCHED_SYNTENY_COUNT_SIGNATURE)
-        .replace(ARC_LEGACY_SYNTENY_MISSING_ROOT, PATCHED_SYNTENY_MISSING_ROOT)
-        .replace(ARC_LEGACY_SYNTENY_OUTPUT_COLUMNS, PATCHED_SYNTENY_OUTPUT_COLUMNS)
-        .replace(ARC_LEGACY_MMSEQS_EMPTY_GUARD_ANCHOR, PATCHED_MMSEQS_EMPTY_GUARD)
-        .replace(ARC_LEGACY_EMPTY_ORF_ANCHOR, PATCHED_EMPTY_ORF_GUARD)
-        .replace(ARC_LEGACY_EMPTY_HOMOLOGY_ANCHOR, PATCHED_EMPTY_HOMOLOGY_GUARD)
-        .replace(ARC_LEGACY_EMPTY_DIVERSIFICATION_ANCHOR, PATCHED_EMPTY_DIVERSIFICATION_GUARD)
-        .replace(ARC_LEGACY_EMPTY_SYNTENY_ANCHOR, PATCHED_EMPTY_SYNTENY_GUARD)
-    )
-    missing_patches = []
-    if ARC_LEGACY_PRODIGAL_CMD in text and PATCHED_PRODIGAL_CMD not in patched_text:
-        missing_patches.append("Prodigal command")
-    if ARC_LEGACY_CHECKV_ENV in text and PATCHED_CHECKV_ENV not in patched_text:
-        missing_patches.append("CheckV environment")
-    if ARC_LEGACY_LOVIS4U_CONDA_WRAPPER in text and PATCHED_LOVIS4U_CONDA_WRAPPER not in patched_text:
-        missing_patches.append("LoVis4u environment")
-    if ARC_LEGACY_LOVIS4U_PDF_COLLECTION in text and PATCHED_LOVIS4U_PDF_COLLECTION not in patched_text:
-        missing_patches.append("LoVis4u PDF collection")
-    if ARC_LEGACY_MMSEQS_PROTEIN_SEARCH_RUN in text and PATCHED_MMSEQS_PROTEIN_SEARCH_RUN not in patched_text:
-        missing_patches.append("MMseqs protein search that rejects missing or malformed evidence")
-    if ARC_LEGACY_SYNTENY_COUNT_SIGNATURE in text and PATCHED_SYNTENY_COUNT_SIGNATURE not in patched_text:
-        missing_patches.append("synteny count reference_gff_path compatibility")
-    if ARC_LEGACY_SYNTENY_MISSING_ROOT in text and PATCHED_SYNTENY_MISSING_ROOT not in patched_text:
-        missing_patches.append("missing synteny root guard")
-    if ARC_LEGACY_SYNTENY_OUTPUT_COLUMNS in text and PATCHED_SYNTENY_OUTPUT_COLUMNS not in patched_text:
-        missing_patches.append("missing synteny output flag")
-    if ARC_LEGACY_MMSEQS_EMPTY_GUARD_ANCHOR in text and PATCHED_MMSEQS_EMPTY_GUARD not in patched_text:
-        missing_patches.append("empty MMseqs hit guard")
-    if ARC_LEGACY_EMPTY_ORF_ANCHOR in text and PATCHED_EMPTY_ORF_GUARD not in patched_text:
-        missing_patches.append("empty ORF guard")
-    if ARC_LEGACY_EMPTY_HOMOLOGY_ANCHOR in text and PATCHED_EMPTY_HOMOLOGY_GUARD not in patched_text:
-        missing_patches.append("empty homology guard")
-    if ARC_LEGACY_EMPTY_DIVERSIFICATION_ANCHOR in text and PATCHED_EMPTY_DIVERSIFICATION_GUARD not in patched_text:
-        missing_patches.append("empty diversification guard")
-    if ARC_LEGACY_EMPTY_SYNTENY_ANCHOR in text and PATCHED_EMPTY_SYNTENY_GUARD not in patched_text:
-        missing_patches.append("empty synteny guard")
-    if missing_patches:
-        raise ValueError(f"Failed to patch {', '.join(missing_patches)} in {filtering_pipeline_path}")
-    filtering_pipeline_path.write_text(patched_text)
-
-    visualization_path = output_dir / "genetic_architecture_visualization.py"
-    text = visualization_path.read_text()
-    patched_text = text.replace(ARC_LEGACY_LOVIS4U_PARALLEL_CONFIG, PATCHED_LOVIS4U_PARALLEL_CONFIG)
-    if ARC_LEGACY_LOVIS4U_PARALLEL_CONFIG in text and PATCHED_LOVIS4U_PARALLEL_CONFIG not in patched_text:
-        raise ValueError(f"Failed to patch LoVis4u parallel config in {visualization_path}")
-    visualization_path.write_text(patched_text)
-
-
 def _apply_online_measurement_patches(output_dir: Path) -> None:
     """Keep enabled online objectives observable without changing final-QC filtering."""
     pipeline_path = output_dir / "genome_design_filtering_pipeline.py"
@@ -562,15 +379,8 @@ def _apply_online_measurement_patches(output_dir: Path) -> None:
         return
     replacements = (
         (ARC_ONLINE_MODE_CONFIG_ANCHOR, PATCHED_ONLINE_MODE_CONFIG),
-        (ARC_ONLINE_PROTEIN_FILTER, PATCHED_ONLINE_PROTEIN_FILTER),
         (ARC_ONLINE_TROPISM_FILTER, PATCHED_ONLINE_TROPISM_FILTER),
-        (ARC_REQUIRED_GENE_SIGNATURE, PATCHED_REQUIRED_GENE_SIGNATURE),
-        (ARC_REQUIRED_GENE_DELETE, PATCHED_REQUIRED_GENE_DELETE),
-        (ARC_REQUIRED_GENE_RETURN, PATCHED_REQUIRED_GENE_RETURN),
         (ARC_REQUIRED_GENE_CALL_SUFFIX, PATCHED_REQUIRED_GENE_CALL_SUFFIX),
-        (ARC_AAI_SIGNATURE, PATCHED_AAI_SIGNATURE),
-        (ARC_AAI_DELETE_MARK, PATCHED_AAI_DELETE_MARK),
-        (ARC_AAI_FILTER_RESULT, PATCHED_AAI_FILTER_RESULT),
         (ARC_AAI_CALL_SUFFIX, PATCHED_AAI_CALL_SUFFIX),
         (ARC_SYNTENY_SIGNATURE, PATCHED_SYNTENY_SIGNATURE),
         (ARC_SYNTENY_FILTER_RESULT, PATCHED_SYNTENY_FILTER_RESULT),
@@ -585,6 +395,232 @@ def _apply_online_measurement_patches(output_dir: Path) -> None:
         text = text.replace(anchor, replacement)
     text = text.replace(ARC_ONLINE_GBK_CONVERSION, PATCHED_ONLINE_GBK_CONVERSION)
     pipeline_path.write_text(text)
+
+
+def _apply_orfipy_gff_coordinate_patch(output_dir: Path) -> None:
+    """Patch the paired ORFipy-to-GFF and GFF-to-GenBank coordinate conversions."""
+    pipeline_path = output_dir / "genome_design_filtering_pipeline.py"
+    text = pipeline_path.read_text()
+    has_orfipy_conversion = (
+        ORFIPY_GFF_COORDINATE_ASSIGNMENT.search(text) is not None
+        or PATCHED_ORFIPY_GFF_START in text
+        or "def extract_orf_positions_from_protein_database_hits" in text
+    )
+    if not has_orfipy_conversion:
+        return
+
+    def replacement(match: re.Match[str]) -> str:
+        indent = match.group("indent")
+        return f"{indent}start, end = match.groups()\n{indent}{PATCHED_ORFIPY_GFF_START}"
+
+    if PATCHED_ORFIPY_GFF_START in text:
+        patched_text, gff_replacement_count = text, 1
+    else:
+        patched_text, gff_replacement_count = ORFIPY_GFF_COORDINATE_ASSIGNMENT.subn(replacement, text)
+    if gff_replacement_count != 1:
+        raise ValueError(
+            "Expected exactly one ORFipy-to-GFF coordinate assignment in "
+            f"{pipeline_path}, found {gff_replacement_count}."
+        )
+    if PATCHED_GFF_TO_GBK_LOCATION not in patched_text:
+        gbk_replacement_count = patched_text.count(ARC_GFF_TO_GBK_LOCATION)
+        if gbk_replacement_count != 1:
+            raise ValueError(
+                "Expected exactly one GFF-to-GenBank coordinate assignment in "
+                f"{pipeline_path}, found {gbk_replacement_count}."
+            )
+        patched_text = patched_text.replace(ARC_GFF_TO_GBK_LOCATION, PATCHED_GFF_TO_GBK_LOCATION, 1)
+    pipeline_path.write_text(patched_text)
+
+
+def _apply_pseudocircular_orf_filter_patch(output_dir: Path) -> None:
+    """Exclude ORFipy calls that begin only in the appended circular extension."""
+    pipeline_path = output_dir / "genome_design_filtering_pipeline.py"
+    text = pipeline_path.read_text()
+    if PATCHED_PSEUDOCIRCULAR_ORF_CALL in text or "run_orfipy(" not in text:
+        return
+
+    def replacement(match: re.Match[str]) -> str:
+        indent = match.group("indent")
+        return (
+            f"{match.group(0)}\n"
+            f"{indent}from bionemo.evo2_phage_gen.protein_evidence import "
+            "remove_pseudocircular_extension_orfs\n"
+            f"{indent}remove_pseudocircular_extension_orfs(\n"
+            f"{indent}    seq_fasta,\n"
+            f"""{indent}    f'{{config["results_save_dir"]}}/{{config["orfipy_orfs_file_save_location"]}}',\n"""
+            f"""{indent}    f'{{config["results_save_dir"]}}/{{config["orfipy_proteins_file_save_location"]}}',\n"""
+            f"{indent})"
+        )
+
+    patched_text, replacement_count = ORFIPY_CALL_PATTERN.subn(replacement, text)
+    if replacement_count != 1:
+        raise ValueError(f"Expected exactly one ORFipy call in {pipeline_path}, found {replacement_count}.")
+    pipeline_path.write_text(patched_text)
+
+
+def _apply_mmseqs_protein_evidence_patch(output_dir: Path) -> None:
+    """Retain MMseqs protein alignment lengths needed for reciprocal-coverage evidence."""
+    pipeline_path = output_dir / "genome_design_filtering_pipeline.py"
+    text = pipeline_path.read_text()
+    if "def mmseqs_search_proteins(" not in text:
+        return
+
+    replacements = (
+        (ARC_MMSEQS_PROTEIN_FORMAT_OUTPUT, PATCHED_MMSEQS_PROTEIN_FORMAT_OUTPUT),
+        (ARC_MMSEQS_PROTEIN_PARSE_FIELDS, PATCHED_MMSEQS_PROTEIN_PARSE_FIELDS),
+        (ARC_MMSEQS_PROTEIN_HIT_TUPLE, PATCHED_MMSEQS_PROTEIN_HIT_TUPLE),
+        (ARC_MMSEQS_PROTEIN_HIT_LOOP, PATCHED_MMSEQS_PROTEIN_HIT_LOOP),
+        (ARC_MMSEQS_PROTEIN_DATA_ROW, PATCHED_MMSEQS_PROTEIN_DATA_ROW),
+        (ARC_MMSEQS_PROTEIN_DATAFRAME, PATCHED_MMSEQS_PROTEIN_DATAFRAME),
+    )
+    missing = [anchor for anchor, replacement in replacements if anchor not in text and replacement not in text]
+    if missing:
+        raise ValueError(
+            f"Expected {len(replacements)} MMseqs protein-evidence anchors in {pipeline_path}; "
+            f"{len(missing)} are missing."
+        )
+    for anchor, replacement in replacements:
+        text = text.replace(anchor, replacement)
+    if ARC_MMSEQS_PROTEIN_EMPTY_COLUMNS in text:
+        text = text.replace(ARC_MMSEQS_PROTEIN_EMPTY_COLUMNS, PATCHED_MMSEQS_PROTEIN_EMPTY_COLUMNS)
+
+    start = text.index("def mmseqs_search_proteins(")
+    end = text.find("\ndef ", start + 1)
+    end = len(text) if end == -1 else end
+    function = text[start:end]
+    anchor = '    mmseqs_out = os.path.join(results_dir, "mmseqs_result.m8")\n'
+    if "if os.path.getsize(query_fasta) == 0:" not in function:
+        if function.count(anchor) != 1:
+            raise ValueError(f"Expected one protein-search output assignment in {pipeline_path}.")
+        replacement = (
+            anchor
+            + """    # ORFipy can legitimately call no proteins. MMseqs rejects an empty query;
+    # retain an empty result artifact for the ordinary zero-hit table path.
+    if os.path.getsize(query_fasta) == 0:
+        with open(mmseqs_out, "w"):
+            pass
+        return mmseqs_out
+"""
+        )
+        text = text[:start] + function.replace(anchor, replacement, 1) + text[end:]
+    pipeline_path.write_text(text)
+
+
+def _apply_required_gene_evidence_patch(output_dir: Path) -> None:
+    """Use fixed, duplicate-safe required-family evidence online and in final Arc filtering."""
+    pipeline_path = output_dir / "genome_design_filtering_pipeline.py"
+    text = pipeline_path.read_text()
+    if "def valid_gene_annotations(" not in text:
+        return
+    if "required_genes_integrity_sum" in text:
+        return
+
+    function_pattern = re.compile(
+        r"^def valid_gene_annotations\(.*?(?=^##############################\n### RUN FILTERING PIPELINE ###)",
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    replacement = '''def valid_gene_annotations(
+    input_gff_dir: str,
+    input_gbk_dir: str,
+    required_families: dict,
+    sequences_df: pd.DataFrame,
+    metrics_csv: str = None,
+    filter_results: bool = True,
+    protein_database_hits_df: pd.DataFrame = None,
+    minimum_reciprocal_coverage: float = 0.75,
+    family_coverage_thresholds: dict = None,
+) -> pd.DataFrame:
+    """Measure fixed required families and optionally apply the same hard gate."""
+    from bionemo.evo2_phage_gen.protein_evidence import summarize_required_gene_evidence
+
+    hits_df = pd.DataFrame() if protein_database_hits_df is None else protein_database_hits_df
+    metrics_df = summarize_required_gene_evidence(
+        hits_df,
+        sequences_df,
+        required_families,
+        minimum_reciprocal_coverage,
+        family_coverage_thresholds,
+    )
+    if metrics_csv is not None:
+        metrics_df.to_csv(metrics_csv, index=False)
+    if not filter_results:
+        return sequences_df.copy()
+
+    passing = metrics_df.loc[
+        (metrics_df["required_genes_total_count"] > 0)
+        & (metrics_df["required_genes_full_length_count"] == metrics_df["required_genes_total_count"]),
+        "genome_id",
+    ]
+    surviving_genome_ids = set(passing.astype(str))
+    for genome_id in set(sequences_df["genome_id"].astype(str)) - surviving_genome_ids:
+        for path in (
+            os.path.join(input_gff_dir, f"{genome_id}.gff"),
+            os.path.join(input_gbk_dir, f"{genome_id}.gbk"),
+        ):
+            if os.path.exists(path):
+                os.remove(path)
+        genome_dir = os.path.join(input_gff_dir, genome_id)
+        if os.path.exists(genome_dir):
+            shutil.rmtree(genome_dir)
+    return sequences_df[sequences_df["genome_id"].astype(str).isin(surviving_genome_ids)].copy()
+
+
+'''
+    patched_text, replacement_count = function_pattern.subn(replacement, text)
+    if replacement_count != 1:
+        raise ValueError(f"Expected exactly one required-gene function in {pipeline_path}, found {replacement_count}.")
+    # Rewrite the upstream call and its status message to the maintained profile.
+    patched_text = patched_text.replace("required_genes_list", "required_gene_families").replace(
+        "required_products=config[", "required_families=config["
+    )
+    pipeline_path.write_text(patched_text)
+
+
+def _apply_synteny_metrics_patch(output_dir: Path) -> None:
+    """Replace Arc's edge count with one-to-one reference-locus matching."""
+    pipeline_path = output_dir / "genome_design_filtering_pipeline.py"
+    text = pipeline_path.read_text()
+    if PATCHED_SYNTENY_METRICS_FUNCTION in text or "def count_syntenic_genes_all(" not in text:
+        return
+    patched_text, replacement_count = SYNTENY_METRICS_FUNCTION_PATTERN.subn(PATCHED_SYNTENY_METRICS_FUNCTION, text)
+    if replacement_count != 1:
+        raise ValueError(f"Expected exactly one synteny-count function in {pipeline_path}, found {replacement_count}.")
+    patched_text = patched_text.replace(
+        'reference_gff_path=config.get("reference_genome_gff_file_save_location"))',
+        'reference_gff_path=config.get("reference_genome_gff_file_save_location"), config=config)',
+    )
+    pipeline_path.write_text(patched_text)
+
+
+def _apply_aai_evidence_patch(output_dir: Path) -> None:
+    """Use the same configured AAI measurement online and in final Arc filtering."""
+    pipeline_path = output_dir / "genome_design_filtering_pipeline.py"
+    text = pipeline_path.read_text()
+    if PATCHED_AAI_FUNCTION in text or "def valid_average_protein_percent_identity(" not in text:
+        return
+    patched_text, replacement_count = AAI_FUNCTION_PATTERN.subn(PATCHED_AAI_FUNCTION, text)
+    if replacement_count != 1:
+        raise ValueError(f"Expected exactly one AAI function in {pipeline_path}, found {replacement_count}.")
+    pipeline_path.write_text(patched_text)
+
+
+def _apply_protein_hard_gate_patch(output_dir: Path) -> None:
+    """Expose the recipe's shared protein-evidence gates to the copied Arc script."""
+    pipeline_path = output_dir / "genome_design_filtering_pipeline.py"
+    text = pipeline_path.read_text()
+    import_source = """from bionemo.evo2_phage_gen.protein_evidence import (
+    valid_coverage_aware_mmseqs_pident,
+)
+
+
+"""
+    if import_source in text:
+        return
+    import_anchor = "import pandas as pd\n"
+    if import_anchor not in text:
+        return
+    pipeline_path.write_text(text.replace(import_anchor, import_anchor + "\n" + import_source, 1))
 
 
 def _apply_lovis4u_runtime_patches(output_dir: Path) -> None:
@@ -602,12 +638,46 @@ def _apply_lovis4u_runtime_patches(output_dir: Path) -> None:
     visualization_path.write_text(text)
 
 
+def _apply_final_arc_contract_patch(output_dir: Path) -> None:
+    """Add original ARC gates after the existing physical-ORF AAI, core and safety gates."""
+    path = output_dir / "genome_design_filtering_pipeline.py"
+    text = path.read_text()
+    anchor = (
+        '    print(f"Completed genome design filtering pipeline. Final number of candidates: {len(filtered_df)}.")'
+    )
+    hook = """    if config.get("final_arc_contract"):
+        from bionemo.evo2_phage_gen.arc_final_filters import apply_arc_final_filters
+        filtered_df, final_arc = apply_arc_final_filters(filtered_df, config)
+        for row in final_arc["gate_order"]:
+            filter_counts["count_arc_reference_" + row["gate"]] = row["remaining"]
+        filter_counts.to_csv(f'{config["results_save_dir"]}/{config["synteny_filter_counts_file_save_location"]}', index=False)
+        filtered_df.to_csv(f'{config["results_save_dir"]}/{config["synteny_filter_seqs_csv_file_save_location"]}', index=False)
+        save_df_as_fasta(filtered_df, f'{config["results_save_dir"]}/{config["synteny_filter_seqs_fasta_file_save_location"]}')
+
+"""
+    if hook in text:
+        return
+    if text.count(anchor) != 1:
+        raise ValueError("Expected one final completion marker for the independent ARC contract")
+    text = text.replace(anchor, hook + anchor)
+    visualize = "        ### Visualize genome annotations ###\n        if len(filtered_df) > 0:"
+    if visualize not in text:
+        raise ValueError("Expected the adapted annotation visualization stage")
+    # Core-function scoring consumes PHROG hits. Its pruned reference is not the
+    # original ARC reference; the final stage performs independent LoVis clustering.
+    text = text.replace(
+        visualize,
+        '        ### Visualize genome annotations ###\n        if len(filtered_df) > 0 and not (config.get("final_arc_contract") and config.get("core_gene_reference_functions")):',
+    )
+    path.write_text(text)
+
+
 def prepare_arc_pipeline_workdir(
     source_dir: Path = DEFAULT_ARC_PIPELINE_SOURCE_DIR,
     output_dir: Path = DEFAULT_ARC_PIPELINE_WORKDIR,
     *,
     phix174_fasta: Path = DEFAULT_PHIX174_FASTA,
-    pipeline_patch: Path | None = DEFAULT_ARC_PIPELINE_PATCH,
+    pipeline_patch: Path = DEFAULT_ARC_PIPELINE_PATCH,
     arc_revision: str | None = ARC_EVO2_REV,
     overwrite: bool = False,
 ) -> list[Path]:
@@ -615,14 +685,14 @@ def prepare_arc_pipeline_workdir(
     source_dir = Path(source_dir).resolve()
     output_dir = Path(output_dir).resolve()
     phix174_fasta = Path(phix174_fasta).resolve()
-    pipeline_patch = Path(pipeline_patch).resolve() if pipeline_patch is not None else None
+    pipeline_patch = Path(pipeline_patch).resolve()
     if not source_dir.exists():
         raise FileNotFoundError(f"Arc pipeline source directory not found: {source_dir}")
     if not phix174_fasta.exists():
         raise FileNotFoundError(f"PhiX174 FASTA not found: {phix174_fasta}")
-    if pipeline_patch is not None and not pipeline_patch.exists():
+    if not pipeline_patch.exists():
         raise FileNotFoundError(f"Arc pipeline patch not found: {pipeline_patch}")
-    if pipeline_patch is not None and arc_revision:
+    if arc_revision:
         _assert_arc_source_revision(source_dir, arc_revision)
     if output_dir.exists() and not overwrite:
         raise FileExistsError(f"Output directory already exists: {output_dir}. Pass --overwrite to replace files.")
@@ -652,12 +722,17 @@ def prepare_arc_pipeline_workdir(
         )
     genetic_architecture_path.write_text(patched_text)
 
-    if pipeline_patch is not None:
-        _apply_arc_pipeline_patch(output_dir, pipeline_patch)
-    else:
-        _apply_legacy_string_patches(output_dir)
+    _apply_arc_pipeline_patch(output_dir, pipeline_patch)
+    _apply_orfipy_gff_coordinate_patch(output_dir)
+    _apply_pseudocircular_orf_filter_patch(output_dir)
     _apply_online_measurement_patches(output_dir)
+    _apply_mmseqs_protein_evidence_patch(output_dir)
+    _apply_protein_hard_gate_patch(output_dir)
+    _apply_required_gene_evidence_patch(output_dir)
+    _apply_synteny_metrics_patch(output_dir)
+    _apply_aai_evidence_patch(output_dir)
     _apply_lovis4u_runtime_patches(output_dir)
+    _apply_final_arc_contract_patch(output_dir)
     return written_paths
 
 

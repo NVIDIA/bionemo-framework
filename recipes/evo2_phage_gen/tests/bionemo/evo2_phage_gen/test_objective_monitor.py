@@ -52,11 +52,11 @@ def _event(
         "missing_rate": 1.0 - support,
     }
     if pass_rate is not None:
-        objective["hard_pass_rate"] = pass_rate
+        objective["max_score_rate"] = pass_rate
     return {
         "step": step,
         "aggregate_reward": 5.0,
-        "objectives": {"protein_hit_count": objective},
+        "objectives": {"required_genes": objective},
     }
 
 
@@ -72,9 +72,9 @@ def test_reward_gain_with_collapsing_support_starts_rebound_window():
     assert result["decision"] == "continue"
     assert result["reason"] == "signal_pending_confirmation:1/8"
     assert result["latest_complete_step"] == 30
-    assert result["objectives"]["protein_hit_count"]["status"] == "warning"
-    assert result["objectives"]["protein_hit_count"]["signal_streak"] == 1
-    assert "reward_support_divergence" in result["objectives"]["protein_hit_count"]["signals"]
+    assert result["objectives"]["required_genes"]["status"] == "warning"
+    assert result["objectives"]["required_genes"]["signal_streak"] == 1
+    assert "reward_support_divergence" in result["objectives"]["required_genes"]["signals"]
 
 
 def test_sustained_reward_support_divergence_pauses_after_rebound_window():
@@ -83,8 +83,8 @@ def test_sustained_reward_support_divergence_pauses_after_rebound_window():
     result = evaluate_objective_history(history)
 
     assert result["decision"] == "pause_for_diagnosis"
-    assert result["objectives"]["protein_hit_count"]["status"] == "suspicious"
-    assert result["objectives"]["protein_hit_count"]["signal_streak"] == 8
+    assert result["objectives"]["required_genes"]["status"] == "suspicious"
+    assert result["objectives"]["required_genes"]["signal_streak"] == 8
 
 
 def test_reward_and_support_improving_together_continues():
@@ -97,11 +97,11 @@ def test_reward_and_support_improving_together_continues():
     result = evaluate_objective_history(history)
 
     assert result["decision"] == "continue"
-    assert result["objectives"]["protein_hit_count"]["status"] == "healthy"
+    assert result["objectives"]["required_genes"]["status"] == "healthy"
 
 
-def test_objective_history_accepts_custom_hard_pass_and_instability_thresholds():
-    hard_pass_history = [
+def test_objective_history_accepts_custom_max_score_and_instability_thresholds():
+    max_score_history = [
         _event(10, 0.0, 1.0, pass_rate=0.50),
         _event(20, 0.1, 1.0, pass_rate=0.48),
         _event(30, 0.2, 1.0, pass_rate=0.46),
@@ -112,8 +112,8 @@ def test_objective_history_accepts_custom_hard_pass_and_instability_thresholds()
         _event(30, 0.0, 1.0),
     ]
 
-    strict_hard_pass = evaluate_objective_history(hard_pass_history, hard_pass_drop_threshold=0.10)
-    sensitive_hard_pass = evaluate_objective_history(hard_pass_history, hard_pass_drop_threshold=0.03)
+    strict_max_score = evaluate_objective_history(max_score_history, max_score_drop_threshold=0.10)
+    sensitive_max_score = evaluate_objective_history(max_score_history, max_score_drop_threshold=0.03)
     strict_instability = evaluate_objective_history(
         instability_history, objective_reward_range_threshold=0.50, minimum_reward_sign_changes=2
     )
@@ -121,22 +121,22 @@ def test_objective_history_accepts_custom_hard_pass_and_instability_thresholds()
         instability_history, objective_reward_range_threshold=0.25, minimum_reward_sign_changes=1
     )
 
-    assert "reward_hard_pass_divergence" not in strict_hard_pass["objectives"]["protein_hit_count"]["signals"]
-    assert "reward_hard_pass_divergence" in sensitive_hard_pass["objectives"]["protein_hit_count"]["signals"]
-    assert "objective_instability" not in strict_instability["objectives"]["protein_hit_count"]["signals"]
-    assert "objective_instability" in sensitive_instability["objectives"]["protein_hit_count"]["signals"]
+    assert "reward_max_score_divergence" not in strict_max_score["objectives"]["required_genes"]["signals"]
+    assert "reward_max_score_divergence" in sensitive_max_score["objectives"]["required_genes"]["signals"]
+    assert "objective_instability" not in strict_instability["objectives"]["required_genes"]["signals"]
+    assert "objective_instability" in sensitive_instability["objectives"]["required_genes"]["signals"]
 
 
 def test_missing_per_objective_metrics_pause_after_three_events():
     history = [
-        {"step": step, "aggregate_reward": 5.0, "objectives": {"synteny": {"reward_mean": 0.1}}}
+        {"step": step, "aggregate_reward": 5.0, "objectives": {"core_gene_ordered_conservation": {"reward_mean": 0.1}}}
         for step in (10, 20, 30)
     ]
 
     result = evaluate_objective_history(history)
 
     assert result["decision"] == "pause_for_diagnosis"
-    assert "missing_required_telemetry" in result["objectives"]["synteny"]["signals"]
+    assert "missing_required_telemetry" in result["objectives"]["core_gene_ordered_conservation"]["signals"]
 
 
 def test_enabled_objective_with_no_measurements_starts_confirmation_window():
@@ -146,8 +146,8 @@ def test_enabled_objective_with_no_measurements_starts_confirmation_window():
 
     assert result["decision"] == "continue"
     assert result["reason"] == "signal_pending_confirmation:1/8"
-    assert result["objectives"]["protein_hit_count"]["status"] == "warning"
-    assert "objective_unmeasured" in result["objectives"]["protein_hit_count"]["signals"]
+    assert result["objectives"]["required_genes"]["status"] == "warning"
+    assert "objective_unmeasured" in result["objectives"]["required_genes"]["signals"]
 
 
 def test_enabled_objective_with_no_measurements_pauses_after_confirmation_window():
@@ -156,8 +156,8 @@ def test_enabled_objective_with_no_measurements_pauses_after_confirmation_window
     result = evaluate_objective_history(history)
 
     assert result["decision"] == "pause_for_diagnosis"
-    assert result["objectives"]["protein_hit_count"]["status"] == "suspicious"
-    assert result["objectives"]["protein_hit_count"]["signal_streak"] == 8
+    assert result["objectives"]["required_genes"]["status"] == "suspicious"
+    assert result["objectives"]["required_genes"]["signal_streak"] == 8
 
 
 def _masking_history(active_counts: list[int]) -> list[dict]:
@@ -213,20 +213,20 @@ def test_loss_activity_rebound_clears_pending_masking_signal():
 
 def test_extract_validation_history_derives_only_emitted_gdpo_objectives(monkeypatch, tmp_path):
     points = {
-        "validation/mean_reward": {10: (1.0, 0.5), 20: (2.0, 0.6)},
-        "validation/num_sequences": {10: (1.0, 96.0)},
-        "validation/gdpo/tropism_mean": {10: (1.0, 0.25)},
-        "validation/gdpo/tropism_std": {10: (1.0, 0.1)},
-        "validation/gdpo/tropism_nonzero_rate": {10: (1.0, 0.5)},
+        "validation/phage_qc/mean_reward": {10: (1.0, 0.5), 20: (2.0, 0.6)},
+        "validation/phage_qc/num_sequences": {10: (1.0, 96.0)},
+        "validation/phage_qc/gdpo/tropism_mean": {10: (1.0, 0.25)},
+        "validation/phage_qc/gdpo/tropism_std": {10: (1.0, 0.1)},
+        "validation/phage_qc/gdpo/tropism_nonzero_rate": {10: (1.0, 0.5)},
         "validation/phage_qc/tropism_measurement_available_rate": {10: (1.0, 0.75)},
-        "validation/gdpo/mmseqs_cluster_diversity_mean": {10: (1.0, 0.4)},
-        "validation/gdpo/mmseqs_cluster_diversity_std": {10: (1.0, 0.2)},
-        "validation/gdpo/mmseqs_cluster_diversity_nonzero_rate": {10: (1.0, 0.6)},
+        "validation/phage_qc/gdpo/mmseqs_cluster_diversity_mean": {10: (1.0, 0.4)},
+        "validation/phage_qc/gdpo/mmseqs_cluster_diversity_std": {10: (1.0, 0.2)},
+        "validation/phage_qc/gdpo/mmseqs_cluster_diversity_nonzero_rate": {10: (1.0, 0.6)},
         "validation/phage_qc/mmseqs_cluster_valid_for_clustering_mean": {10: (1.0, 0.6)},
         "validation/phage_qc/mmseqs_cluster_missing_from_output_mean": {10: (1.0, 0.4)},
-        "validation/gdpo/gc_content_mean": {10: (1.0, 0.8)},
-        "validation/gdpo/gc_content_std": {10: (1.0, 0.05)},
-        "validation/gdpo/gc_content_nonzero_rate": {10: (1.0, 1.0)},
+        "validation/phage_qc/gdpo/gc_content_mean": {10: (1.0, 0.8)},
+        "validation/phage_qc/gdpo/gc_content_std": {10: (1.0, 0.05)},
+        "validation/phage_qc/gdpo/gc_content_nonzero_rate": {10: (1.0, 1.0)},
     }
     monkeypatch.setattr(objective_monitor, "_load_scalar_points", lambda _root: points)
 
@@ -244,20 +244,38 @@ def test_extract_validation_history_derives_only_emitted_gdpo_objectives(monkeyp
     assert objectives["gc_content"]["missing_rate"] == 0.0
 
 
+@pytest.mark.parametrize("support", [None, 0.0, 0.25, 1.0])
+def test_joint_support_is_not_assumed(monkeypatch, tmp_path, support):
+    points = {
+        "validation/phage_qc/mean_reward": {10: (1.0, 0.5)},
+        "validation/phage_qc/num_sequences": {10: (1.0, 96.0)},
+        "validation/phage_qc/gdpo/aai_with_core_mean": {10: (1.0, 0.1)},
+        # Marginal rates cannot identify their row-wise intersection.
+        "validation/phage_qc/average_protein_identity_measurement_available_rate": {10: (1.0, 0.5)},
+        "validation/phage_qc/core_gene_ordered_conservation_measurement_available_rate": {10: (1.0, 0.5)},
+    }
+    if support is not None:
+        points["validation/phage_qc/gdpo/aai_with_core_measurement_available_rate"] = {10: (1.0, support)}
+    monkeypatch.setattr(objective_monitor, "_load_scalar_points", lambda _root: points)
+    values = extract_validation_history(tmp_path)[0]["objectives"]["aai_with_core"]
+    assert values["support_rate"] == support
+    assert values["missing_rate"] == (None if support is None else 1.0 - support)
+
+
 def test_extract_validation_history_uses_newest_task_scoped_namespace(monkeypatch, tmp_path):
     points = {
-        "validation/rl-validation/mean_reward": {1: (1.0, 0.1)},
-        "validation/rl-validation/num_sequences": {1: (1.0, 96.0)},
-        "validation/rl-validation/gdpo/tropism_mean": {1: (1.0, 0.1)},
-        "validation/rl-validation/gdpo/tropism_std": {1: (1.0, 0.1)},
-        "validation/rl-validation/gdpo/tropism_nonzero_rate": {1: (1.0, 0.1)},
+        "validation/phage_qc/rl-validation/mean_reward": {1: (1.0, 0.1)},
+        "validation/phage_qc/rl-validation/num_sequences": {1: (1.0, 96.0)},
+        "validation/phage_qc/rl-validation/gdpo/tropism_mean": {1: (1.0, 0.1)},
+        "validation/phage_qc/rl-validation/gdpo/tropism_std": {1: (1.0, 0.1)},
+        "validation/phage_qc/rl-validation/gdpo/tropism_nonzero_rate": {1: (1.0, 0.1)},
         "validation/phage_qc/mean_reward": {1: (10.0, 0.8)},
         "validation/phage_qc/num_sequences": {1: (10.0, 96.0)},
         "validation/phage_qc/gdpo/tropism_mean": {1: (10.0, 0.7)},
         "validation/phage_qc/gdpo/tropism_std": {1: (10.0, 0.2)},
         "validation/phage_qc/gdpo/tropism_nonzero_rate": {1: (10.0, 0.9)},
         "validation/phage_qc/tropism_measurement_available_rate": {1: (10.0, 0.75)},
-        "validation/phage_qc/tropism_pass_rate": {1: (10.0, 0.5)},
+        "validation/phage_qc/gdpo/tropism_max_score_rate": {1: (10.0, 0.5)},
     }
     monkeypatch.setattr(objective_monitor, "_load_scalar_points", lambda _root: points)
 
@@ -267,7 +285,7 @@ def test_extract_validation_history_uses_newest_task_scoped_namespace(monkeypatc
     assert history[0]["aggregate_reward"] == 0.8
     assert history[0]["objectives"]["tropism"]["reward_mean"] == 0.7
     assert history[0]["objectives"]["tropism"]["support_rate"] == 0.75
-    assert history[0]["objectives"]["tropism"]["hard_pass_rate"] == 0.5
+    assert history[0]["objectives"]["tropism"]["max_score_rate"] == 0.5
 
 
 def test_main_rejects_missing_tensorboard_root_before_writing(monkeypatch, tmp_path):

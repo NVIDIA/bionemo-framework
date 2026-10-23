@@ -3,61 +3,121 @@
   "evals": [
     {
       "id": "bionemo-phage-design-generate-and-screen-001-order-target",
-      "prompt": "I want to order 100 bacterial-phage designs from the selected RL checkpoint. Decide how many sequences to generate, apply approved QC, and rank final candidates if defensible.",
-      "expected_output": "A pilot-informed rollout plan that reports uncertainty and does not promise an unsupported yield.",
+      "prompt": "The lab wants 100 orderable complete-genome designs from a selected RL checkpoint. A compatible pilot attempted 400: 390 completed, 350 exact-sequence representatives, 110 safety-PASS, 60 hard-QC passers and 32 post-QC clusters. The estimated clustered yield interval is .057-.111 per attempted generation. The first 100 attempts found 14 clusters; the last 100 found one new cluster. Give a generation/selection recommendation with calculations and uncertainty. Return a plan only; do not launch generation or ordering.",
+      "expected_output": "A pilot-grounded sizing decision that accounts for losses and saturation.",
       "assertions": [
-        "The response uses a compatible pilot or uncertainty-aware estimate before sizing the larger rollout.",
-        "It accounts for generation failures, biological duplicates, QC failures, and clustering rather than treating every sample as orderable.",
-        "It generates complete genomes unless the user approved a narrower scope.",
-        "It reports raw and clustered denominators and whether yield or diversity is saturating.",
-        "It ranks only when the objective plan defines a defensible rule and retains limitations and wet-lab non-claims."
+        "Uses 32/400=.08 clustered yield, yielding 1250 attempts for 100 at a naive constant-yield point estimate, or about 1755 at the supplied .057 lower bound.",
+        "Uses the 14-to-one new-cluster decline to question constant-yield extrapolation and proposes staged reassessment/diversity diagnostics instead of guaranteeing either count.",
+        "Retains attempted/completed/representative/safety/hard-QC/cluster denominators; does not substitute 60 or 110 as the orderable unique count.",
+        "Preserves complete-genome scope and approved QC, proposes ranking only under a justified comparable protocol, and does not certify bootability/safety or claim any sequences were generated."
       ],
       "expected_skill": "bionemo-phage-design-generate-and-screen",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-generate-and-screen-002-nested-qc",
-      "prompt": "Generate a 1,000-design proof-of-concept rollout. Filters 1 through 6, 8, and 9 are mandatory; another requirement may pass through route A or route B. Produce a reproducible final report.",
-      "expected_output": "A complete-genome rollout with explicit all/any QC, deduplication, clustering, and a concise waterfall.",
+      "prompt": "Reconcile a completed 1000-design rollout: 1000 raw observations, 900 exact representatives, 780 passed upstream biology and were submitted to safety; manifest has exactly those 780 IDs (700 PASS/50 FAIL/30 INDETERMINATE). Among safety PASS, 620 meet remaining non-CheckV mandatory gates. Their optional module routes count A=400, B=300, both=180. All requested raw SFT scores exist. CheckV records for otherwise eligible umi1/umi10/umi100 are respectively Complete/Not-determined/missing; these three IDs are exact and distinct, and the 620 figure is before applying this enabled CheckV gate. Explain the correct next filter/set computation, evidence coverage and report denominators. No jobs or writes.",
+      "expected_output": "A denominator-preserving final-screen review with alternative routes and exact evidence joins.",
       "assertions": [
-        "The response records the checkpoint, prompt mixture, sampling settings, target length, seeds or prompt IDs, and tool/data versions that affect interpretation.",
-        "It scores all 1,000 raw designs when SFT likelihood is requested, removes exact/circular/reverse-complement biological duplicates before expensive QC, runs every required component on representatives, then applies the approved all/any logic.",
-        "Positive controls confirm each enabled filter executed; missing required evidence or tool failure becomes INDETERMINATE rather than PASS.",
-        "When pre-safety QC excludes representatives, the response preserves those exclusions in the representative denominator and requires exact manifest coverage for the sequences actually submitted to safety.",
-        "Short genomes, no ORFs, missing genes, and empty or header-only tool output do not crash or silently skip QC.",
-        "It disables pre-QC clustering, clusters only the safety-PASS hard-QC set, preserves complete candidate-to-result and cluster mapping, and reports raw, representative, PASS, FAIL, INDETERMINATE, hard-QC, and clustered counts.",
-        "It reports total and mean per-nucleotide selected-SFT log probability for every design, checks residual score-length correlation, and uses likelihood ordering only when that diagnostic supports it.",
-        "It defaults medium/long generation to packed dynamic inference for uniform or mixed prompts, including exact-length data-parallel GDPO rollouts, captures only physical full/remainder request shapes, preserves request IDs and request-to-Mamba-state mappings across staggered KV-page rollovers, and qualifies multi-page packed parity with prediction-forward selected-action checks using reconstructed target-preserving top-k/top-p support and page-boundary phase diagnostics; it reuses graphs only while registered model storage is stable, makes every TP/PP/CP rank in a DP replica recapture after any participant detects an address rebind, recaptures quantized graphs after each refit even with stable addresses, qualifies at least two rollout/offload-refit cycles, distinguishes cold end-to-end from steady-decode throughput and from unqualified gradient-bearing policy sequence packing, notes that dynamic generation ignores the legacy subquadratic flag, reserves static-Flash for a benchmark-qualified equal-length win, selects packed scoring for ragged records or benchmark-qualified rectangular scoring for uniform records/CP, and preserves record mappings.",
-        "It treats low precision as checkpoint- and hardware-qualified: Hopper regular FP8 with the explicit all-layer scope override and multiple-of-eight strict decode groups is distinguished from Vortex delayed scaling.",
-        "Computational screening is not described as proof of bootability, host range, safety, or efficacy."
+        "Computes module union 400+300-180=520 before any subsequent CheckV exclusions and does not invent a final post-CheckV count because the three records' route membership is not supplied.",
+        "Accounts for 120 pre-safety exclusions and requires 780 safety rows for 780 submitted sequences; does not demand fabricated safety results for those 120 or treat FAIL/INDETERMINATE as PASS.",
+        "Matches umi1/umi10/umi100 exactly; Complete is allowed, Not-determined and missing cannot pass the maintained gate, and umi1's classification cannot transfer by substring.",
+        "Retains all 1000 raw scores and candidate-to-representative mappings, applies mandatory gates AND (A OR B), then clusters only the final safety-PASS hard-QC set at approved reciprocal coverage; reports unresolved final counts honestly.",
+        "Does not claim the reconciled computational acceptance counts establish biological viability."
       ],
       "expected_skill": "bionemo-phage-design-generate-and-screen",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-generate-and-screen-003-reference-control-panel",
-      "prompt": "The safety tools and databases are prepared. Show how to establish that the deployed filters still detect known hazards without rejecting well-characterized lytic controls.",
-      "expected_output": "A representative positive and negative control panel run through the exact deployed scientific path.",
+      "prompt": "The deployed safety panel reports: hazard-AMR expected AMR FAIL -> PASS; hazard-toxin expected toxin FAIL -> FAIL; temperate control expected lysogeny FAIL -> INDETERMINATE with PHROGS_PARSE_ERROR; lytic negative expected all PASS -> PASS. Tool executables exit zero. Candidate batch C has not yet run, and a deadline owner wants screening to proceed because three controls look acceptable. Assess readiness and choose the smallest diagnostic/control checks. Return a review only, not a scan.",
+      "expected_output": "A readiness decision based on per-class control failures and parser evidence.",
       "assertions": [
-        "The response includes controls for the relevant harmful cargo, lysogeny, and other enabled safety classes plus suitable lytic or therapeutic negatives.",
-        "It runs controls through the same parsing, tools, databases, thresholds, and aggregation used for candidates.",
-        "Expected findings and states are checked per component rather than only through an aggregate result.",
-        "Malformed, missing, or unsupported required evidence becomes INDETERMINATE and blocks PASS.",
-        "Unexpected control behavior is diagnosed before candidate screening proceeds."
+        "Withholds safety qualification from the current path: hazard-AMR false negative and unresolved lysogeny parse result invalidate the claim that all enabled classes work.",
+        "Does not equate zero process exit with valid parsed evidence or collapse the four controls into an aggregate three-of-four success.",
+        "Proposes checking exact input IDs, known findings, database versions/thresholds and parser/aggregation paths using the same deployed pipeline before candidate interpretation.",
+        "Retains lytic and toxin controls as useful but insufficient, describes prospective rerun criteria, and does not claim scans or repairs were executed."
       ],
       "expected_skill": "bionemo-phage-design-generate-and-screen",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-generate-and-screen-004-amrfinder-mixed-evidence",
-      "prompt": "An AMRFinderPlus combined scan reports two protein AMR hits and one AMR row whose Protein id is literal NA but whose contig, coordinates, strand, and method are present. Decide how final QC should handle the evidence.",
-      "expected_output": "A conservative interpretation that retains both protein and coordinate-backed nucleotide findings.",
+      "prompt": "An approved final profile excludes any supported AMR finding. Candidate fasta IDs are c7 and c70. AMRFinder table rows: (protein=p1,contig=c7,start=100,stop=900,strand=+,method=BLASTP,class=AMR), (p2,c7,950,1500,-,BLASTP,AMR), (NA,c7,1700,2300,+,HMM,AMR), (NA,c700,20,400,+,HMM,AMR). c7 is 5400 nt, c70 is 5350 nt. Review candidate states and evidence retention; note any unresolved mapping. Read-only skill/source inspection is allowed; do not execute scientific tools or modify results.",
+      "expected_output": "An AMR interpretation preserving protein and coordinate evidence and exact candidate IDs.",
       "assertions": [
-        "The response does not discard the Protein id=NA row when valid contig, coordinate, strand, method, and AMR evidence are present.",
-        "It validates that coordinates map to the intended candidate and distinguishes nucleotide from protein evidence.",
-        "The independent protein hits remain reportable and are not collapsed into the nucleotide row.",
-        "Malformed or unmappable required evidence becomes INDETERMINATE rather than a false PASS.",
-        "Any hard AMR exclusion in the approved profile remains enforced."
+        "Retains the two independent protein findings and coordinate-backed NA row on c7 after validating coordinates/strand/method, rather than discarding literal NA as no finding.",
+        "Excludes c7 from PASS on validated AMR findings; may report FAIL from preserved valid evidence or a batch-level INDETERMINATE pending parser reconciliation, but cannot erase supported findings or certify safety.",
+        "Does not map c700 to c70 or c7 by prefix; reports an unresolved/malformed scan mapping that must be reconciled before certifying the affected batch or missing candidate evidence.",
+        "Does not infer c70 PASS merely because no listed row matches it; distinguishes a verified completed no-hit scan from absent evidence and gives a read-only reconciliation plan."
+      ],
+      "expected_skill": "bionemo-phage-design-generate-and-screen",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-generate-and-screen-005-hard-filter-waterfall",
+      "prompt": "A saved 100-representative rollout has complete independent measurements: 80 pass intrinsic biology, 60 of those are exact safety PASS, 50 of those meet AAI. All 50 have classifier p=1; controls show p=1 for both positives and negatives. The report then requires rollout-singleton status, leaving zero because all 50 occur in multi-member clusters. During RL, diversity eligibility depended on an older length mask; the proposed report replaces that mask with a wider independently justified interval using saved lengths. Explain what can be replayed now, what would require another RL attempt, and the report's final set definitions. No edits, jobs or threshold application.",
+      "expected_output": "A versioned post-hoc analysis distinguishing intrinsic gates, set selection and historical reward effects.",
+      "assertions": [
+        "Reports the 100->80->60->50 biological/safety/AAI waterfall and identifies that later classifier and singleton requirements need independent justification, not merely zero observed yield.",
+        "Rejects p=1 as a validated separating classifier boundary given identical positive/negative controls; treats singleton status as set-level diversity rather than an intrinsic genome defect.",
+        "Proposes replaying the supported wider length gate on saved measurements with versioned definitions, without claiming a new passing count from insufficient overlap data.",
+        "Explains changing the in-loop diversity-eligibility mask requires a new RL attempt to change learned behavior, but a documented post-hoc replay does not itself require retraining.",
+        "Keeps safety before diversification, AAI last among per-genome gates and clustering after acceptance; preserves per-candidate reasons rather than silently rewriting the old result."
+      ],
+      "expected_skill": "bionemo-phage-design-generate-and-screen",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-generate-and-screen-circular-locus-evidence",
+      "prompt": "A circular 5386-nt genome has forward A calls at 3954..5522 (522 aa), 3981..5522 (513 aa) and a 39-aa prefix call whose coordinates become the same A tail after adding 5386. A separate 39-aa identical peptide is at 1800..1916. Both long calls share frame/stop; no translation-initiation experiment exists. Choosing 513 aa would lower AAI from 95.2 to 94.9. Review retained proteins, annotation assumptions and the final AAI decision under the maintained policy. Do not edit annotations or rerun scoring.",
+      "expected_output": "A physical-locus cleanup decision independent of desired threshold outcome.",
+      "assertions": [
+        "Removes only the prefix duplicate after verifying the same circular locus, strand, stop and frame, and retains the distinct-locus 1800..1916 copy despite identical peptide.",
+        "Retains maximal-ORF A=522 aa under the maintained policy, reports the 513-aa alternative-start ambiguity, and does not select it to cross the AAI threshold.",
+        "At the supplied unchanged AAI 95.2, the <=95 gate fails; does not claim choosing 94.9 establishes a legitimate pass.",
+        "Does not infer which alternative start is expressed, or claim that the retained annotation reconstructs every expressed protein, from these coordinates and AAI alone."
+      ],
+      "expected_skill": "bionemo-phage-design-generate-and-screen",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-generate-and-screen-add-one-gene",
+      "prompt": "Review v3 decisions for four candidates with safety, nine-core/order/copy and corrected AAI gates already PASS. All have original ARC counts 11/13 and RL accessory reward 1. Independent native replay: a=(K=1,X=1,duplicate mass=0,type mass=2,eligible assignments exactly K+k1 and X+x1); b=(same credits,duplicate mass=1,type mass=2,three assignments); c=(K=0,X=1,duplicate mass=0,type mass=1,one assignment); d=(same summary as a,artifact unavailable). X's family in a is outside K and core. Classify the original and added routes, union/category, and report denominators. Specify which candidates could enter final clustering and what further gates remain unmeasured. These are four of 302 previously ordered ARC designs, not a new random rollout. No live screening.",
+      "expected_output": "A structured-evidence decision separating the original count and added route.",
+      "assertions": [
+        "Original 11/13 fails the unchanged ARC count route for all four; neither that count pair nor RL reward 1 independently activates the added route.",
+        "Accepts a as add-one-gene only, rejects b for duplicate/extra assignment and c for absent K, and leaves d unresolved/unqualified because missing native evidence cannot establish the route.",
+        "Reports union category and K/X ORF/family provenance, retains all common gates and clusters only the accepted final union; no unsupported final cluster count is invented.",
+        "Labels four/302 as a selected re-screening cohort rather than generation yield, and does not claim v3 is strictly harder than ARC or that RL reward proves acceptance."
+      ],
+      "expected_skill": "bionemo-phage-design-generate-and-screen",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-generate-and-screen-006-runtime-qualification",
+      "prompt": "Choose the next final-rollout runtime for mixed 16/24-base prompts on Hopper. Each benchmark produces 8192 completion tokens. BF16 dynamic: setup=20 s,prefill=4,decode=16. Global FP8 dynamic: setup=30,prefill=3,decode=12; requested graph scope=block. Only one rollout/refit cycle was measured. On a second-cycle probe, TP rank 1's registered-buffer signature changed and prediction-versus-generation selected-action error spikes at a KV page boundary. Equal-length static-Flash was faster in a separate uniform-prompt test. An owner wants FP8 block graphs and policy.sequence_packing=true for tonight's mixed rollout. Give the runtime decision, comparable rates and minimum qualification evidence; no benchmarks or jobs.",
+      "expected_output": "A qualification decision separating throughput, layout and graph-correctness evidence.",
+      "assertions": [
+        "Computes BF16 cold 8192/40=204.8 tokens/s and FP8 cold 8192/45 about 182.0, while decode-only is 512 versus about 682.7; does not declare overall FP8 superiority from decode alone.",
+        "Uses mixed-prompt packed dynamic BF16 as a defensible baseline pending qualification; the uniform static-Flash win does not automatically establish a mixed-prompt win.",
+        "Identifies unresolved second-cycle/page-boundary correctness and replica-wide graph invalidation/recapture needs after rank 1's storage change, including request/state mapping and target-preserving selected-action parity.",
+        "Recognizes global FP8 resolves block to layer graph scope and requires checkpoint/hardware/endpoint accuracy plus at least two rollout/refit cycles.",
+        "Does not enable gradient-bearing policy sequence packing solely from inference rates or claim any corrective qualification was performed."
+      ],
+      "expected_skill": "bionemo-phage-design-generate-and-screen",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-generate-and-screen-007-likelihood-handoff",
+      "prompt": "Review final-report readiness. Raw generation has 1000 unique IDs; exact deduplication leaves 920 sequences. The SFT score table has 998 rows because a scoring retry skipped raw IDs r17/r23. The raw full-state SFT source was removed, but a relocated prepared checkpoint validates against its schema-2 manifest, payload counts and run-config digest. It is the recorded pre-RL model. Half the candidates use origin:1, half origin:2000; mean log probabilities differ by .25 between origins even for rotated copies of the same genome. The owner proposes marking likelihood complete and globally ranking the 920 representatives. Give the recovery/report decision and scoring layout choice for ragged lengths. No scoring, writes or jobs.",
+      "expected_output": "A complete raw-score and comparable-protocol handoff using the validated model-only checkpoint.",
+      "assertions": [
+        "Withholds likelihood completion because two of 1000 raw IDs lack scores; plans to recover/validate r17/r23 and exact ID coverage before deduplication-based reporting.",
+        "Uses the validated prepared pre-RL checkpoint despite removed raw SFT source; does not require an 85GB full-state checkpoint for model scoring or substitute the selected RL model.",
+        "Reports total and mean per-nucleotide raw scores and length diagnostics, but does not globally order mixed-origin genomes from the origin-dependent scores without validated normalization or justified comparable strata.",
+        "Chooses packed prediction for ragged scoring with complete record mapping and no packed subquadratic flag; proposes verification rather than claiming missing rows were recovered.",
+        "Preserves separate generation/deduplication/likelihood completion evidence and limits computational ranking claims."
       ],
       "expected_skill": "bionemo-phage-design-generate-and-screen",
       "expected_script": null

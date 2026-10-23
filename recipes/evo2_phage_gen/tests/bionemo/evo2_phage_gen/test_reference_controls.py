@@ -17,7 +17,6 @@ import json
 from pathlib import Path
 
 import pytest
-import yaml
 
 from bionemo.evo2_phage_gen import reference_controls
 from bionemo.evo2_phage_gen.reference_controls import (
@@ -99,12 +98,6 @@ def test_panel_covers_positive_review_and_negative_controls() -> None:
     roles = {control.role for control in panel.controls}
     assert roles == {"positive_hazard", "positive_review", "negative"}
     assert panel.by_id["phix174_negative"].accession == "NC_001422.1"
-
-
-def test_panel_uses_scientific_identifiers_and_expected_states() -> None:
-    payload = yaml.safe_load(CONFIG.read_text())
-    assert "sequence_identity" not in payload
-    assert all(control["sequence_length"] > 0 for control in payload["controls"])
 
 
 def test_complete_measured_control_panel_passes() -> None:

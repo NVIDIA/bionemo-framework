@@ -20,13 +20,18 @@
 import random
 from pathlib import Path
 
+import numpy as np
+import pytest
 import torch
 from megatron.bridge.training.tokenizers.config import TokenizerConfig
 from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
+from megatron.core.datasets.gpt_dataset import GPTDatasetConfig
 from megatron.core.datasets.indexed_dataset import IndexedDataset
+from megatron.core.datasets.utils import Split
 
 from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
 from bionemo.evo2.data.evo2_dataset_provider import DatasetBuildContext, Evo2DatasetProvider
+from bionemo.evo2.data.megatron.hyena.evo2_dataset import Evo2Dataset
 from bionemo.evo2.data.preprocess import Evo2Preprocessor
 from bionemo.evo2.data.test_utils.create_fasta_file import create_fasta_file
 from bionemo.evo2.utils.config import Evo2PreprocessingConfig
@@ -75,7 +80,8 @@ def test_preprocessing_context_without_seed_advances_current_random_state() -> N
         assert random.getstate() != initial_state
 
 
-def test_preprocessor_creates_expected_files(tmp_path: Path) -> None:
+@pytest.mark.parametrize("mask_phylogenetic_tags", [True, False])
+def test_preprocessor_creates_expected_files(tmp_path: Path, mask_phylogenetic_tags: bool) -> None:
     """Verifies that preprocessing creates all expected output files."""
     test_fasta_file_path = create_fasta_file(tmp_path / "test.fasta", num_sequences=20, sequence_length=10000)
     output_dir = tmp_path / "processed_data"
@@ -133,7 +139,9 @@ def test_preprocessor_creates_expected_files(tmp_path: Path) -> None:
     with open(config_file_path, "w") as f:
         yaml.dump(dataset_config, f)
 
-    dataset_provider = Evo2DatasetProvider(random_seed=42, dataset_config_path=config_file_path)
+    dataset_provider = Evo2DatasetProvider(
+        random_seed=42, dataset_config_path=config_file_path, mask_phylogenetic_tags=mask_phylogenetic_tags
+    )
     tokenizer = build_tokenizer(
         TokenizerConfig(
             tokenizer_type="HuggingFaceTokenizer",
@@ -153,6 +161,7 @@ def test_preprocessor_creates_expected_files(tmp_path: Path) -> None:
     assert train_ds is not None
     assert val_ds is not None
     assert test_ds is not None
+    assert all(ds.config.mask_phylogenetic_tags == mask_phylogenetic_tags for ds in (train_ds, val_ds, test_ds))
     # Megatron rounds each split up to a whole number of epochs, so dataset lengths can exceed the request.
     assert len(train_ds) >= requested_samples[0]
     assert len(val_ds) >= requested_samples[1]
@@ -170,3 +179,69 @@ def test_preprocessor_creates_expected_files(tmp_path: Path) -> None:
     assert batch["labels"].dtype == torch.int64
     assert batch["loss_mask"].dtype == torch.float32
     assert batch["position_ids"].dtype == torch.int64
+
+
+def test_realized_loader_eod_and_padding_loss(tmp_path: Path) -> None:
+    """The FASTA path appends one EOD, and Megatron keeps later synthetic padding out of the loss."""
+    fasta_path = create_fasta_file(
+        tmp_path / "one_sequence.fasta",
+        num_sequences=1,
+        sequence_length=4,
+        repeating_dna_pattern="ACGT",
+    )
+    output_dir = tmp_path / "processed_data"
+    output_dir.mkdir()
+    config = create_preprocessing_config(output_dir, fasta_path, output_prefix="terminal_eod")
+    config.train_split = 0.0
+    config.valid_split = 1.0
+    config.test_split = 0.0
+    config.embed_reverse_complement = False
+    config.transcribe = None
+
+    Evo2Preprocessor(config).preprocess_offline(config)
+    dataset_prefix = output_dir / "terminal_eod_nucleotide_fast_tokenizer_256_val"
+    indexed_dataset = IndexedDataset(str(dataset_prefix))
+    eod_token_id = 0
+    assert indexed_dataset.get(0).tolist() == [65, 67, 71, 84, eod_token_id]
+
+    tokenizer = build_tokenizer(
+        TokenizerConfig(
+            tokenizer_type="HuggingFaceTokenizer",
+            hf_tokenizer_kwargs={"trust_remote_code": False},
+            tokenizer_model=DEFAULT_HF_TOKENIZER_MODEL_PATH,
+        )
+    )
+    cache_dir = tmp_path / "index_cache"
+    cache_dir.mkdir()
+    gpt_config = GPTDatasetConfig(
+        random_seed=42,
+        sequence_length=8,
+        tokenizer=tokenizer,
+        split="0,1,0",
+        path_to_cache=str(cache_dir),
+        reset_position_ids=False,
+        reset_attention_mask=False,
+        eod_mask_loss=False,
+        create_attention_mask=False,
+        drop_last_partial_validation_sequence=False,
+        add_extra_token_to_sequence=True,
+    )
+    dataset = Evo2Dataset(
+        indexed_dataset=indexed_dataset,
+        dataset_path=str(dataset_prefix),
+        indexed_indices=np.array([0], dtype=np.int32),
+        num_samples=None,
+        index_split=Split.valid,
+        config=gpt_config,
+    )
+
+    batch = dataset[0]
+    torch.testing.assert_close(
+        batch["labels"], torch.tensor([67, 71, 84, eod_token_id, 0, 0, 0, 0], dtype=torch.int64)
+    )
+    torch.testing.assert_close(batch["loss_mask"], torch.tensor([1, 1, 1, 1, 0, 0, 0, 0], dtype=torch.float32))
+    eod_or_padding = batch["labels"] == eod_token_id
+    supervised_eod = eod_or_padding & batch["loss_mask"].bool()
+    masked_padding = eod_or_padding & ~batch["loss_mask"].bool()
+    assert supervised_eod.sum().item() == 1
+    assert masked_padding.sum().item() == 4

@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
 from pathlib import Path
@@ -35,9 +36,9 @@ class _GenerationWorkerMixin:
         return None
 
 
-class _StorageOnlyGenerationWorkerMixin:
-    def _generation_adapter_requires_persistent_model_storage(self):
-        return False
+@pytest.fixture
+def torch():
+    return pytest.importorskip("torch")
 
 
 def _cached_source() -> Path | None:
@@ -64,6 +65,84 @@ def test_patch_owns_packaging_changes(tmp_path: Path) -> None:
     assert 'requires-python = ">=3.10"' in pyproject
 
 
+def test_cluster_histogram_logging(tmp_path: Path) -> None:
+    """Count clusters once and retain their distribution through aggregation and logging."""
+    import pandas as pd
+
+    from bionemo.evo2_phage_gen.nemo_rl_env import phage_qc_metrics_from_scored
+    from bionemo.evo2_phage_gen.reward import RewardWeights
+
+    source = _cached_source()
+    if source is None:
+        pytest.skip("configured NeMo-RL source is not cached")
+    build = nemo_rl_setup._copy_build_source(source, tmp_path / "build")
+    nemo_rl_setup.apply_source_patch(build)
+
+    def load_function(relative_path, name, class_name=None):
+        path = build / relative_path
+        nodes = ast.parse(path.read_text()).body
+        if class_name:
+            nodes = next(node for node in nodes if getattr(node, "name", None) == class_name).body
+        function = next(node for node in nodes if getattr(node, "name", None) == name)
+        namespace = {}
+        exec(compile(ast.Module(body=[function], type_ignores=[]), str(path), "exec"), namespace)
+        return namespace[name], namespace
+
+    collect, namespace = load_function("nemo_rl/experience/rollouts.py", "collect_environment_metrics")
+    aggregate, _ = load_function("nemo_rl/algorithms/grpo.py", "aggregate_rollout_metrics")
+    log_metrics, _ = load_function("nemo_rl/utils/logger.py", "log_metrics", "Logger")
+    scored = pd.DataFrame({"mmseqs_cluster_id": ["a", "a", "b", "invalid"], "mmseqs_cluster_size": [2, 2, 1, 0]})
+    scored["reward_mmseqs_cluster_diversity"] = [0.5, 0.5, 1.0, 0.0]
+    metrics = phage_qc_metrics_from_scored(scored, RewardWeights(mmseqs_cluster_diversity=1.0))
+    assert sorted(metrics["__histogram__/mmseqs_cluster_size"]) == [1, 2]
+    assert not any(key.startswith("mmseqs_cluster_size_histogram/") for key in metrics)
+
+    class Batch(dict):
+        def select_indices(self, indices):
+            return self
+
+    namespace.update(
+        torch=SimpleNamespace(tensor=lambda values, **kwargs: values, long=None),
+        ray=SimpleNamespace(get=lambda values: values),
+    )
+    env = SimpleNamespace(global_post_process_and_metrics=SimpleNamespace(remote=lambda batch: (batch, metrics)))
+    collected = collect(Batch(task_name=["phage_qc"] * len(scored)), {"phage_qc": env})
+    key = "__histogram__/phage_qc/mmseqs_cluster_size"
+    combined = aggregate({key: [collected[key], [], [3]], "mean_reward": [0.2, 0.4, 0.6]})
+    assert sorted(combined[key]) == [1, 2, 3]
+
+    weighted = aggregate(
+        {
+            "phage_qc/num_sequences": [96, 1],
+            "phage_qc/all_objectives_max_score_rate": [0.0, 1.0],
+            "phage_qc/gdpo/length_mean": [0.0, 1.0],
+            "phage_qc/gdpo/length_std": [0.0, 0.0],
+            "phage_qc/by_prompt_nt_length/16/num_sequences": [32, 1],
+            "phage_qc/by_prompt_nt_length/16/gdpo/length_mean": [0.0, 1.0],
+        }
+    )
+    assert weighted["phage_qc/num_sequences"] == 97
+    assert weighted["phage_qc/all_objectives_max_score_rate"] == pytest.approx(1 / 97)
+    assert weighted["phage_qc/gdpo/length_mean"] == pytest.approx(1 / 97)
+    assert weighted["phage_qc/gdpo/length_std"] == pytest.approx(96**0.5 / 97)
+    assert weighted["phage_qc/by_prompt_nt_length/16/gdpo/length_mean"] == pytest.approx(1 / 33)
+
+    histograms, scalars = [], []
+    logger = SimpleNamespace(
+        log_histogram=lambda values, step, name: histograms.append((values, step, name)),
+        loggers=[SimpleNamespace(log_metrics=lambda *args: scalars.append(args))],
+    )
+    for prefix in ("train", "validation"):
+        log_metrics(logger, combined, 7, prefix, step_finished=True)
+    assert [item[2] for item in histograms] == [
+        "train/phage_qc/mmseqs_cluster_size",
+        "validation/phage_qc/mmseqs_cluster_size",
+    ]
+    assert all(sorted(values) == [1, 2, 3] and step == 7 for values, step, _ in histograms)
+    assert all(args[0] == {"mean_reward": pytest.approx(0.4)} and args[-1] is True for args in scalars)
+    assert key in combined  # Logging must not remove data from the caller's metrics.
+
+
 def test_patch_uses_standard_bridge_config_loader(tmp_path: Path) -> None:
     source = _cached_source()
     if source is None:
@@ -74,12 +153,9 @@ def test_patch_uses_standard_bridge_config_loader(tmp_path: Path) -> None:
 
     assert "cfg_from_pretrained = ConfigContainer.from_yaml(" in setup_source
     assert "_apply_target_allowlist_prefixes(config)" in setup_source
-    assert "load_model_config(pretrained_path)" not in setup_source
-    assert "_reset_model_runtime_state" not in setup_source
-    assert "read_run_config(pretrained_run_config)" not in setup_source
 
 
-def test_policy_replay_keeps_sampled_action(tmp_path: Path) -> None:
+def test_policy_replay_keeps_sampled_action(tmp_path: Path, torch) -> None:
     """Replay keeps a sampled token finite if recomputed logits move it outside top-k."""
     source = _cached_source()
     if source is None:
@@ -134,8 +210,15 @@ assert torch.equal(ordinary_mask, replay_mask)
 
     worker = (build / "nemo_rl" / "models" / "policy" / "workers" / "megatron_policy_worker.py").read_text()
     assert "self._generation_adapter_requires_persistent_model_storage()" in worker
-    assert 'self.model, "cpu", move_params=not preserve_model_storage' in worker
     assert "self._generation_adapter_model_refit_complete()" in worker
+    assert '"_generation_offload_before_refit_complete"' in worker
+    assert "and not self._generation_adapter_preserves_optimizer_state()" in worker
+    generation_worker = (build / "nemo_rl" / "models" / "generation" / "megatron" / "megatron_worker.py").read_text()
+    assert "def _generation_adapter_requires_persistent_model_storage(" in generation_worker
+    assert "def _generation_adapter_model_refit_complete(" in generation_worker
+    assert "def _generation_adapter_preserves_optimizer_state(" in generation_worker
+    package_init = (build / "nemo_rl" / "__init__.py").read_text()
+    assert "EVO2_GRAPH_STORAGE_LIFECYCLE_VERSION = 2" in package_init
 
 
 def test_environment_metrics_receive_one_task_namespace(tmp_path: Path) -> None:
@@ -148,6 +231,176 @@ def test_environment_metrics_receive_one_task_namespace(tmp_path: Path) -> None:
 
     assert 'key.startswith("__timing__/")' in rollout_source
     assert 'metric_key = key if key.startswith("__timing__/") else f"{task_name}/{key}"' in rollout_source
+
+
+def test_patch_preserves_response_termination_metadata(tmp_path: Path, torch) -> None:
+    """Allocator padding must not turn capped generations into natural stops."""
+    source = _cached_source()
+    if source is None:
+        pytest.skip("configured NeMo-RL source is not cached")
+    build = nemo_rl_setup._copy_build_source(source, tmp_path / "build")
+    nemo_rl_setup.apply_source_patch(build)
+
+    worker_source = (build / "nemo_rl" / "models" / "generation" / "megatron" / "megatron_worker.py").read_text()
+    assert 'bool(getattr(request, "truncated", False))' in worker_source
+    assert '"truncated": response_truncated' in worker_source
+
+    rollout_path = build / "nemo_rl" / "experience" / "rollouts.py"
+    rollout_source = rollout_path.read_text()
+    tree = ast.parse(rollout_source)
+    helper_node = next(
+        node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_response_hit_generation_cap"
+    )
+    namespace: dict[str, object] = {}
+    exec(compile(ast.Module(body=[helper_node], type_ignores=[]), str(rollout_path), "exec"), namespace)
+    helper = namespace["_response_hit_generation_cap"]
+    assert callable(helper)
+    message_log = [
+        {"role": "user", "token_ids": list(range(100))},
+        {"role": "assistant", "token_ids": [1, 2, 3, 4]},
+    ]
+    assert helper(message_log, 5) is False
+    message_log[-1]["token_ids"].append(5)
+    assert helper(message_log, 5) is True
+
+    stop_helper_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_record_generation_stop_metadata"
+    )
+    stop_namespace = {"Any": object, "torch": torch}
+    exec(compile(ast.Module(body=[stop_helper_node], type_ignores=[]), str(rollout_path), "exec"), stop_namespace)
+    stop_helper = stop_namespace["_record_generation_stop_metadata"]
+    stop_metadata = [{}, {}, {}]
+    stop_helper(
+        stop_metadata,
+        [torch.tensor([5, 0]), torch.tensor([5, 6]), torch.tensor([5])],
+        torch.tensor([False, True, False]),
+        0,
+    )
+    assert stop_metadata == [
+        {"_generation_stopped_on_eod": True, "_generation_capped_without_eod": False},
+        {"_generation_stopped_on_eod": False, "_generation_capped_without_eod": True},
+        {"_generation_stopped_on_eod": False, "_generation_capped_without_eod": False},
+    ]
+    assert "sample_terminated & ~sample_truncated & ~sample_max_turns_reached" in rollout_source
+    assert '"_generation_stopped_on_eod"' in rollout_source
+    assert '"_generation_capped_without_eod"' in rollout_source
+    assert (
+        "max_total_tokens_per_sample" not in rollout_source[rollout_source.index("def run_async_nemo_gym_rollout") :]
+    )
+
+    package_init = (build / "nemo_rl" / "__init__.py").read_text()
+    assert "EVO2_RESPONSE_TERMINATION_VERSION = 2" in package_init
+
+
+def test_async_last_turn_termination(tmp_path: Path) -> None:
+    """An EOD on the final permitted turn is still a natural termination."""
+    source = _cached_source()
+    if source is None:
+        pytest.skip("configured NeMo-RL source is not cached")
+    build = nemo_rl_setup._copy_build_source(source, tmp_path / "build")
+    nemo_rl_setup.apply_source_patch(build)
+    path = build / "nemo_rl" / "experience" / "rollouts.py"
+    tree = ast.parse(path.read_text())
+    rollout = next(node for node in tree.body if getattr(node, "name", None) == "run_async_multi_turn_rollout")
+    expression = next(
+        value
+        for node in ast.walk(rollout)
+        if isinstance(node, ast.Dict)
+        for key, value in zip(node.keys, node.values, strict=True)
+        if isinstance(key, ast.Constant) and key.value == "natural_termination_rate"
+    )
+    # The async producer marks the turn limit independently of termination.
+    samples = [
+        {"terminated": True, "truncated": False, "max_turns_reached": True},
+        {"terminated": True, "truncated": False, "max_turns_reached": False},
+        {"terminated": True, "truncated": True, "max_turns_reached": True},
+        {"terminated": False, "truncated": False, "max_turns_reached": True},
+    ]
+    rate = eval(
+        compile(ast.Expression(expression), str(path), "eval"),
+        {"all_sample_metrics": samples, "batch_size": len(samples)},
+    )
+    assert rate == 0.5
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize("include_logprobs", [False, True])
+def test_rollout_transport_size(tmp_path: Path, torch, asynchronous, include_logprobs) -> None:
+    """Row views must not serialize the full generation buffer once per genome."""
+    import asyncio
+    import pickle
+
+    source = _cached_source()
+    if source is None:
+        pytest.skip("configured NeMo-RL source is not cached")
+    build = nemo_rl_setup._copy_build_source(source, tmp_path / "build")
+    nemo_rl_setup.apply_source_patch(build)
+    path = build / "nemo_rl/experience/rollouts.py"
+    function_name = "generate_responses_async" if asynchronous else "generate_responses"
+    functions = [
+        node
+        for node in ast.parse(path.read_text()).body
+        if getattr(node, "name", None) in {function_name, "_add_r3_fallback_metrics"}
+    ]
+
+    class Batch(dict):
+        @classmethod
+        def from_batches(cls, batches, **kwargs):
+            return cls({key: torch.cat([batch[key] for batch in batches]) for key in batches[0]})
+
+    namespace = {"torch": torch, "BatchedDataDict": Batch}
+    module = ast.Module(
+        body=[ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0), *functions],
+        type_ignores=[],
+    )
+    exec(compile(ast.fix_missing_locations(module), str(path), "exec"), namespace)
+    count, width = 32, 256
+    output_ids = torch.arange(count * width).reshape(count, width) % 127
+    lengths = torch.tensor([16, 24] * (count // 2))
+    ends = torch.tensor([128, 256] * (count // 2))
+    logprobs = -torch.arange(count * width, dtype=torch.float32).reshape(count, width) / 1024
+    truncated = torch.tensor([False, True] * (count // 2))
+    outputs = Batch(
+        output_ids=output_ids,
+        generation_lengths=ends - lengths,
+        unpadded_sequence_lengths=ends,
+        logprobs=logprobs,
+        truncated=truncated,
+    )
+
+    async def generate_async(data, greedy=False):
+        # Streaming results may arrive out of order; the real collector sorts them.
+        for index in reversed(range(count)):
+            yield index, Batch({key: value[index : index + 1] for key, value in outputs.items()})
+
+    policy = SimpleNamespace(
+        cfg={"backend": "megatron", "mcore_generation_config": {"async_engine": True}},
+        generate=lambda data, greedy=False: outputs,
+        generate_async=generate_async,
+    )
+    tokenizer = SimpleNamespace(
+        pad_token_id=0, batch_decode=lambda rows, **kwargs: ["".join(map(chr, row.tolist())) for row in rows]
+    )
+    batch = Batch(message_log=[[] for _ in range(count)])
+    result = namespace[function_name](policy, Batch(), batch, tokenizer, lengths, include_logprobs=include_logprobs)
+    result_batch, generated, metrics = asyncio.run(result) if asynchronous else result
+    for index, messages in enumerate(result_batch["message_log"]):
+        message = messages[-1]
+        expected = output_ids[index, lengths[index] : ends[index]]
+        assert torch.equal(message["token_ids"], expected)
+        assert torch.equal(generated[index], expected)
+        assert message["content"] == "".join(map(chr, expected.tolist()))
+        if include_logprobs:
+            assert torch.equal(message["generation_logprobs"], logprobs[index, lengths[index] : ends[index]])
+        else:
+            assert "generation_logprobs" not in message
+    assert torch.equal(metrics["_response_truncated"], truncated)
+    assert metrics["total_generated_tokens"] == 5504
+    # Allow generous pickle headers, but not a copy of every other row's storage.
+    payload = pickle.dumps(result_batch["message_log"], protocol=5)
+    assert len(payload) < 200_000
 
 
 def test_setup_patches_before_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -188,6 +441,8 @@ def test_runtime_capabilities(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(nemo_rl_setup, "_runtime_is_complete", lambda: True)
 
     def import_module(name):
+        if name == "nemo_rl":
+            return SimpleNamespace(EVO2_GRAPH_STORAGE_LIFECYCLE_VERSION=2, EVO2_RESPONSE_TERMINATION_VERSION=2)
         if name.endswith(".grpo"):
             return SimpleNamespace(split_environment_timing_metrics=lambda metrics: (metrics, {}))
         if name.endswith(".datasets.utils"):
@@ -197,7 +452,7 @@ def test_runtime_capabilities(monkeypatch: pytest.MonkeyPatch) -> None:
                 apply_top_k_top_p=lambda logits, top_k, top_p, chunk_size=None, target_token_ids=None: logits
             )
         if name.endswith(".megatron_worker"):
-            return SimpleNamespace(MegatronGenerationMixin=_GenerationWorkerMixin)
+            raise AssertionError("the CUDA-free runtime check must not import the Megatron worker")
         return SimpleNamespace(init_ray=init_ray)
 
     monkeypatch.setattr(nemo_rl_setup.importlib, "import_module", import_module)
@@ -211,6 +466,8 @@ def test_runtime_capabilities_require_external_dataset_resolution(monkeypatch: p
         return None
 
     def import_module(name):
+        if name == "nemo_rl":
+            return SimpleNamespace(EVO2_GRAPH_STORAGE_LIFECYCLE_VERSION=2, EVO2_RESPONSE_TERMINATION_VERSION=2)
         if name.endswith(".grpo"):
             return SimpleNamespace(split_environment_timing_metrics=lambda metrics: (metrics, {}))
         if name.endswith(".datasets.utils"):
@@ -237,6 +494,8 @@ def test_runtime_requires_sampled_action_support(monkeypatch: pytest.MonkeyPatch
         return None
 
     def import_module(name):
+        if name == "nemo_rl":
+            return SimpleNamespace(EVO2_GRAPH_STORAGE_LIFECYCLE_VERSION=2, EVO2_RESPONSE_TERMINATION_VERSION=2)
         if name.endswith(".grpo"):
             return SimpleNamespace(split_environment_timing_metrics=lambda metrics: (metrics, {}))
         if name.endswith(".datasets.utils"):
@@ -254,24 +513,15 @@ def test_runtime_requires_sampled_action_support(monkeypatch: pytest.MonkeyPatch
         nemo_rl_setup.assert_nemo_rl_runtime()
 
 
-@pytest.mark.parametrize(
-    ("generation_mixin", "expected_error"),
-    [
-        (SimpleNamespace, "preserve CUDA-graph model storage"),
-        (_StorageOnlyGenerationWorkerMixin, "refresh quantized CUDA graphs"),
-    ],
-)
-def test_runtime_requires_graph_storage_lifecycle(
-    monkeypatch: pytest.MonkeyPatch,
-    generation_mixin,
-    expected_error,
-) -> None:
-    """A stale install must expose both graph-storage lifecycle hooks."""
+def test_runtime_requires_current_colocated_refit_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A stale install must not bypass the current colocated-refit lifecycle."""
 
     def init_ray(log_dir=None, *, include_dashboard=True, num_cpus=None):
         return None
 
     def import_module(name):
+        if name == "nemo_rl":
+            return SimpleNamespace(EVO2_GRAPH_STORAGE_LIFECYCLE_VERSION=1)
         if name.endswith(".grpo"):
             return SimpleNamespace(split_environment_timing_metrics=lambda metrics: (metrics, {}))
         if name.endswith(".datasets.utils"):
@@ -281,11 +531,39 @@ def test_runtime_requires_graph_storage_lifecycle(
                 apply_top_k_top_p=lambda logits, top_k, top_p, chunk_size=None, target_token_ids=None: logits
             )
         if name.endswith(".megatron_worker"):
-            return SimpleNamespace(MegatronGenerationMixin=generation_mixin)
+            raise AssertionError("the CUDA-free runtime check must not import the Megatron worker")
         return SimpleNamespace(init_ray=init_ray)
 
     monkeypatch.setattr(nemo_rl_setup, "_runtime_is_complete", lambda: True)
     monkeypatch.setattr(nemo_rl_setup.importlib, "import_module", import_module)
 
-    with pytest.raises(RuntimeError, match=expected_error):
+    with pytest.raises(RuntimeError, match="required Evo2 colocated-refit lifecycle support"):
+        nemo_rl_setup.assert_nemo_rl_runtime()
+
+
+def test_runtime_requires_exact_response_termination(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A stale install must not silently misclassify length-capped responses."""
+
+    def init_ray(log_dir=None, *, include_dashboard=True, num_cpus=None):
+        return None
+
+    def import_module(name):
+        if name == "nemo_rl":
+            return SimpleNamespace(EVO2_GRAPH_STORAGE_LIFECYCLE_VERSION=2)
+        if name.endswith(".grpo"):
+            return SimpleNamespace(split_environment_timing_metrics=lambda metrics: (metrics, {}))
+        if name.endswith(".datasets.utils"):
+            return SimpleNamespace(resolve_external_dataset_class=lambda name: name)
+        if name.endswith(".logits_sampling_utils"):
+            return SimpleNamespace(
+                apply_top_k_top_p=lambda logits, top_k, top_p, chunk_size=None, target_token_ids=None: logits
+            )
+        if name.endswith(".megatron_worker"):
+            raise AssertionError("the CUDA-free runtime check must not import the Megatron worker")
+        return SimpleNamespace(init_ray=init_ray)
+
+    monkeypatch.setattr(nemo_rl_setup, "_runtime_is_complete", lambda: True)
+    monkeypatch.setattr(nemo_rl_setup.importlib, "import_module", import_module)
+
+    with pytest.raises(RuntimeError, match="exact generated-response termination support"):
         nemo_rl_setup.assert_nemo_rl_runtime()

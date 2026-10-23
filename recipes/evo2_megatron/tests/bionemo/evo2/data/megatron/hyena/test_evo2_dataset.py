@@ -19,6 +19,7 @@
 
 import random
 import timeit
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -66,6 +67,22 @@ token after the pipe and it is a 'd' character. Make sure tests are consistent w
 """
 
 MAX_TAG_LEN = 2048
+
+
+def test_conditioned_dna_without_taxonomy():
+    """Short conditioned documents keep DNA/EOD targets, excluding prefixes and padding."""
+    dataset = object.__new__(Evo2Dataset)
+    dataset.config = SimpleNamespace(tokenizer=SimpleNamespace(eod=0), mask_phylogenetic_tags=False)
+    # Shifted labels cross an EOD into another conditioned document, then synthetic padding.
+    raw = torch.tensor(list(b"+$ACGT\x00+~tgca\x00\x00\x00"))
+    upstream_mask = torch.ones(len(raw) - 1)
+    upstream_mask[-2:] = 0
+    batch = dataset._modify_gpt_batch(
+        {"tokens": raw[:-1].clone(), "labels": raw[1:].clone(), "loss_mask": upstream_mask}
+    )
+    torch.testing.assert_close(
+        batch["loss_mask"], torch.tensor([0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0], dtype=torch.float32)
+    )
 
 
 @pytest.fixture
@@ -1053,7 +1070,10 @@ if __name__ == "__main__":
     print(f"Speed improvement: {(old_time / new_time - 1) * 100:.2f}%")
 
 
-def test_evo2_dataset_getitem(monkeypatch):
+@pytest.mark.parametrize(
+    ("reset_pad_eod_mask", "starting_eod_loss", "expected_eod_loss"), [(False, 0, 0), (True, 1, 1)]
+)
+def test_evo2_dataset_getitem(monkeypatch, reset_pad_eod_mask, starting_eod_loss, expected_eod_loss):
     """Test Evo2Dataset.__getitem__ method."""
     # from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
     tokenizer = build_tokenizer(
@@ -1065,9 +1085,9 @@ def test_evo2_dataset_getitem(monkeypatch):
     )
     eod_token_id = tokenizer.eod
     # labels are all case, tokens are converted to upper case.
-    input_string = f"a  @  t  |  d  _  _  t  {eod_token_id}  #  a  t".replace(" ", "")
-    starting_loss_mask = torch.tensor([1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1], dtype=torch.bool)
-    expected_loss_mask = torch.tensor([1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1], dtype=torch.bool)
+    input_string = f"a  @  t  |  d  _  _  t  {eod_token_id}  #  a  t  {eod_token_id}  {eod_token_id}".replace(" ", "")
+    starting_loss_mask = torch.tensor([1, 1, 1, 1, 1, 1, 1, 1, starting_eod_loss, 1, 1, 1, 0, 0], dtype=torch.bool)
+    expected_loss_mask = torch.tensor([1, 0, 1, 0, 0, 0, 0, 0, expected_eod_loss, 0, 1, 1, 0, 0], dtype=torch.bool)
     input_tokens = [
         ord(t) if t != str(eod_token_id) else eod_token_id for t in input_string
     ]  # starts out both lower/upper
@@ -1118,7 +1138,7 @@ def test_evo2_dataset_getitem(monkeypatch):
         index_split=Split.train,
         config=MockConfig(),
     )
-    dataset.RESET_PAD_EOD_MASK = False
+    dataset.RESET_PAD_EOD_MASK = reset_pad_eod_mask
     dataset.TO_UPPER_TOKENS = True
     parent_batch = {
         "loss_mask": starting_loss_mask,  # Will be modified by Evo2Dataset

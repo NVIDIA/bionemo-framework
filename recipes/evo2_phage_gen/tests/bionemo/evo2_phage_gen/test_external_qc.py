@@ -42,7 +42,7 @@ def _write_config(tmp_path: Path, **overrides) -> Path:
         "reference_tropism_protein": str(g_protein),
         "orf_filtering": False,
         "homology_filtering": False,
-        "protein_database_hit_count_filter": True,
+        "protein_database_search": True,
         "mmseqs_db_protein_database": str(tmp_path / "missing_phrogs_db"),
         "tropism_protein_sequence_identity_filter": True,
         "mmseqs_db_tropism_protein": str(tmp_path / "missing_tropism_db"),
@@ -111,6 +111,21 @@ def test_external_qc_checker_requires_enabled_stage_inputs(tmp_path, monkeypatch
     assert "tropism_mmseqs_db" in missing_required
     assert "mmseqs" in missing_required
     assert "orfipy" in missing_required
+
+
+def test_qc_requires_member_db_for_aai(tmp_path, monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda *_args, **_kwargs: None)
+    checks = check_arc_qc_prerequisites(
+        _write_config(
+            tmp_path,
+            genetic_architecture_visualization_and_synteny_filtering=True,
+            average_protein_sequence_identity_filter=True,
+            mmseqs_db_aai_database=str(tmp_path / "members"),
+        ),
+        genetic_architecture_import_fasta=_write_import_fasta(tmp_path),
+    )
+    check = next(c for c in checks if c.name == "phrogs_member_db")
+    assert check.required and not check.ok
 
 
 def test_external_qc_checker_uses_explicit_run_tool_directory(tmp_path, monkeypatch):

@@ -95,6 +95,7 @@ class Evo2CommonKwargs(TypedDict, total=False):
     precision_config: MixedPrecisionConfig | str | None
     comm_overlap_config: CommOverlapConfig | None
     pad_eod_loss_mask: bool
+    mask_phylogenetic_tags: bool
     no_weight_decay_embeddings: bool
     lora_finetune: bool
     lora_alpha: int
@@ -172,6 +173,7 @@ def _evo2_common(
     comm_overlap_config: CommOverlapConfig | None = None,
     no_weight_decay_embeddings: bool = False,
     pad_eod_loss_mask: bool = False,
+    mask_phylogenetic_tags: bool = True,
     lora_finetune: bool = False,
     lora_alpha: int = 32,
     lora_dim: int = 16,
@@ -226,6 +228,7 @@ def _evo2_common(
             seq_length=seq_length,
             eod_mask_loss=pad_eod_loss_mask,
             dataset_cls=Evo2DatasetPadEodLossMask if pad_eod_loss_mask else Evo2Dataset,
+            mask_phylogenetic_tags=mask_phylogenetic_tags,
         )
     else:
         raise ValueError("TODO unsure how to handle this case")

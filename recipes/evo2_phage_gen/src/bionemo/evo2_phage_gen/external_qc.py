@@ -112,7 +112,7 @@ def check_arc_qc_prerequisites(
                 "phrogs_consensus_db",
                 config,
                 "mmseqs_db_protein_database",
-                required=homology_required and bool(config.get("protein_database_hit_count_filter")),
+                required=homology_required and bool(config.get("protein_database_search")),
             ),
             _check_path(
                 "tropism_mmseqs_db",
@@ -153,6 +153,15 @@ def check_arc_qc_prerequisites(
     )
 
     visualization_required = bool(config.get("genetic_architecture_visualization_and_synteny_filtering"))
+    if config.get("mmseqs_db_aai_database"):
+        checks.append(
+            _check_path(
+                "phrogs_member_db",
+                config,
+                "mmseqs_db_aai_database",
+                required=visualization_required and bool(config.get("average_protein_sequence_identity_filter")),
+            )
+        )
     checks.append(_check_tool("lovis4u", "lovis4u", required=visualization_required, search_path=search_path))
     checks.extend(
         [
@@ -190,7 +199,7 @@ def main() -> None:
         "--genetic-architecture-import-fasta",
         type=Path,
         default=Path(ARC_GENETIC_ARCHITECTURE_IMPORT_FASTA),
-        help="PhiX174 FASTA path read by Arc genetic_architecture.py at import time",
+        help="PhiX174 FASTA read at import time by Arc's codon-landmark module genetic_architecture.py",
     )
     parser.add_argument(
         "--checkv-db",

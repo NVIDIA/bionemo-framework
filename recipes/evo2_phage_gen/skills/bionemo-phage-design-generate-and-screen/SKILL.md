@@ -9,36 +9,73 @@ metadata:
 
 Work inside the recipe and result roots selected by the controller. Generate complete genomes by default; use a locus/module/RBP-only rollout only when that narrower scope was explicitly requested.
 
-Use the selected checkpoint and calibrated prompt mixture, sampling settings, target length, and independent prompt IDs/seeds, following the concise [rollout guidance](references/rollout-guidance.md). For the PhiX174 case study, generate exactly 1,000 designs for the final rollout.
+Use the selected checkpoint and calibrated prompt mixture, sampling settings, target length, and independent prompt IDs/seeds, following the concise [rollout guidance](references/rollout-guidance.md). For the PhiX174 case study, generate exactly 1,000 designs for the final rollout unless the user requests another count. The opt-in `--quick-e2e` execution check uses 16; retain and reconcile that explicit denominator without presenting it as the full scientific rollout.
 
-For medium/long generation, use packed dynamic inference for both uniform and mixed-length batches; use static-Flash only when a target-length benchmark shows it wins for equal-length prompts. Pass `--ignore-eos --strict-generation` when an exact target length is required. Use packed `predict` for ragged SFT-likelihood batches. For uniform medium/long scoring, use `--no-sequence-packing` when the target-hardware benchmark favors the rectangular path or when CP is required; TP supports either layout. Do not add `--use-subquadratic-ops` to packed likelihood scoring. Dynamic generation ignores that legacy flag and keeps CUDA-graphed decode; it remains meaningful only for static-Flash generation and rectangular prediction/training.
+For medium/long generation, use packed dynamic inference for both uniform and mixed-length batches; use static-Flash only when a target-length benchmark shows it wins for equal-length prompts. Use `--ignore-eos --strict-generation` for an exact fixed length; when termination is learned, keep EOD eligible and preserve its sampled action and log-probability. Use packed `predict` for ragged SFT-likelihood batches. For uniform medium/long scoring, use `--no-sequence-packing` when the target-hardware benchmark favors the rectangular path or when CP is required; TP supports either layout. Do not add `--use-subquadratic-ops` to packed likelihood scoring. Dynamic generation ignores that legacy flag and keeps CUDA-graphed decode; it remains meaningful only for static-Flash generation and rectangular prediction/training.
 
-The maintained GDPO config applies that same exact-length packed dynamic generation through `Evo2MegatronGenerationAdapter` on each data-parallel shard. Its fixed-row decode captures only the physical full/remainder request shapes actually used and reuses them while registered model storage remains stable; an unexpected parameter or buffer address change on any TP/PP/CP rank forces replica-wide recapture without crossing DP replicas, and quantized graphs recapture after every refit even when those addresses remain stable. For heterogeneous prompts, qualify multi-page packed parity, preserve both request IDs and `request_to_mamba_state_idx` across staggered KV-page rollovers, and compare generated selected-action log probabilities with a prediction forward plus reconstructed target-preserving top-k/top-p support, including page-boundary phase checks. Qualify persistence across at least two rollout/offload-refit cycles. Compare cold end-to-end, model-generation, and steady-decode metrics separately when benchmarking. Do not confuse it with NeMo-RL's `policy.sequence_packing`, which controls gradient-bearing policy/loss forwards and stays disabled until separately qualified for Evo2 correctness, memory, and throughput.
+The maintained GDPO config sends each mixed-length rollout shard through packed dynamic generation and retains sampled terminal EOD via `Evo2MegatronGenerationAdapter`. Its fixed-row decode captures only the physical full/remainder request shapes actually used and reuses them while registered model storage remains stable; an unexpected parameter or buffer address change on any TP/PP/CP rank forces replica-wide recapture without crossing DP replicas, and quantized graphs recapture after every refit even when those addresses remain stable. For heterogeneous prompts, qualify multi-page packed parity, preserve both request IDs and `request_to_mamba_state_idx` across staggered KV-page rollovers, and compare generated selected-action log probabilities with a prediction forward plus reconstructed target-preserving top-k/top-p support, including page-boundary phase checks. Qualify persistence across at least two rollout/offload-refit cycles. Compare cold end-to-end, model-generation, and steady-decode metrics separately when benchmarking. Do not confuse it with NeMo-RL's `policy.sequence_packing`, which controls gradient-bearing policy/loss forwards and stays disabled until separately qualified for Evo2 correctness, memory, and throughput.
 
 Keep BF16 as the portable precision baseline and use a low-precision backend only when the exact checkpoint, GPU family, endpoint, and generation length passed accuracy and CUDA-graph qualification. On Hopper, the 7B model may use regular Transformer Engine FP8 across all compatible linears with `--mixed-precision-recipe bf16_with_fp8_current_scaling_mixed --fp8-all-layers`; without the scope flag, that MBridge recipe retains BF16 first/last blocks. In native dynamic inference, global FP8/FP4 automatically uses layer CUDA graphs even when block scope is requested, because Transformer Engine's quantization state is not block-graph compatible. For globally quantized packed prediction, `--sequence-parallel-policy auto` retains TP but disables SP with current MCore because its padding shim double-reduces row outputs; BF16 TP keeps SP. Use `on` only to requalify a future pad-aware single-reduction implementation with aligned/ragged TP parity and performance A/B tests. After qualification, `phix174_8xh100.sh --hopper-fp8-inference` applies that pair consistently to calibration, final rollout, and likelihood endpoints without changing GDPO training precision. Keep decode capacity at a multiple of eight requests when practical so regular FP8 can use its native aligned-row path without per-layer pad/unpad; packed dynamic prefill may still mix prompt lengths within that batch. FP8-sensitive Vortex checkpoints instead require BF16 global precision plus `--vortex-style-fp8` delayed scaling.
 
 Process candidates in this order:
 
 1. retain and validate the complete raw-generation denominator;
-2. score every raw design with the selected pre-RL SFT when that ranking evidence is requested;
-3. remove exact biological duplicates, including circular and reverse-complement equivalents when applicable;
+2. before deduplication, score every raw design with the selected pre-RL SFT when that ranking evidence is requested, using the validated direct `iter_*` path recorded by `RESULT_ROOT/rl/sft-checkpoint/preparation-manifest.json`;
+3. remove exact sequence duplicates, preserving the supplied start and strand;
 4. run every required external and internal QC component with its configured positive controls on the representatives;
 5. treat missing required evidence or tool failure as INDETERMINATE rather than PASS;
-6. apply the approved target hard-filter profile;
-7. cluster only the safety-PASS hard-QC set at 99% identity for diversity reporting; and
+6. apply the approved biological hard-filter profile, intersect exact safety PASS, then apply diversification exclusions with AAI last;
+7. cluster only the safety-PASS hard-QC set in its supplied sequence order at the approved identity and coverage thresholds for diversity reporting; and
 8. rank cluster representatives only when the objective plan defines a defensible ranking.
 
 Short genomes, no predicted genes/ORFs, missing measured genes, and header-only or empty tool results must follow their explicit scientific behavior rather than crash the rollout. Confirm that each enabled filter executed and report any unavailable component; never silently skip a gate.
 When pre-safety QC filters the representative set, retain its exact safety-input FASTA: report excluded representatives separately, and still require one manifest row for every sequence actually submitted to safety.
 
-For the PhiX174 target profile, apply filters 1–6, 8, and 9 with filter 7 disabled. Run the filter-7-enabled diagnostic separately so it cannot overwrite or be confused with the target result.
-Disable Arc's internal pre-QC clustering for this final rollout. Run the final MMseqs clustering
-after safety and target hard QC with 99% identity, 80% coverage, coverage mode 0, and cluster mode
+For the PhiX174 target profile, apply filters 1–6, 8, and 9 with filter 7 disabled. Run the filter-7-enabled diagnostic separately so it cannot overwrite or be confused with the target result. Filter 7 uses Arc’s start/stop-codon landmark score, which is separate from the protein-based synteny objective. The final launcher also enables the composite landmark-score keep range; neither landmark filter runs during RL. See the [Arc flag definitions](../../configs/README.md#synteny-and-arcs-codon-landmark-score).
+For this profile, required functions and synteny precede safety qualification;
+filter 7's optional novelty removal follows safety, and AAI is the last per-genome
+filter. Keep the architecture **keep** gate in upstream QC. Pass the saved safety
+manifest and exact safety-input FASTA to Arc, as the maintained launcher does, so
+FAIL/INDETERMINATE candidates cannot enter diversification. Gene/synteny evidence
+must remain available for biologically complete candidates rejected only for novelty.
+Disable Arc's internal clustering for this final rollout. Run the final MMseqs clustering
+after safety and target hard QC with 99% identity, 95% coverage of both genomes, coverage mode 0, and cluster mode
 0, and retain the complete candidate-to-cluster membership table.
 
-As the final rollout/report step, score every generated design with the selected pre-RL SFT checkpoint and its intended conditioning prefix. Attach total and mean per-nucleotide log probability to each design, rank by the mean score, and report residual correlation between that score and sequence length. If a strong residual association makes the normalization unreliable, retain the scores and diagnostic but do not use likelihood to order accepted candidates. [Black et al.](https://doi.org/10.64898/2026.06.12.731871) found that Evo 2 likelihood enriched for experimentally bootable PhiX174 designs, supporting within-protocol ranking—not a transferable cutoff or proof of viability.
+As the final rollout/report step, score every generated design with that validated model-only SFT checkpoint and its intended conditioning prefix; retain the full-state source for exact SFT-training resume. Attach total and mean per-nucleotide log probability to each design and report residual correlation between that score and sequence length. Use the mean score for ordering only when length and prompt serialization are comparable. In particular, whole-sequence likelihood is origin-dependent for circular genomes, so retain it as a diagnostic rather than globally ranking a mixed-origin rollout unless an origin-normalized method was validated. [Black et al.](https://doi.org/10.64898/2026.06.12.731871) found that Evo 2 likelihood enriched for experimentally bootable PhiX174 designs, supporting within-protocol ranking—not a transferable cutoff or proof of viability.
 
 Write the generated FASTA, per-candidate scores/states, final passing sequences, cluster assignments, and a concise waterfall from generated through PASS/FAIL/INDETERMINATE. Record checkpoint, sampling settings, tool/database versions, commands, counts, selected candidates, and limitations in the stage summary and `RUNLOG.md`. State that computational screening does not establish bootability, host range, therapeutic safety, or efficacy.
+When CheckV filtering is enabled, retain only exact FASTA-ID matches with a quality
+listed in `checkv_quality_range`; missing or unclassified results do not pass the
+maintained PhiX profile. The example refreshes the derived Arc pipeline before new
+final screening, including direct stage-50 entry, so current patches are applied.
+Completed scientific artifacts remain governed by stage markers. See the [filter contract](references/rollout-guidance.md).
+
 For long final rollouts, keep independently validated completion markers for raw generation,
 deduplication, likelihood, safety, target and diagnostic branches, final clustering, and reporting so
 a restart reuses only scientifically complete evidence.
+
+For the PhiX profile, distinguish `core_gene_ordered_conservation` from
+`accessory_gene_diversification`. The former preserves the existing core order/copy
+rules; the latter rewards K/X repertoire changes, excludes partial core matches,
+and penalizes accessory copies. X must be outside K and the nine core families;
+K mutations do not supply X, while a distinct K-like family may qualify.
+The v3 final contract independently replays its ORF evidence for a separate
+structured add-one-gene route: one eligible K and one eligible non-core/non-K X,
+both at full credit, no duplicate accessory copies, and exactly two accessory
+types. A reward alone or an 11/13 count pair never establishes this category.
+Keep the original ARC count decision and the add-one-gene decision separate.
+Reconcile their overlap and union against the terminal FASTA; reject inconsistent
+route summaries. Reuse final-filter evidence only when inputs, configuration and
+both natural-member AAI and tropism database file hashes (including sidecars) match.
+Use the [accessory definition](../../docs/accessory_genes.md) before adapting
+families or thresholds. K-family absence requires available search evidence; a
+missing artifact is never a deletion reward. AAI includes all hit-bearing proteins.
+
+For circular-ORF AAI, collapse a prefix tail only with the same circular locus,
+strand, stop and reading frame; identical peptide suffixes alone do not establish
+duplication. Preserve distinct gene copies. The PhiX forward-prefix cleanup does
+not resolve biological initiation sites or independently annotate A\*. Retain the
+current maximal-ORF assumption for A and annotate the 522-versus-513-aa start
+ambiguity; do not trim it to the reference or select starts by their resulting AAI. See the maintained
+[final-filter contract](../bionemo-phage-design/references/arc-final-filter-contract.md).

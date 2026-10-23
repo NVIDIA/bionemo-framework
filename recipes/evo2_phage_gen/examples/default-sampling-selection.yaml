@@ -1,12 +1,24 @@
-# Historical PhiX174 case-study settings. Supplying this file explicitly bypasses
+# Current PhiX174 case-study defaults. Supplying this file explicitly bypasses
 # the fresh-calibration compatibility check; see examples/README.md.
 temperature: 1.0
-top_k: 4
+top_k: 5
+# Keep the complete top-5 support, including terminal EOD at every prompt stratum.
 top_p: 1.0
-max_new_tokens: 5976
+# Biological caps are 6,016/6,024 nt, beyond the 5,800-nt shaping zero.
+# This is exploration headroom, not a claim of viability at 6 kb; sampled EOD may stop earlier.
+# The PhiX RL configs separately enable zero_reward_without_eod for the entire RL reward.
+# Length evidence: https://doi.org/10.1128/jvi.52.3.822-827.1984 and
+# https://doi.org/10.1126/science.aec2657 (see configs/grpo_phage_megatron.yaml).
+max_new_tokens: 6000
 prompt_lengths:
   - 16
   - 24
+# Use the deposited PhiX start: related SFT records overwhelmingly favor this
+# context over the tested internal anchors, and preprocessing adds no rotations.
+# See examples/README.md, "Prompt origin", for counts and limits of the evidence.
+prompt_anchors:
+  - name: origin
+    start_1_based: 1
 rl_seed: 42
 rollout_seed: 7
 seed_stride: 1000003

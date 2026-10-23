@@ -49,6 +49,10 @@ All CLI tools are defined in `pyproject.toml` under `[project.scripts]`.
 
 Run any tool with `--help` for full usage details.
 
+`train_evo2 --attention-backend {auto,flash,fused,unfused}` overrides the model's
+attention implementation. Omitting it preserves the model provider's default.
+The PhiX launcher explicitly selects `fused` for its 26.07 SFT and RL workflows.
+
 ## Quick start
 
 ### Training with mock data (Hyena)
@@ -81,6 +85,13 @@ torchrun --nproc-per-node 2 --no-python \
 > compatibility path. `infer_evo2` uses it only with the static-Flash backend;
 > dynamic inference ignores it because segmented prefill and fused recurrent
 > decode already own those phases.
+
+For indexed datasets verified to contain no taxonomy text, `--skip-taxonomy-loss-mask`
+disables phylogenetic-tag parsing. Non-DNA targets remain masked, including non-DNA
+conditioning prefixes. Genuine EOD supervision and synthetic-padding exclusion are
+unchanged. Leave this option off for corpora containing taxonomy annotations: their
+letters can overlap DNA tokens and require the tag parser. Keep the same mask setting
+for training and validation; changing it changes the loss being measured.
 
 ### Checkpoint retention
 

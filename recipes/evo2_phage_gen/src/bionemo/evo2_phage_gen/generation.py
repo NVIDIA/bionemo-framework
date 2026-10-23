@@ -19,7 +19,9 @@ import argparse
 import csv
 import json
 import math
+import re
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from Bio import SeqIO
@@ -35,6 +37,86 @@ PAPER_USEFUL_RL_PROMPT_LENGTHS = (4, 5, 6, 7, 8, 9, 10, 10, 10, 10, 10, 11)
 PAPER_USEFUL_RL_VALIDATION_PROMPT_LENGTH = 10
 PAPER_USEFUL_RL_VALIDATION_RECORDS = 96
 RECIPE_ROOT = Path(__file__).resolve().parents[3]
+PROMPT_ANCHOR_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*$")
+
+
+@dataclass(frozen=True)
+class PromptAnchor:
+    """One named 1-based start on a circular reference sequence."""
+
+    name: str
+    start_1_based: int
+
+    def __post_init__(self) -> None:
+        """Validate the anchor name and 1-based coordinate."""
+        if not PROMPT_ANCHOR_NAME_RE.fullmatch(self.name):
+            raise ValueError(f"Invalid prompt anchor name: {self.name!r}")
+        if isinstance(self.start_1_based, bool) or self.start_1_based < 1:
+            raise ValueError("Prompt anchor start must be a positive 1-based coordinate")
+
+
+def parse_prompt_anchor(value: str) -> PromptAnchor:
+    """Parse a CLI ``NAME:START`` circular prompt anchor."""
+    name, separator, start = value.partition(":")
+    if not separator:
+        raise argparse.ArgumentTypeError("prompt anchors must use NAME:START")
+    try:
+        return PromptAnchor(name=name, start_1_based=int(start))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
+def load_reference_sequence(path: Path) -> str:
+    """Load exactly one non-empty reference sequence from FASTA."""
+    records = list(SeqIO.parse(path, "fasta"))
+    if len(records) != 1 or not records[0].seq:
+        raise ValueError(f"Reference FASTA must contain exactly one non-empty sequence: {path}")
+    return str(records[0].seq).upper()
+
+
+def circular_prompt(
+    reference_sequence: str,
+    anchor: PromptAnchor,
+    prompt_length: int,
+    prompt_prefix: str = DEFAULT_PROMPT_PREFIX,
+) -> str:
+    """Extract one prompt from a named position on a circular reference."""
+    sequence = reference_sequence.strip().upper()
+    if not sequence:
+        raise ValueError("reference sequence must not be empty")
+    if anchor.start_1_based > len(sequence):
+        raise ValueError(
+            f"Prompt anchor {anchor.name!r} starts at {anchor.start_1_based}, beyond reference length {len(sequence)}"
+        )
+    if prompt_length < 0 or prompt_length > len(sequence):
+        raise ValueError(f"Prompt length must be between 0 and reference length {len(sequence)}, got {prompt_length}")
+    start = anchor.start_1_based - 1
+    rotated = sequence[start:] + sequence[:start]
+    return f"{prompt_prefix}{rotated[:prompt_length]}"
+
+
+def _prompt_strata(
+    *,
+    prompt_lengths: Sequence[int],
+    reference_start: str,
+    reference_sequence: str | None,
+    prompt_anchors: Sequence[PromptAnchor] | None,
+    prompt_prefix: str,
+) -> list[tuple[PromptAnchor | None, int, str]]:
+    if prompt_anchors is None:
+        prompts = phix174_prompts(reference_start, prompt_lengths, prompt_prefix=prompt_prefix)
+        return [(None, length, prompts[length]) for length in prompt_lengths]
+    if not prompt_anchors:
+        raise ValueError("prompt_anchors must be non-empty when provided")
+    if reference_sequence is None:
+        raise ValueError("reference_sequence is required with prompt_anchors")
+    if len({anchor.name for anchor in prompt_anchors}) != len(prompt_anchors):
+        raise ValueError("prompt anchor names must be unique")
+    return [
+        (anchor, length, circular_prompt(reference_sequence, anchor, length, prompt_prefix))
+        for length in prompt_lengths
+        for anchor in prompt_anchors
+    ]
 
 
 def phix174_prompts(
@@ -75,11 +157,13 @@ def write_rl_prompt_bank(
     repeats_per_length: int | None = None,
     num_records: int | None = None,
     reference_start: str = PHIX174_REFERENCE_START,
+    reference_sequence: str | None = None,
+    prompt_anchors: Sequence[PromptAnchor] | None = None,
     prompt_prefix: str = DEFAULT_PROMPT_PREFIX,
     id_prefix: str = "rl-prompt",
     grouped: bool = False,
 ) -> Path:
-    """Write an interleaved, near-equal prompt mixture for NeMo-RL."""
+    """Write an interleaved, near-equal anchor-length prompt mixture for NeMo-RL."""
     if (repeats_per_length is None) == (num_records is None):
         raise ValueError("exactly one of repeats_per_length and num_records must be provided")
     if not prompt_lengths:
@@ -88,28 +172,34 @@ def write_rl_prompt_bank(
         raise ValueError("repeats_per_length must be positive")
     if num_records is not None and num_records <= 0:
         raise ValueError("num_records must be positive")
-    prompts_by_length = phix174_prompts(reference_start, prompt_lengths, prompt_prefix=prompt_prefix)
+    strata = _prompt_strata(
+        prompt_lengths=prompt_lengths,
+        reference_start=reference_start,
+        reference_sequence=reference_sequence,
+        prompt_anchors=prompt_anchors,
+        prompt_prefix=prompt_prefix,
+    )
     if repeats_per_length is not None:
         if grouped:
-            order = [length for length in prompt_lengths for _ in range(repeats_per_length)]
+            order = [stratum for stratum in strata for _ in range(repeats_per_length)]
         else:
-            order = [length for _ in range(repeats_per_length) for length in prompt_lengths]
+            order = [stratum for _ in range(repeats_per_length) for stratum in strata]
     elif grouped:
-        base_count, extra_count = divmod(num_records, len(prompt_lengths))
-        order = [
-            length for index, length in enumerate(prompt_lengths) for _ in range(base_count + (index < extra_count))
-        ]
+        base_count, extra_count = divmod(num_records, len(strata))
+        order = [stratum for index, stratum in enumerate(strata) for _ in range(base_count + (index < extra_count))]
     else:
-        order = [prompt_lengths[index % len(prompt_lengths)] for index in range(num_records)]
-    counters = dict.fromkeys(prompt_lengths, 0)
+        order = [strata[index % len(strata)] for index in range(num_records)]
+    counters = {(anchor.name if anchor else None, length): 0 for anchor, length, _ in strata}
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as handle:
-        for length in order:
-            index = counters[length]
-            counters[length] += 1
+        for anchor, length, prompt in order:
+            counter_key = (anchor.name if anchor else None, length)
+            index = counters[counter_key]
+            counters[counter_key] += 1
+            anchor_id = f"-{anchor.name}" if anchor else ""
             record = {
-                "id": f"{id_prefix}-p{length}-{index:04d}",
-                **_openai_prompt_record(prompts_by_length[length]),
+                "id": f"{id_prefix}{anchor_id}-p{length}-{index:04d}",
+                **_openai_prompt_record(prompt),
             }
             handle.write(json.dumps(record) + "\n")
     return path
@@ -189,24 +279,59 @@ def write_prompt_sweep_jsonl(
     output_dir: Path,
     *,
     reference_start: str = PHIX174_REFERENCE_START,
+    reference_sequence: str | None = None,
+    prompt_anchors: Sequence[PromptAnchor] | None = None,
     prompt_lengths: Sequence[int] = DEFAULT_PROMPT_LENGTHS,
     prompt_prefix: str = DEFAULT_PROMPT_PREFIX,
     num_prompts: int = 1000,
     id_prefix: str = "phix174",
 ) -> list[Path]:
-    """Write repeated prompt JSONL files for ``infer_evo2 --prompt-file``."""
+    """Write one mixed-anchor prompt JSONL file per prompt length."""
     if num_prompts <= 0:
         raise ValueError(f"num_prompts must be positive, got {num_prompts}")
     output_dir.mkdir(parents=True, exist_ok=True)
     written_paths: list[Path] = []
-    for prompt_len, prompt in phix174_prompts(reference_start, prompt_lengths, prompt_prefix=prompt_prefix).items():
-        output_path = output_dir / f"{id_prefix}_prompt{prompt_len}_{num_prompts}.jsonl"
+    unique_prompt_lengths = tuple(dict.fromkeys(prompt_lengths))
+    strata = _prompt_strata(
+        prompt_lengths=unique_prompt_lengths,
+        reference_start=reference_start,
+        reference_sequence=reference_sequence,
+        prompt_anchors=prompt_anchors,
+        prompt_prefix=prompt_prefix,
+    )
+    for prompt_len in unique_prompt_lengths:
+        length_strata = [(anchor, prompt) for anchor, length, prompt in strata if length == prompt_len]
+        total_prompts = num_prompts * len(length_strata)
+        output_path = output_dir / f"{id_prefix}_prompt{prompt_len}_{total_prompts}.jsonl"
         with output_path.open("w") as f:
             for idx in range(num_prompts):
-                record = {"id": f"{id_prefix}_prompt{prompt_len}_{idx:04d}", "prompt": prompt}
-                f.write(json.dumps(record) + "\n")
+                for anchor, prompt in length_strata:
+                    if anchor is None:
+                        record_id = f"{id_prefix}_prompt{prompt_len}_{idx:04d}"
+                    else:
+                        record_id = f"{id_prefix}-{anchor.name}-p{prompt_len}-{idx:04d}"
+                    f.write(json.dumps({"id": record_id, "prompt": prompt}) + "\n")
         written_paths.append(output_path)
     return written_paths
+
+
+def write_rotated_reference_fasta(
+    reference_fasta: Path,
+    output_fasta: Path,
+    prompt_anchors: Sequence[PromptAnchor],
+) -> Path:
+    """Write named rotations of one circular reference for invariance controls."""
+    sequence = load_reference_sequence(reference_fasta)
+    if not prompt_anchors or len({anchor.name for anchor in prompt_anchors}) != len(prompt_anchors):
+        raise ValueError("prompt anchors must be non-empty with unique names")
+    output_fasta.parent.mkdir(parents=True, exist_ok=True)
+    output_fasta.write_text(
+        "".join(
+            f">{anchor.name}\n{_wrap_fasta_sequence(circular_prompt(sequence, anchor, len(sequence), ''))}\n"
+            for anchor in prompt_anchors
+        )
+    )
+    return output_fasta
 
 
 def _sequence_before_eos(sequence: str) -> str:
@@ -387,16 +512,12 @@ def finalize_ranked_rollout(
     """Join likelihood and QC evidence, then rank accepted candidates without making a viability claim."""
     from scipy.stats import spearmanr
 
-    from bionemo.evo2_phage_gen.calibration_novelty import canonical_circular_sequence
-
     generated = _fasta_records(generated_fasta)
     sequence_by_id = dict(generated)
     generated_order = {record_id: index for index, (record_id, _) in enumerate(generated)}
     safety_payload = json.loads(safety_manifest.read_text())
     safety_by_id = {str(row["record_id"]): str(row["state"]) for row in safety_payload["records"]}
-    target_sequences = {
-        canonical_circular_sequence(sequence) for _, sequence in _fasta_records(target_fasta, allow_empty=True)
-    }
+    target_sequences = {sequence for _, sequence in _fasta_records(target_fasta, allow_empty=True)}
     with likelihood_csv.open() as handle:
         score_rows = list(csv.DictReader(handle))
     score_ids = [row["record_id"] for row in score_rows]
@@ -424,23 +545,22 @@ def finalize_ranked_rollout(
     accepted_ids: list[str] = []
     accepted_rank_by_id: dict[str, int] = {}
     duplicate_of_by_id: dict[str, str] = {}
-    accepted_canonical: dict[str, str] = {}
+    accepted_sequences: dict[str, str] = {}
     for score in candidate_order:
         record_id = score["record_id"]
-        canonical = canonical_circular_sequence(sequence_by_id[record_id])
-        duplicate_of = accepted_canonical.get(canonical)
+        sequence = sequence_by_id[record_id]
+        duplicate_of = accepted_sequences.get(sequence)
         if duplicate_of is not None:
             duplicate_of_by_id[record_id] = duplicate_of
-        if safety_by_id.get(record_id) == "PASS" and canonical in target_sequences and duplicate_of is None:
+        if safety_by_id.get(record_id) == "PASS" and sequence in target_sequences and duplicate_of is None:
             accepted_ids.append(record_id)
             accepted_rank_by_id[record_id] = len(accepted_ids)
-            accepted_canonical[canonical] = record_id
+            accepted_sequences[sequence] = record_id
 
     report_rows = []
     for likelihood_rank, score in enumerate(score_rows, start=1):
         record_id = score["record_id"]
         sequence = sequence_by_id[record_id]
-        canonical = canonical_circular_sequence(sequence)
         report_rows.append(
             {
                 "likelihood_rank": likelihood_rank,
@@ -452,7 +572,7 @@ def finalize_ranked_rollout(
                 "total_log_probability": float(score["total_log_probability"]),
                 "mean_log_probability_per_nucleotide": float(score["mean_log_probability_per_nucleotide"]),
                 "safety_state": safety_by_id.get(record_id, "NOT_EVALUATED"),
-                "target_profile_pass": canonical in target_sequences,
+                "target_profile_pass": sequence in target_sequences,
                 "accepted": record_id in accepted_rank_by_id,
                 "duplicate_of_higher_priority_candidate": duplicate_of_by_id.get(record_id),
             }
@@ -565,6 +685,8 @@ def main() -> None:
     rl_bank_size.add_argument("--repeats-per-length", type=int)
     rl_bank_size.add_argument("--num-records", type=int)
     rl_bank_parser.add_argument("--reference-start", type=str, default=PHIX174_REFERENCE_START)
+    rl_bank_parser.add_argument("--reference-fasta", type=Path)
+    rl_bank_parser.add_argument("--prompt-anchor", type=parse_prompt_anchor, action="append", dest="prompt_anchors")
     rl_bank_parser.add_argument("--prompt-prefix", type=str, default=DEFAULT_PROMPT_PREFIX)
     rl_bank_parser.add_argument("--id-prefix", type=str, default="rl-prompt")
     rl_bank_parser.add_argument("--grouped", action="store_true")
@@ -572,6 +694,8 @@ def main() -> None:
     prompt_parser = subparsers.add_parser("write-prompts", help="Write PhiX174 prompt sweep JSONL files")
     prompt_parser.add_argument("--output-dir", type=Path, required=True)
     prompt_parser.add_argument("--reference-start", type=str, default=PHIX174_REFERENCE_START)
+    prompt_parser.add_argument("--reference-fasta", type=Path)
+    prompt_parser.add_argument("--prompt-anchor", type=parse_prompt_anchor, action="append", dest="prompt_anchors")
     prompt_parser.add_argument("--prompt-lengths", type=int, nargs="+", default=list(DEFAULT_PROMPT_LENGTHS))
     prompt_parser.add_argument("--prompt-prefix", type=str, default=DEFAULT_PROMPT_PREFIX)
     prompt_parser.add_argument("--num-prompts", type=int, default=1000)
@@ -585,6 +709,20 @@ def main() -> None:
     shard_parser.add_argument("--output-dir", type=Path, required=True)
     shard_parser.add_argument("--num-records", type=int, required=True)
     shard_parser.add_argument("--num-shards", type=int, required=True)
+
+    rotation_parser = subparsers.add_parser(
+        "write-reference-rotations",
+        help="Write named rotations of one circular reference for invariance controls",
+    )
+    rotation_parser.add_argument("--reference-fasta", type=Path, required=True)
+    rotation_parser.add_argument("--output-fasta", type=Path, required=True)
+    rotation_parser.add_argument(
+        "--prompt-anchor",
+        type=parse_prompt_anchor,
+        action="append",
+        dest="prompt_anchors",
+        required=True,
+    )
 
     fasta_parser = subparsers.add_parser("jsonl-to-fasta", help="Convert infer_evo2 JSONL outputs to FASTA")
     fasta_parser.add_argument("--input-jsonl", type=Path, nargs="*", default=[])
@@ -612,7 +750,7 @@ def main() -> None:
 
     deduplication_parser = subparsers.add_parser(
         "deduplicate-fasta",
-        help="Remove exact, circular, and reverse-complement biological duplicates",
+        help="Remove exact sequence duplicates, preserving supplied starts and strands",
     )
     deduplication_parser.add_argument("--input-fasta", type=Path, required=True)
     deduplication_parser.add_argument("--output-fasta", type=Path, required=True)
@@ -682,6 +820,10 @@ def main() -> None:
         for path in ensure_paper_useful_rl_prompt_files(args.data_dir, overwrite=args.overwrite).values():
             print(path)
     elif args.command == "write-rl-prompts":
+        if args.prompt_anchors and args.reference_fasta is None:
+            parser.error("--reference-fasta is required with --prompt-anchor")
+        if args.reference_fasta is not None and not args.prompt_anchors:
+            parser.error("--prompt-anchor is required with --reference-fasta")
         print(
             write_rl_prompt_bank(
                 args.output,
@@ -689,15 +831,23 @@ def main() -> None:
                 repeats_per_length=args.repeats_per_length,
                 num_records=args.num_records,
                 reference_start=args.reference_start,
+                reference_sequence=load_reference_sequence(args.reference_fasta) if args.reference_fasta else None,
+                prompt_anchors=args.prompt_anchors,
                 prompt_prefix=args.prompt_prefix,
                 id_prefix=args.id_prefix,
                 grouped=args.grouped,
             )
         )
     elif args.command == "write-prompts":
+        if args.prompt_anchors and args.reference_fasta is None:
+            parser.error("--reference-fasta is required with --prompt-anchor")
+        if args.reference_fasta is not None and not args.prompt_anchors:
+            parser.error("--prompt-anchor is required with --reference-fasta")
         for path in write_prompt_sweep_jsonl(
             args.output_dir,
             reference_start=args.reference_start,
+            reference_sequence=load_reference_sequence(args.reference_fasta) if args.reference_fasta else None,
+            prompt_anchors=args.prompt_anchors,
             prompt_lengths=args.prompt_lengths,
             prompt_prefix=args.prompt_prefix,
             num_prompts=args.num_prompts,
@@ -712,6 +862,8 @@ def main() -> None:
             num_shards=args.num_shards,
         ):
             print(path)
+    elif args.command == "write-reference-rotations":
+        print(write_rotated_reference_fasta(args.reference_fasta, args.output_fasta, args.prompt_anchors))
     elif args.command == "jsonl-to-fasta":
         paths = _resolve_jsonl_inputs(args.input_jsonl, args.input_dir, args.glob)
         print(infer_jsonl_to_fasta(paths, args.output_fasta, include_source_stem=not args.no_source_stem))

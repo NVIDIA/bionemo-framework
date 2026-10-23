@@ -13,15 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-Apache2
-
 from __future__ import annotations
 
 import json
 import shutil
 from pathlib import Path
 
+import pytest
 import yaml
 
 from bionemo.evo2_phage_gen import prepare_sft_checkpoint_for_rl
@@ -110,6 +108,19 @@ def test_prepare_builds_reusable_rl_checkpoint(tmp_path: Path, monkeypatch) -> N
 
     assert prepare_sft_checkpoint_for_rl.prepare_sft_checkpoint_for_rl(source_root, output) == prepared
     assert len(calls) == 1
+
+    payload = prepared / "__0_0.distcp"
+    payload.write_bytes(b"incomplete")
+    with pytest.raises(FileExistsError, match="incomplete or changed"):
+        prepare_sft_checkpoint_for_rl.prepare_sft_checkpoint_for_rl(source_root, output)
+    payload.write_bytes(b"source checkpoint payload")
+
+    shutil.rmtree(source_root)
+    assert prepare_sft_checkpoint_for_rl.validate_prepared_sft_checkpoint(output) == prepared
+
+    relocated = tmp_path / "relocated-sft-checkpoint"
+    output.rename(relocated)
+    assert prepare_sft_checkpoint_for_rl.validate_prepared_sft_checkpoint(relocated) == (relocated / "iter_0005200")
 
 
 def test_existing_prepared_checkpoint_rejects_changed_source(tmp_path: Path, monkeypatch) -> None:

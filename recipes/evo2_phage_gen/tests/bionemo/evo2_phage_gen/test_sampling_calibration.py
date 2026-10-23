@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from bionemo.evo2_phage_gen.generation import PromptAnchor
 from bionemo.evo2_phage_gen.sampling_calibration import (
     SweepCell,
     _format_temperature,
@@ -42,6 +43,37 @@ def test_build_sweep_cells_includes_marker_only_and_canonical_temperature() -> N
         "prefix0_temp1.0",
         "prefix4_temp1.0",
     ]
+
+
+def test_build_sweep_cells_crosses_named_anchors_and_lengths() -> None:
+    cells = build_sweep_cells(
+        prefix_lengths=[16, 24],
+        temperatures=[1.0],
+        prompt_anchors=[PromptAnchor("after_f", 2285), PromptAnchor("after_h", 3918)],
+    )
+
+    assert [cell.key for cell in cells] == [
+        "after_f_prefix16_temp1.0",
+        "after_h_prefix16_temp1.0",
+        "after_f_prefix24_temp1.0",
+        "after_h_prefix24_temp1.0",
+    ]
+
+
+def test_write_cell_prompts_extracts_named_circular_anchor(tmp_path: Path) -> None:
+    path = tmp_path / "prompts.jsonl"
+    cell = SweepCell(
+        prefix_length=4,
+        temperature=1.0,
+        prompt_anchor=PromptAnchor("wrap", 7),
+    )
+
+    write_cell_prompts(path, cell=cell, reference_start="AAAACCGG", marker="+~", num_prompts=1)
+
+    assert json.loads(path.read_text()) == {
+        "id": "wrap_prefix4_temp1.0_0000",
+        "prompt": "+~GGAA",
+    }
 
 
 def test_build_sweep_cells_validates_nonempty_positive_grid() -> None:
@@ -88,13 +120,15 @@ def test_write_cell_prompts_supports_marker_only_control(tmp_path: Path) -> None
     ]
 
 
-def test_build_inference_command_preserves_total_target_length(tmp_path: Path) -> None:
+@pytest.mark.parametrize("prefix_length", [24, 1500])
+@pytest.mark.parametrize("stop_on_eos", [False, True])
+def test_build_inference_command_preserves_total_target_length(tmp_path: Path, prefix_length, stop_on_eos) -> None:
     command = build_inference_command(
         infer_script=tmp_path / "infer.py",
         checkpoint=tmp_path / "checkpoint",
         prompt_file=tmp_path / "prompts.jsonl",
         output_file=tmp_path / "output.jsonl",
-        cell=SweepCell(prefix_length=24, temperature=1.0),
+        cell=SweepCell(prefix_length=prefix_length, temperature=1.0),
         target_length=6000,
         seed=7,
         tensor_parallel_size=1,
@@ -103,15 +137,16 @@ def test_build_inference_command_preserves_total_target_length(tmp_path: Path) -
         max_seq_length=10240,
         top_k=17,
         top_p=0.85,
+        stop_on_eos=stop_on_eos,
     )
 
-    assert command[command.index("--max-new-tokens") + 1] == "5976"
+    assert int(command[command.index("--max-new-tokens") + 1]) + prefix_length == 6000
     assert command[command.index("--temperature") + 1] == "1.0"
     assert command[command.index("--top-k") + 1] == "17"
     assert command[command.index("--top-p") + 1] == "0.85"
     assert command[command.index("--tensor-parallel-size") + 1] == "1"
     assert command[command.index("--inference-backend") + 1] == "dynamic"
-    assert "--ignore-eos" in command
+    assert ("--ignore-eos" in command) is not stop_on_eos
     assert "--strict-generation" in command
 
 
@@ -135,6 +170,39 @@ def test_build_inference_command_enables_full_scope_regular_hopper_fp8(tmp_path:
 
     assert command[command.index("--mixed-precision-recipe") + 1] == "bf16_with_fp8_current_scaling_mixed"
     assert "--fp8-all-layers" in command
+
+
+def test_materialize_cli_length_defaults(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "sampling-calibration",
+            "materialize",
+            "--run-root",
+            str(tmp_path / "run"),
+            "--checkpoint",
+            str(tmp_path / "checkpoint"),
+            "--prefix-lengths",
+            "16",
+            "--temperatures",
+            "1.0",
+            "--num-prompts",
+            "1",
+            "--gpu-ids",
+            "0",
+            "--tensor-parallel-size",
+            "1",
+            "--top-k",
+            "4",
+            "--top-p",
+            "1.0",
+        ],
+    )
+
+    args = _parse_args()
+    assert args.target_length == 6000
+    assert args.max_seq_length == 6144
 
 
 def test_print_command_cli_emits_complete_nul_delimited_vector(tmp_path: Path) -> None:
@@ -247,6 +315,31 @@ def test_materialize_sweep_config_mismatch_does_not_modify_outputs(tmp_path: Pat
         if path.is_file()
     }
     assert after == before
+
+
+def test_materialize_sweep_requires_reference_and_anchors_together(tmp_path: Path) -> None:
+    kwargs = {
+        "run_root": tmp_path / "run",
+        "checkpoint": tmp_path / "checkpoint",
+        "prefix_lengths": [4],
+        "temperatures": [1.0],
+        "num_prompts": 1,
+        "reference_start": "GAGT",
+        "marker": "+~",
+        "gpu_ids": [0],
+        "tensor_parallel_size": 1,
+        "target_length": 10,
+        "top_k": 4,
+        "top_p": 1.0,
+        "seed": 7,
+        "prompt_batch_size": 1,
+        "max_seq_length": 16,
+    }
+
+    with pytest.raises(ValueError, match="prompt_anchors are required"):
+        materialize_sweep(**kwargs, reference_sequence="AAAACCGG")
+    with pytest.raises(ValueError, match="reference_sequence is required"):
+        materialize_sweep(**kwargs, prompt_anchors=[PromptAnchor("origin", 1)])
 
 
 def test_materialize_cli_requires_explicit_sampling_parameters(monkeypatch) -> None:

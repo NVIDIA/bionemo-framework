@@ -1,17 +1,82 @@
 # RL monitoring guidance
 
-Run training through a facility whose worker, status, and logs survive the chat process. Retain a stable job identifier, observe startup and early progress, then check meaningful progress until the facility reports terminal success or failure. Reattach to a live job after a new session instead of launching a duplicate.
+Use a job facility that survives the chat session. Record its identifier and log location, check startup, then observe at the cadence of meaningful progress or the next validation/checkpoint. Use a harness scheduler, a scoped cron task, or an attached waiting process when available. Reattach after reconnecting. Repeated unchanged polls add little to the runlog.
 
-Treat training rollouts as scientific on-policy observations, not merely optimizer diagnostics. When training and validation differ only by prompts or seeds, both describe candidate quality; the fixed validation bank provides stable longitudinal comparison rather than a biological-label holdout. Read both streams together.
+The checkpoint supervisor forwards INT/TERM to the trainer's separate process group,
+then kills that group after a 30-second grace period if it does not exit. This also
+applies when the quick E2E subprocess timeout fires. Inspect the failed stage and
+resume from completed artifacts; a timeout does not qualify an update or checkpoint.
 
-At each training step and comparable validation event, report prompt composition and stratum counts, component means and support/denominators, measurement availability and failures, safety states, hard-QC yield, raw and 99%-clustered diversity, copying, and uncertainty. Inspect prompt-cohort cycles before attributing a sawtooth pattern to policy learning. A positive aggregate must not hide an inactive component.
+## Read the experiment
 
-Discover and record the emitted metric keys and task namespace from the installed runtime. Do not guess names or require a parent framework to know child-owned metrics before they are emitted.
+Read training rollouts and the fixed validation bank together. The bank provides longitudinal comparison; different seeds or prompts do not make it a biological-label holdout. Track:
 
-For Evo2 native generation, do not label cold rollout throughput as decode throughput. Compare `evo2_end_to_end_completion_tokens_per_s` (includes setup and graph capture), `evo2_generation_completion_tokens_per_s` (excludes setup/capture), and `evo2_decode_completion_tokens_per_s` (decode only). A healthy persistent engine pays capture only for each physical full/remainder request shape while registered model storage stays at the captured addresses; an unexpected parameter or buffer rebind on any TP/PP/CP rank must make that DP replica recapture rather than replay, and quantized graphs must recapture after each refit even with stable addresses. Confirm this across at least two complete rollout/offload-refit cycles. Use `EVO2_EXACT_PHASE_EVIDENCE=1` only when synchronized phase timings and allocator peaks are needed.
+- reward level and variability, configured objective means, support, and final-screening yield when available;
+- measurement availability, safety outcomes, and reasons for missing results;
+- authentic EOD, cap exhaustion, and non-EOD short output separately;
+- authentic-stop biological length bins, prompt strata, copying, and diversity.
 
-Do not apply the SFT rule to RL. Select checkpoints from sustained, meaningful fixed-bank improvement corroborated by rolling training-rollout behavior. With validation every 10 steps, ordinarily require approximately ten comparable validation events—about 100 optimizer steps—after an apparent decline begins before calling it sustained; rescale the event count when cadence changes. This is an evidence horizon, not an automatic countdown, and requires stable prompt composition, objective semantics, support, and measurement availability.
+Positive support is not a full-credit score. More gene content or a higher aggregate can coexist with worse termination. When diversity is gated by length or safety eligibility, inspect diversity among eligible rows as well as its all-row mean. Check prompt composition before attributing cycles to learning.
 
-A single sharp drop, several low intervals, or a short plateau does not justify stopping; noisy RL may recover after a long excursion. Treat low safety scores as learning evidence, not an operational stop condition, when their measurements are valid. Distinguish valid zero, FAIL, INDETERMINATE, or explicit inapplicability from missing or unexplained NOT_RUN values and failure to execute an enabled scorer. Enter `diagnose` promptly for the latter and hold at a usable checkpoint only when further updates would be uninterpretable; diagnosis proceeds autonomously rather than waiting for acknowledgment by default.
+Use the native W&B histogram at `train/phage_qc/mmseqs_cluster_size` or `validation/phage_qc/mmseqs_cluster_size` for cluster-size distributions over optimizer steps. Color represents cluster count: one observation per unique cluster, with unclustered rows excluded. Validation pools scoring-batch distributions without reclustering. TensorBoard receives diversity objective statistics; its histogram hook does not emit this distribution.
 
-Persist `continue`, `diagnose`, `stop`, or `restart` plus its window, uncertainty, component support, and rationale at each fixed-bank event. Continue long enough to distinguish prompt composition, temporary degradation, and rebound within the approved ceiling. Once comparable validation windows and training rollouts corroborate a material decline for roughly the decision horizon without recovery, stop pushing that trajectory, diagnose its onset, and choose a compatible healthy-checkpoint restart or a versioned new attempt. Preserve the latest resumable checkpoint and the best scientific checkpoint.
+Online clusters span all eligible prompts for the same design goal within a scoring batch.
+The two PhiX origin prefixes share that diversity pool, while GDPO normalizes rewards separately
+for each identical prompt token sequence (384 completions per length in the default update).
+Repeated prompt records do not create extra GDPO normalization groups. Training
+`reward_prompt_group_count` should be 2, with `reward_prompt_group_size_min` and
+`reward_prompt_group_size_max` both 384 for the default layout. These diagnostics use
+actual prompt tokens, including control tokens, from the assembled rollout batch. Compare diversity only
+with its eligible population size in view: the 768-generation training and 96-generation validation
+batches have different duplicate opportunities, and larger batches can lower inverse-size credit.
+
+Use comparable windows rather than SFT-style patience. At validation every ten steps, roughly ten banks (about 100 updates) is a useful horizon for noisy RL, not an automatic countdown. A recovered excursion or a plateau below an earlier peak is not by itself a reason to stop. Sustained deterioration across supported components and training rollouts warrants diagnosis and a checkpoint decision within the agreed experiment budget.
+
+Low measured safety scores and faithfully sampled invalid genomes are learning outcomes. Missing artifacts, unexplained NOT_RUN, or failed enabled scorers make the evidence uninterpretable and need repair. Record a concise continue, diagnose, stop, or restart decision at useful scientific boundaries; ask only when the next action needs a genuinely new user choice or authority.
+
+## Diagnose replay or memory problems
+
+For selected-action replay, inspect token deltas, the configured sequence-level statistic, and rejected rows before masking. Include terminated and capped outputs. Group errors by absolute token position modulo the KV-page size: the known rollover defect produced a sharp 256-token pattern despite modest median error. Verify two generation/replay/refit cycles at the actual topology, precision, graph scope, and batch shape.
+
+A single finite tail away from a boundary, with ordinary population statistics and no rejected row, merits a recurrence check. The sequence guard is not a per-token threshold. Nonfinite values, wrong masks, rejected rows, or persistent page-phase elevation call for diagnosis.
+The finite surviving subset does not qualify a broken pilot or justify accepting its updates.
+
+Separate cold setup/capture from steady generation and decode using the emitted `evo2_*_completion_tokens_per_s` metrics. Persistent graphs can be reused while bound storage stays valid; parameter/buffer rebinds require replica-wide TP/PP/CP recapture, and quantized graphs recapture after refit. Use `EVO2_EXACT_PHASE_EVIDENCE=1` when synchronized timing or allocator evidence is needed.
+
+For memory failures, check PyTorch allocation/reservation, other device processes, and host RSS. An already-batched QC RPC needs `max_concurrency=1`; extra actor threads caused a host-memory staircase that surfaced during checkpoint saving. CPU QC actors should hide CUDA and set `PHAGEHOSTLEARN_ESM_DEVICE=cpu`, leaving internal scorer CPU parallelism intact.
+
+With native cache offload, confirm state is deallocated after generation, restored before reuse, and graphs recaptured when storage changes. The default-false `preserve_optimizer_state_during_generation` option avoids Adam transfers but still offloads gradients; test its actual peak memory through train→generation→train before enabling it.
+
+## Keep useful results
+
+Preserve the latest resumable checkpoint, aggregate best, and the best positive `all_objectives_max_score_rate` independently. Zero attainment can coexist with useful shaping progress. Final screening establishes acceptance. Record the selected checkpoint and why; use durable training logs/checkpoints to distinguish a tracker outage from a stalled trainer.
+
+## Metric definitions
+
+`gdpo/{objective}_{mean,std,nonzero_rate,max_score_rate}` describes the actual configured objective after safety and EOD gating. The maximum is the fixed ceiling 1, not the observed batch maximum. `all_objectives_max_score_rate` requires every configured objective to equal 1 for the same sequence; its denominator is all generated sequences. It is not a hard-pass or final-screening rate. The monitor compares reward means, support, variance, and maximum-score frequency.
+
+`env.phage_qc.log_by_prompt_nt_length` defaults to `false`; enable it to add the same objective summaries under `by_prompt_nt_length/{length}/`. Sequence counts are denominators. Multi-batch objective means/rates use sequence weights, and standard deviations pool population moments. Cluster histograms concatenate observations from separate scoring batches. Timing continues in the timing namespace.
+
+Raw measurement means are emitted only for completely measured finite columns, so their denominator remains the full sequence count. Inspect per-sequence artifacts and measurement availability when a raw mean is absent.
+
+PhiX joint products report `gdpo/{name}_measurement_available_rate` from the row-wise
+intersection of their protein-measurement flags. Do not infer it from marginal rates,
+or equate a measured zero with missing evidence. The monitor leaves absent joint telemetry
+unknown rather than assuming full support. For `gene_a_and_b_*` products, include the
+`smooth_reference_measurement_available` flag used by both gene-A origin and gene-B
+integrity as well as every external factor's support. A measured B zero is not missing
+evidence, and a PHROG-family core match cannot supply direct-reference B integrity.
+For A/B, smooth-reference support requires membership in the searched upstream cohort.
+An eligible row with no hit is a measured zero; an excluded row is unavailable even
+if another row was measured. Enabled A/B controls must supply finite scores and
+measured support before training.
+The current PhiX inventory has 22 channels (16 individual and six products), including
+standalone B and three A/B products added to the prior 18. The aggregate and checkpoint
+ranking change with this inventory; compare components across regimes, not raw aggregates.
+The original A score includes protein integrity and origin-motif evidence. B adds no
+motif term or final acceptance gate, and high A/B scores do not establish viability.
+
+Before new RL or final screening, the example regenerates its derived Arc pipeline,
+including direct stage-40/50 entry. This does not invalidate completed scientific
+outputs: use a new result root for changed scoring rules rather than mixing historical
+artifacts with a new objective definition.

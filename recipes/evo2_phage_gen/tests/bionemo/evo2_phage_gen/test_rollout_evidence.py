@@ -43,23 +43,24 @@ def test_deduplication_preserves_first_representative(tmp_path):
         tmp_path / "deduplication.json",
     )
 
-    assert (tmp_path / "representatives.fasta").read_text() == ">first\nAACG\n>unique\nGGTT\n"
+    assert (tmp_path / "representatives.fasta").read_text() == (
+        ">first\nAACG\n>rotation\nACGA\n>reverse-complement\nCGTT\n>unique\nGGTT\n"
+    )
     with (tmp_path / "mapping.csv").open() as handle:
         rows = list(csv.DictReader(handle))
-    assert [row["representative_id"] for row in rows] == ["first", "first", "first", "first", "unique"]
+    assert [row["representative_id"] for row in rows] == ["first", "first", "rotation", "reverse-complement", "unique"]
     assert [row["duplicate_reason"] for row in rows] == [
         "",
         "exact",
-        "circular_or_reverse_complement",
-        "circular_or_reverse_complement",
+        "",
+        "",
         "",
     ]
     report = json.loads((tmp_path / "deduplication.json").read_text())
     assert report["counts"] == {
         "raw_records": 5,
-        "representative_records": 2,
+        "representative_records": 4,
         "exact_duplicates_removed": 1,
-        "circular_or_reverse_complement_duplicates_removed": 2,
     }
 
 
@@ -84,7 +85,7 @@ def test_hard_qc_requires_safety_and_target_pass(tmp_path):
         )
     )
     target = tmp_path / "target.fasta"
-    target.write_text(">renamed-pass\nACGA\n>renamed-unsafe\nGGTT\n")
+    target.write_text(">renamed-pass\nAACG\n>renamed-unsafe\nGGTT\n")
 
     select_hard_qc_passers(
         representatives,
@@ -201,17 +202,43 @@ def test_post_qc_clustering_pins_contract(tmp_path):
     assert report["mmseqs"] == {
         "version": "fake-mmseqs 1.0",
         "min_sequence_identity": 0.99,
-        "coverage": 0.8,
+        "coverage": 0.95,
         "coverage_mode": 0,
         "cluster_mode": 0,
         "threads": 7,
     }
     cluster_command = next(command for command in report["commands"] if command[1] == "cluster")
     assert cluster_command[cluster_command.index("--min-seq-id") + 1] == "0.99"
-    assert cluster_command[cluster_command.index("-c") + 1] == "0.8"
+    assert cluster_command[cluster_command.index("-c") + 1] == "0.95"
 
 
-def test_arc_summary_omits_internal_clustering(tmp_path):
+@pytest.mark.parametrize(
+    ("columns", "counts"),
+    [
+        (
+            [
+                "count_required_genes_filter",
+                "count_syntenic_gene_count_filter",
+                "count_sequence_safety_filter",
+                "count_average_protein_sequence_identity_filter",
+            ],
+            [2, 2, 2, 1],
+        ),
+        (
+            [
+                "count_average_protein_sequence_identity_filter",
+                "count_required_genes_filter",
+                "count_syntenic_gene_count_filter",
+            ],
+            [2, 2, 1],
+        ),
+        (
+            ["count_arc_reference_physical_aai_reconfirmed", "count_arc_reference_syntenic_diversity"],
+            [2, 1],
+        ),
+    ],
+)
+def test_arc_summary_preserves_execution_order(tmp_path, columns, counts):
     representatives = tmp_path / "representatives.fasta"
     representatives.write_text(">a\nAACG\n>b\nGGTT\n>c\nTTGC\n")
     arc = tmp_path / "arc"
@@ -220,11 +247,9 @@ def test_arc_summary_omits_internal_clustering(tmp_path):
         "count_initial_before_nucleotide_metrics,count_nt_filter,count_genome_len_filter\n3,3,2\n"
     )
     (arc / "qc3_orf_filter_counts.csv").write_text("count_orf_count_filter\n2\n")
-    (arc / "qc4_homology_filter_counts.csv").write_text("count_protein_database_hit_count_filter\n2\n")
+    (arc / "qc4_homology_filter_counts.csv").write_text("count_tropism_protein_sequence_identity_filter\n2\n")
     (arc / "qc5_diversification_filter_counts.csv").write_text("count_genetic_architecture_score_remove_filter\n2\n")
-    (arc / "qc6_synteny_filter_counts.csv").write_text(
-        "count_required_genes_filter,count_syntenic_gene_count_filter\n2,1\n"
-    )
+    (arc / "qc6_synteny_filter_counts.csv").write_text(",".join(columns) + "\n" + ",".join(map(str, counts)) + "\n")
     (arc / "qc6_synteny_filter_seqs.fasta").write_text(">a\nAACG\n")
     config = tmp_path / "config.yaml"
     config.write_text(
@@ -243,6 +268,26 @@ def test_arc_summary_omits_internal_clustering(tmp_path):
         )
     )
 
+    v3 = columns[-1] == "count_arc_reference_syntenic_diversity"
+    if v3:
+        payload = json.loads(config.read_text())
+        payload["final_arc_contract"] = "arc-circular-aai-syntenic-diversity-plus-nine-core-safety-v3"
+        config.write_text(json.dumps(payload))
+        (arc / "arc_reference_filters").mkdir()
+        contract_summary = {
+            "state": "succeeded",
+            "contract": payload["final_arc_contract"],
+            "passed_observations": 1,
+            "syntenic_diversity_counts": {
+                "original_arc_count": 0,
+                "add_one_gene": 1,
+                "both": 0,
+                "add_one_gene_only": 1,
+                "union": 1,
+            },
+        }
+        (arc / "arc_reference_filters/summary.json").write_text(json.dumps(contract_summary))
+
     summarize_arc_screen(
         config,
         representatives,
@@ -254,17 +299,159 @@ def test_arc_summary_omits_internal_clustering(tmp_path):
     assert report["input_representatives"] == 3
     assert report["final_pass_count"] == 1
     assert not report["arc_internal_mmseqs_clustering"]
-    assert report["waterfall"][-1] == {"stage": "count_syntenic_gene_count_filter", "count": 1}
+    assert report["waterfall"][-len(columns) :] == [
+        {"stage": stage, "count": count} for stage, count in zip(columns, counts, strict=True)
+    ]
+
+    if v3:
+        assert report["final_filter_contract"] == contract_summary
+        contract_summary["passed_observations"] = 2
+        (arc / "arc_reference_filters/summary.json").write_text(json.dumps(contract_summary))
+        with pytest.raises(ValueError, match="summary disagrees"):
+            summarize_arc_screen(config, representatives, tmp_path / "bad.json", expected_filter7=False)
+
+
+def _route_summary_files(tmp_path, route_counts, final_count=3):
+    """Stage real branch artifacts independently of the route-count claims under test."""
+    records = [">a\nAACG\n", ">b\nGGTT\n", ">c\nTTGC\n"]
+    inputs = tmp_path / "inputs.fasta"
+    inputs.write_text("".join(records))
+    terminal = tmp_path / "terminal.fasta"
+    terminal.write_text("".join(records[:final_count]))
+    config = {
+        "results_save_dir": str(tmp_path),
+        "mmseqs_clustering_filter": False,
+        "genetic_architecture_remove_filter": False,
+        "final_arc_contract": "arc-circular-aai-syntenic-diversity-plus-nine-core-safety-v3",
+        "synteny_filter_seqs_fasta_file_save_location": terminal.name,
+    }
+    for stage, column, count in [
+        ("nucleotide", "count_initial_before_nucleotide_metrics", 3),
+        ("orf", "count_orf_count_filter", 3),
+        ("homology", "count_tropism_protein_sequence_identity_filter", 3),
+        ("diversification", "count_genetic_architecture_score_remove_filter", 3),
+        ("synteny", "count_arc_reference_syntenic_diversity", final_count),
+    ]:
+        filename = f"{stage}.csv"
+        (tmp_path / filename).write_text(f"{column}\n{count}\n")
+        config[f"{stage}_filter_counts_file_save_location"] = filename
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps(config))
+    summary_dir = tmp_path / "arc_reference_filters"
+    summary_dir.mkdir()
+    (summary_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "state": "succeeded",
+                "contract": config["final_arc_contract"],
+                "passed_observations": final_count,
+                "syntenic_diversity_counts": route_counts,
+            }
+        )
+    )
+    return config_path, inputs
+
+
+_OVERLAPPING_ROUTES = {
+    "original_arc_count": 2,
+    "add_one_gene": 2,
+    "both": 1,
+    "add_one_gene_only": 1,
+    "union": 3,
+}
+
+
+@pytest.mark.parametrize(
+    "route_counts,final_count",
+    [
+        pytest.param(None, 3, id="missing-counts"),
+        pytest.param([], 3, id="nonmapping-counts"),
+        pytest.param(
+            {key: value for key, value in _OVERLAPPING_ROUTES.items() if key != "both"}, 3, id="missing-overlap"
+        ),
+        pytest.param(dict(_OVERLAPPING_ROUTES, original_arc_count=-1), 3, id="negative-count"),
+        pytest.param(dict(_OVERLAPPING_ROUTES, add_one_gene="2"), 3, id="string-count"),
+        pytest.param(dict(_OVERLAPPING_ROUTES, both=True), 3, id="boolean-count"),
+        pytest.param(dict(_OVERLAPPING_ROUTES, add_one_gene_only=1.0), 3, id="float-count"),
+        pytest.param(dict(_OVERLAPPING_ROUTES, union=None), 3, id="null-count"),
+        pytest.param(dict(_OVERLAPPING_ROUTES, both=2), 3, id="double-counted-overlap"),
+        pytest.param(dict(_OVERLAPPING_ROUTES, add_one_gene_only=2), 3, id="wrong-add-only"),
+        pytest.param(dict(_OVERLAPPING_ROUTES, union=2), 3, id="wrong-union"),
+        pytest.param(_OVERLAPPING_ROUTES, 2, id="union-versus-fasta"),
+        pytest.param(
+            {"original_arc_count": 0, "add_one_gene": 2, "both": 1, "add_one_gene_only": 1, "union": 1},
+            1,
+            id="overlap-exceeds-original",
+        ),
+    ],
+)
+def test_arc_summary_rejects_bad_routes(tmp_path, route_counts, final_count):
+    """A correct headline count must not conceal contradictory alternative-route claims."""
+    config, inputs = _route_summary_files(tmp_path, route_counts, final_count)
+    output = tmp_path / "report.json"
+    with pytest.raises(ValueError, match=r"syntenic.diversity"):
+        summarize_arc_screen(config, inputs, output, expected_filter7=False)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "route_counts,final_count",
+    [
+        pytest.param(_OVERLAPPING_ROUTES, 3, id="overlap"),
+        pytest.param(
+            {"original_arc_count": 2, "add_one_gene": 1, "both": 0, "add_one_gene_only": 1, "union": 3},
+            3,
+            id="disjoint",
+        ),
+        pytest.param(
+            {"original_arc_count": 2, "add_one_gene": 0, "both": 0, "add_one_gene_only": 0, "union": 2},
+            2,
+            id="original-only",
+        ),
+        pytest.param(
+            {"original_arc_count": 0, "add_one_gene": 0, "both": 0, "add_one_gene_only": 0, "union": 0},
+            0,
+            id="empty-accepted-set",
+        ),
+    ],
+)
+def test_arc_summary_accepts_reconciled_routes(tmp_path, route_counts, final_count):
+    config, inputs = _route_summary_files(tmp_path, route_counts, final_count)
+    output = tmp_path / "report.json"
+    summarize_arc_screen(config, inputs, output, expected_filter7=False)
+    report = json.loads(output.read_text())
+    assert report["final_pass_count"] == final_count
+    assert report["final_filter_contract"]["syntenic_diversity_counts"] == route_counts
+
+
+@pytest.mark.parametrize(
+    "contract",
+    ["arc-1-6-8-9-plus-nine-core-safety-v1", "arc-1-6-8-9-circular-aai-plus-nine-core-safety-v2"],
+)
+def test_arc_summary_keeps_legacy_reports(tmp_path, contract):
+    """A historical count-only report need not supply the newer alternative-route schema."""
+    config_path, inputs = _route_summary_files(tmp_path, None)
+    config = json.loads(config_path.read_text())
+    config["final_arc_contract"] = contract
+    config_path.write_text(json.dumps(config))
+    summary_path = tmp_path / "arc_reference_filters/summary.json"
+    summary = json.loads(summary_path.read_text())
+    summary["contract"] = contract
+    del summary["syntenic_diversity_counts"]
+    summary_path.write_text(json.dumps(summary))
+    output = tmp_path / "report.json"
+    summarize_arc_screen(config_path, inputs, output, expected_filter7=False)
+    assert json.loads(output.read_text())["final_filter_contract"] == summary
 
 
 def test_final_report_reconciles_raw_and_representative_denominators(tmp_path):
     raw = tmp_path / "raw.fasta"
-    raw.write_text(">a\nAACG\n>a-rotation\nACGA\n>b\nGG~T\n>c\nTTGC\n")
+    raw.write_text(">a\nAACG\n>a-copy\nAACG\n>b\nGG~T\n>c\nTTGC\n")
     mapping = tmp_path / "mapping.csv"
     mapping.write_text(
         "raw_index,record_id,representative_id,is_representative,duplicate_reason,length_nt\n"
         "0,a,a,true,,4\n"
-        "1,a-rotation,a,false,circular_or_reverse_complement,4\n"
+        "1,a-copy,a,false,exact,4\n"
         "2,b,b,true,,4\n"
         "3,c,c,true,,4\n"
     )
@@ -287,7 +474,7 @@ def test_final_report_reconciles_raw_and_representative_denominators(tmp_path):
     safety_input = tmp_path / "safety-input.fasta"
     safety_input.write_text(">a\nAACG\n>c\nTTGC\n")
     target = tmp_path / "target.fasta"
-    target.write_text(">target-a\nACGA\n>target-c\nTTGC\n")
+    target.write_text(">target-a\nAACG\n>target-c\nTTGC\n")
     diagnostic = tmp_path / "diagnostic.fasta"
     diagnostic.write_text(">diagnostic-c\nTTGC\n")
     scores = tmp_path / "scores.csv"
@@ -295,7 +482,7 @@ def test_final_report_reconciles_raw_and_representative_denominators(tmp_path):
         "likelihood_rank,record_id,length_nt,scored_nucleotides,total_log_probability,"
         "mean_log_probability_per_nucleotide\n"
         "1,c,4,4,-0.4,-0.1\n"
-        "2,a-rotation,4,4,-0.8,-0.2\n"
+        "2,a-copy,4,4,-0.8,-0.2\n"
         "3,a,4,4,-1.2,-0.3\n"
         "4,b,4,4,-1.6,-0.4\n"
     )
@@ -304,7 +491,13 @@ def test_final_report_reconciles_raw_and_representative_denominators(tmp_path):
     memberships = tmp_path / "memberships.csv"
     memberships.write_text("representative_id,member_id\na,a\na,c\n")
     selection = tmp_path / "sampling-selection.yaml"
-    selection.write_text("temperature: 1.0\nprompt_lengths: [16, 24]\n")
+    selection.write_text(
+        "temperature: 1.0\n"
+        "prompt_lengths: [16, 24]\n"
+        "prompt_anchors:\n"
+        "  - {name: after_f, start_1_based: 2285}\n"
+        "  - {name: after_h, start_1_based: 3918}\n"
+    )
 
     finalize_rollout_report(
         raw,
@@ -325,9 +518,19 @@ def test_final_report_reconciles_raw_and_representative_denominators(tmp_path):
     )
 
     payload = json.loads((tmp_path / "final-designs.json").read_text())
+    assert payload["schema_version"] == 3
+    assert payload["accepted_score_summary"] == {
+        "population": "accepted_cluster_representatives",
+        "weighting": "one_per_cluster",
+        "score": "mean_log_probability_per_nucleotide",
+        "n": 1,
+        "mean": -0.3,
+        "min": -0.3,
+        "max": -0.3,
+    }
     assert payload["workflow_order"] == [
         "raw_generation",
-        "exact_circular_reverse_complement_deduplication",
+        "exact_sequence_deduplication",
         "safety_and_target_hard_qc",
         "post_qc_mmseqs_99pct_clustering",
         "ranking",
@@ -335,7 +538,7 @@ def test_final_report_reconciles_raw_and_representative_denominators(tmp_path):
     assert payload["counts"] == {
         "raw_generated": 4,
         "raw_likelihood_scored": 4,
-        "biological_representatives": 3,
+        "exact_sequence_representatives": 3,
         "duplicates_removed": 1,
         "safety_input_representatives": 2,
         "pre_safety_qc_excluded_representatives": 1,
@@ -348,7 +551,7 @@ def test_final_report_reconciles_raw_and_representative_denominators(tmp_path):
         "post_qc_99pct_clusters": 1,
         "accepted_cluster_representatives": 1,
     }
-    duplicate = next(row for row in payload["records"] if row["record_id"] == "a-rotation")
+    duplicate = next(row for row in payload["records"] if row["record_id"] == "a-copy")
     assert duplicate["representative_id"] == "a"
     assert duplicate["safety_state"] == "NOT_EVALUATED_DUPLICATE"
     assert not duplicate["accepted"]
@@ -357,7 +560,16 @@ def test_final_report_reconciles_raw_and_representative_denominators(tmp_path):
     assert excluded["representative_safety_state"] == "NOT_SCREENED_PRE_SAFETY_QC"
     assert not excluded["target_profile_pass"]
     assert not excluded["hard_qc_pass"]
-    assert payload["sampling_selection"] == {"temperature": 1.0, "prompt_lengths": [16, 24]}
+    assert payload["sampling_selection"] == {
+        "temperature": 1.0,
+        "prompt_lengths": [16, 24],
+        "prompt_anchors": [
+            {"name": "after_f", "start_1_based": 2285},
+            {"name": "after_h", "start_1_based": 3918},
+        ],
+    }
+    assert payload["ranking"]["applied_to_accepted_candidate_order"] is False
+    assert payload["ranking"]["comparable_across_circular_prompt_origins"] is False
     assert payload["sequence_safety_provenance"]["tools"] == {"mmseqs": {"version": "test-mmseqs"}}
     assert payload["sequence_safety_provenance"]["databases"] == {"phrogs": {"version": "test-phrogs"}}
     assert (tmp_path / "accepted.fasta").read_text() == ">a\nAACG\n"

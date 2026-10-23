@@ -3,53 +3,111 @@
   "evals": [
     {
       "id": "bionemo-phage-design-collect-genomes-001-current-jumbo-corpus",
-      "prompt": "Build an SFT collection for jumbo bacteriophages. Find the best current paper-linked public genome corpus, verify the actual biological payload before downloading it, and tell me whether it is large enough for fine-tuning.",
-      "expected_output": "A reproducible source-selection and acquisition plan for the strongest currently qualifying public corpus, based on dataset properties rather than a hard-coded paper identity.",
+      "prompt": "Choose a starting corpus for a computational jumbo-phage SFT study from this synthetic acquisition audit; do not download or split files. Eligibility is complete nucleotide genomes at least 200 kb, at most 1% N, with reusable sequence licensing. A (paper-linked release v4, CC BY): landing page says '12,000 phage records'; inspected payload is a host-interaction CSV with 12,000 rows and 310 distinct phage accessions, no sequences. B (paper-linked release v2, CC BY): nucleotide FASTA and accession-version metadata; parser reports 840 records, 30 incomplete and 10 other records above the N limit; all remaining records meet the length rule, with 40 exact duplicate records. Its 760 distinct eligible genomes contain 202 million bases, span 150 similarity clusters, and 12 clusters cover the target family. Those target-family clusters contain [50,30,20,10,8,6,4,4,2,2,2,2] distinct eligible genomes; the other 138 clusters contain the remaining 620. C (newer catalog, 2,000 advertised complete jumbo genomes): the linked download returns HTML, the available archive manifest contains analysis scripts, and sequence redistribution terms are absent. The proposed use is a target-family adaptation pilot from an existing pretrained 7B checkpoint. Its evaluation design requires disjoint whole target-family clusters, at least 16 unique genomes each for validation and test, and at least eight target-family clusters remaining for training. A teammate proposes assigning two of the four smallest target-family clusters to validation and the other two to test. Which source can support a defensible handoff now, what counts should be reported, and does that proposed split meet the stated requirements? If not, is another assignment feasible? Explain what this establishes about the pilot versus an 'at least 10,000 rows' adequacy test.",
+      "expected_output": "A verified-source selection, reconciled biological counts and concrete cluster-held-out feasibility check without overclaiming model adequacy.",
       "assertions": [
-        "The response identifies the strongest current primary paper and stable versioned repository record for the requested taxon and validates the biological payload without imposing a universal record-count gate.",
-        "The response reports exact record and usable-genome counts with units and does not infer corpus size from titles, landing pages, archive size, scripts, or snippets.",
-        "The response follows Data Availability to the biological file and inspects metadata plus a bounded payload sample; if it cannot inspect the payload, it gives a bounded check and leaves it unverified.",
-        "The response records source and repository versions, access date, license, retrieval query, eligibility rules, exclusions, and any checksum supplied for the downloaded file.",
-        "The response evaluates adequacy using unique genomes or clusters, total bases or tokens, target coverage, feasible cluster-held-out sizes, model scale, and training strategy rather than duplicate counts.",
-        "The result remains valid if a newer qualifying primary source supersedes the source available when the eval was authored.",
-        "The response uses relevant installed capabilities when available and does not install external tooling without explicit approval; otherwise it continues with bounded public APIs or search."
+        "It selects B as the currently verified qualifying sequence corpus from these candidates, without claiming it is the best corpus on the internet or that recency/title makes A or C stronger.",
+        "It reconciles B as 840 parsed source records, 40 excluded, 800 eligible records and 760 exact-distinct eligible genomes; its 150 clusters and 202 million bases remain separate support measures.",
+        "It identifies A's 12,000 as interaction rows and 310 as accessions, not complete usable genomes, and treats C's HTML/scripts and missing terms as an unverified biological payload rather than 2,000 acquired genomes.",
+        "It rejects the proposed holdouts because each has only 2+2=4 unique genomes, below 16, even though eight target-family clusters remain for training. It demonstrates a feasible disjoint whole-cluster alternative, such as validation [10,6], test [20,2], and the other eight target-family clusters for training; any assignment meeting all stated constraints is accepted.",
+        "It treats the feasible split, 150 total clusters, 12 target-family clusters and 202 million bases as support for the proposed pretrained-model adaptation pilot, not a guarantee of adequate 7B fine-tuning or model quality. It rejects 10,000 table rows as a sufficient or necessary universal adequacy rule; the stated pilot still needs empirical training/evaluation evidence.",
+        "It proposes a concrete provenance handoff for B preserving release v2, accession versions, license, eligibility/exclusion counts and provider checksums when supplied; further verification or a better qualified source may change the selection."
       ],
       "expected_skill": "bionemo-phage-design-collect-genomes",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-collect-genomes-002-microviridae-replication",
-      "prompt": "Collect the Microviridae genomes needed to reproduce the existing Evo 2 phage SFT case study in this repository.",
-      "expected_output": "A plan that discovers and uses the recipe's maintained downloader, then validates the resulting full-genome collection.",
+      "prompt": "Audit a Microviridae collection handoff against this checkout. The proposed command is `evo2_phage_download_sft_data --raw --output-dir results/repro/collection`. A teammate rejected the processed .fna because its first biological record starts '+!ACGTN'. Three tiny parser-test records are good='+!ACGTN', bad='+?ACGT', empty=''; these are format fixtures, not full genomes. Resolve the maintained entry point, supported flags and actual output location, then say which fixture records pass the current parser and what collection evidence is still missing. Give a read-only command review; do not fetch or prepare files.",
+      "expected_output": "A checked-code command correction and parser-specific interpretation without confusing format validity with full-genome eligibility.",
       "assertions": [
-        "The response inspects the recipe pyproject entry points, current help, source, nearest config, and tests to resolve the maintained Microviridae downloader rather than copying stale syntax.",
-        "The response stores large FASTA outside source control and records retrieval queries, source versions, licenses, and exclusions.",
-        "The response validates headers, nucleotide alphabet, nonempty records, compression, counts, lengths, ambiguous bases, and exact duplicates before handoff.",
-        "The response reports raw, valid, and unique counts without performing or claiming the definitive cluster-held-out SFT split."
+        "It resolves evo2_phage_download_sft_data to the maintained sft module and identifies --include-raw, not --raw, as the supported raw-download option; --output-dir is not a supported downloader flag.",
+        "It identifies the maintained data/external/zenodo location under the recipe and the processed/default versus optional raw payloads, and does not pretend the proposed results path changes the downloader's destination.",
+        "It identifies '+!' as a supported conditioning prefix, yields biological ACGTN for good, and rejects bad and empty; only one of the three parser fixtures passes.",
+        "It does not generalize recognized prefix handling to arbitrary punctuation and does not call a five-base format fixture an eligible full genome.",
+        "It describes the outstanding full-payload count/length/ambiguity/duplicate and source-version/license checks needed for a collection handoff, while leaving definitive cluster-held-out splitting to preparation. It does not claim any download or audit has run."
       ],
       "expected_skill": "bionemo-phage-design-collect-genomes",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-collect-genomes-003-negative-human-reference",
-      "prompt": "Download the current human reference genome and prepare chromosome FASTA for a germline variant-calling workflow.",
-      "expected_output": "A routing decision that does not invoke the phage-genome collection skill for an unrelated human-genomics task.",
+      "prompt": "Our germline workflow already has GRCh38-aligned BAMs, but a colleague suggested downloading the newest human assembly and switching the chromosome FASTA. Which acquisition capability belongs here, and what reference compatibility decision must be resolved before any download? This is a routing and compatibility question only.",
+      "expected_output": "A human-genomics routing decision and recognition that an existing BAM's reference cannot be replaced merely because another assembly is newer.",
       "assertions": [
-        "The response does not apply phage-specific corpus-size, host-scope, SFT, or result-layout rules to this request.",
-        "The response routes to an appropriate human-genome or NGS data acquisition capability, or explains that such a capability is unavailable.",
-        "The response does not claim bionemo-phage-design-collect-genomes is the expected skill."
+        "It does not apply phage corpus, topology, SFT or phage-result-layout rules to the request and does not identify this phage skill as the appropriate acquisition capability.",
+        "It routes to a human-genome/NGS reference capability or ordinary authoritative reference acquisition, without claiming an unavailable tool exists.",
+        "It identifies the need to match the BAM's actual GRCh38 reference build, contig naming and included sequences/checksums; a switch to a different assembly may require realignment rather than substituting its FASTA.",
+        "It treats the prompt as read-only and does not claim a download or conversion was performed."
       ],
       "expected_skill": null,
       "expected_script": null
     },
     {
-      "id": "bionemo-phage-design-collect-genomes-004-type-aware-source-discovery",
-      "prompt": "Find additional complete phage genomes with annotations that can support type-aware corpus filtering, and preserve enough source information to verify every sequence.",
-      "expected_output": "A focused source-discovery plan that considers current annotated phage catalogs and independently checks their sequences and metadata.",
+      "id": "bionemo-phage-design-collect-genomes-005-termini-class",
+      "prompt": "Assess two synthetic deposited assemblies before a data engineer standardizes their coordinate starts. Both LOCUS lines say circular, both have no credible direct or inverted terminal repeat, and suitable reads are unavailable. R1 is placed in a lambda-like lineage; nine independent close relatives align coordinate 1 to the same homologous boundary, with terminal partial CDS annotations and no origin-spanning join. R2 is placed in a headful-packaging lineage; twelve independent relatives align coordinate 1 to many positions around the homologous genome while the full-genome alignments remain collinear after rotation. The engineer proposes rotating both to the first conserved capsid gene. What classification and representation decision is supported for each, and what remains uncertain?",
+      "expected_output": "A comparative termini inference that separates fixed-end and permuted evidence despite identical LOCUS/no-repeat observations.",
       "assertions": [
-        "The response considers INPHARED alongside other current primary archives or phage-specific catalogs when its annotations and metadata fit the search.",
-        "The response treats catalog annotations as discovery evidence, verifies source accessions and biological payloads, and records versions, retrieval details, licenses, eligibility rules, and exclusions.",
-        "The response does not assume a catalog label is correct or require INPHARED when another verified source better fits the declared scope."
+        "It treats R1 as provisionally fixed-end/cohesive-end based on the lambda-like lineage plus conserved endpoints and terminal annotations, and R2 as supported headful/circular permutation based on lineage plus distributed starts.",
+        "It rejects LOCUS=circular and absence of DTR/ITR as sufficient classification evidence; the differing relative-genome evidence drives the different outcomes.",
+        "It preserves R1's physical endpoints and declines the proposed arbitrary rotation, while allowing a documented rotational representation for R2 without claiming the molecule is genuinely circular.",
+        "It does not infer a cos overhang polarity or exact cleavage bases for R1 from the supplied data, and does not infer a pac site for R2 solely from headful lineage.",
+        "It identifies suitable ligation-based read evidence or primary termini evidence as a way to resolve remaining uncertainty; a shared first gene or ORF pseudo-prefix is not decisive."
+      ],
+      "expected_skill": "bionemo-phage-design-collect-genomes",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-collect-genomes-006-canonical-phix-topology",
+      "prompt": "Review a proposed change to PhiX174 SFT prompt starts using this synthetic audit. Among 240 deposited records, 216 have coordinate 1 aligned to the reference's coordinate 1; those 216 collapse to six independent biological-sequence clusters. The remaining 24 records represent 24 clusters with starts distributed elsewhere. After preprocessing, all 240 training documents are standardized to reference coordinate 1 and no rotation augmentation is applied. The engineer argues that the 24 alternative clusters justify uniform random prompt starts because every locus occurs somewhere in each training genome. Should that change be adopted now, and what do the two denominators actually show?",
+      "expected_output": "A quantitative start-exposure assessment that distinguishes biological rotation validity, source representation and actual SFT start contexts.",
+      "assertions": [
+        "It computes coordinate-1 support as 216/240=90% of records but 6/30=20% of independent clusters, and explains that accession duplication changes the apparent source concentration.",
+        "It identifies actual processed SFT start exposure as 240/240 at coordinate 1 despite source variation; internal locus exposure does not establish alternative whole-genome start/termination behavior.",
+        "It keeps the maintained coordinate-1 prompt choice pending checkpoint-specific paired calibration of alternatives, or gives another explicitly provisional decision supported by the processed-start evidence; it does not adopt uniform random starts from topology alone.",
+        "It does not interpret coordinate-1 standardization as a physical terminus or biological replication-origin discovery."
+      ],
+      "expected_skill": "bionemo-phage-design-collect-genomes",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-collect-genomes-007-collapsed-dtr-artifact",
+      "prompt": "Audit genome-length accounting for a synthetic fixed-end lineage with suspected assembly artifacts. The deposited assembly is 39,900 nt and has a 127-nt exact terminal overlap. A detector validated on a documented DTR control finds no mismatch-tolerant extension of that overlap; identical abrupt 127-nt overlaps also occur in unrelated assemblies made by the same assembler. A broad panel contains 31 independently terminated relatives with 248-252 nt DTRs. Their repeats map to one internal 250-nt tract in this deposit. The supplied alignment audit concludes that removing the redundant 127-nt assembler overlap and rotating to that tract yields one 39,773-nt repeat unit containing one DTR copy. A report uses 39,900 as packaged-genome length and 31,000/39,900 as coding density. What molecular forms and corrected calculations should the report distinguish? Use these fixture measurements only.",
+      "expected_output": "A convergent-artifact diagnosis and explicit deposited/repeat-unit/packaged accounting with consistent length and coding-density denominators.",
+      "assertions": [
+        "It treats the abrupt overlap plus cross-lineage assembler recurrence and independently mapped DTR evidence as support for an assembly overlap, rather than declaring every 127-nt repeat an artifact.",
+        "It distinguishes the 39,900-nt raw deposit from the supplied 39,773-nt single-DTR repeat unit and computes packaged length as 39,773+250=40,023 nt.",
+        "It retains fixed-end DTR biology despite the deposited rotation/overlap and does not identify 127 nt as the biological DTR or permit arbitrary physical endpoints.",
+        "It rejects 31,000/39,900 as a packaged-form coding-density calculation. If 31,000 coding bases refers to the repeat unit, its density is about 77.94%; packaged coding density needs the DTR's coding contribution, so it cannot simply reuse that numerator unless no coding bases are duplicated.",
+        "It recommends recording the chosen molecular form and remapping coordinates/annotations consistently; it does not claim to have recovered an exact sequence or DTR origin beyond the supplied alignment audit."
+      ],
+      "expected_skill": "bionemo-phage-design-collect-genomes",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-collect-genomes-008-phageterm-outcomes",
+      "prompt": "Review this synthetic therapeutic-corpus manifest; these are tool-result records, not proposed designs. Suitable ligation-based paired-end data produced P1='COS (3')', P2='DTR (long)' with 8,000-nt repeats and a 120,000-nt one-copy repeat unit, P3='Headful (pac)', P4='Mu-like' with host sequence at both ends, and P5='Multiple'. The importer assigned every record rotation_allowed=true, packaged_length=assembly_length and termini_resolved=true, and retained all five as therapeutic references. Identify the row-specific corrections and which records need another evidence step before these fields can be accepted.",
+      "expected_output": "A record-level metadata and eligibility audit applying distinct termini outcomes rather than merely reciting their names.",
+      "assertions": [
+        "It sets P1 to fixed endpoints/no arbitrary rotation and preserves the reported 3-prime cohesive-end polarity; it does not replace it with 5-prime or headful.",
+        "It sets P2 to fixed endpoints and computes 128,000 nt for the packaged form from the supplied 120,000-nt single-copy unit plus one 8,000-nt DTR, with coordinate/form provenance.",
+        "It permits rotational representation for P3 and preserves its detected pac distinction rather than relabeling it genuinely circular.",
+        "It removes or flags P4 as unsuitable for the therapeutic reference cohort because Mu-like packaging carries host DNA and a transposable temperate lifestyle, not merely because its coordinates are unusual.",
+        "It leaves P5 termini unresolved, does not authorize rotation from Multiple, and requests corroboration/diagnosis instead of treating it as a tool crash. Resolving termini alone is not a complete safety qualification for P1-P3."
+      ],
+      "expected_skill": "bionemo-phage-design-collect-genomes",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-collect-genomes-009-phageterm-library-prep",
+      "prompt": "Two laboratories analyzed the same synthetic assembly. L1 used Nextera paired-end reads and reported PhageTerm='Unknown' at 600x median coverage. L2 used randomly fragmented ligation-based paired-end reads at 180x and reported 'COS (5')' with supported end peaks. Their checksums confirm the same assembly, and its terminal sequence/relative-lineage audit is consistent with cohesive ends. A colleague prefers L1 because of higher coverage and proposes classifying the genome as Headful. Which evidence should control the representation decision, and where should a reviewer verify the maintained PhageTerm release? Give an evidence review only.",
+      "expected_output": "An assay-compatibility decision showing why deeper unsuitable reads do not outweigh supported termini evidence from a suitable preparation.",
+      "assertions": [
+        "It identifies Nextera/tagmentation preparation as structurally unsuitable for interpreting a negative termini signal; L1's 600x does not make Unknown evidence for headful packaging.",
+        "It gives greater weight to L2's supported COS (5') result plus the concordant sequence/lineage audit, while acknowledging tool-result quality still needs review rather than claiming coverage alone proves it.",
+        "It recommends fixed endpoints/no arbitrary rotation and retains 5-prime polarity for this evidence packet instead of treating both libraries as equally inconclusive.",
+        "It does not propose deeper sequencing or a rerun of the same unsuitable L1 library as the missing decisive check; any further read validation must use a suitable preparation.",
+        "It identifies the maintained Pasteur GitLab PhageTerm releases as the release source, not the historical SourceForge location, and does not invent an installed/current version."
       ],
       "expected_skill": "bionemo-phage-design-collect-genomes",
       "expected_script": null

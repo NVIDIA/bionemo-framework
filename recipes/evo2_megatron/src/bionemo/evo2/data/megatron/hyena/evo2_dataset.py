@@ -16,12 +16,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from dataclasses import dataclass
 from typing import ClassVar, Dict, Optional
 
 import torch
-from megatron.core.datasets.gpt_dataset import GPTDataset
+from megatron.core.datasets.gpt_dataset import GPTDataset, GPTDatasetConfig
 
 from bionemo.evo2.models.megatron.hyena.hyena_utils import make_upper_case
+
+
+@dataclass
+class Evo2DatasetConfig(GPTDatasetConfig):
+    """GPT sampling configuration with Evo2's optional taxonomy loss mask."""
+
+    mask_phylogenetic_tags: bool = True
 
 
 class Evo2Dataset(GPTDataset):
@@ -32,7 +40,8 @@ class Evo2Dataset(GPTDataset):
     TAG_CHARS: ClassVar[set[int]] = {95, 59, 32}  # chars only found in control tags: _, ;, space
     DEFAULT_EOD = 0
     TO_UPPER_TOKENS: bool = True  # If set, do an in-place transform to make all tokens capital letters
-    RESET_PAD_EOD_MASK: bool = True  # If set, unset the mask for [pad] and [eod] tokens (matches Evo2 paper).
+    # Reset Megatron's mask as in Evo2, but restore only genuine EOD targets; synthetic padding remains masked.
+    RESET_PAD_EOD_MASK: bool = True
     # Valid DNA tokens: A, C, G, T, U, W, S, M, K, R, Y, B, D, H, V, N, -,  (both uppercase and lowercase and
     #   degenerate bases and RNA)
     MAX_TAG_LEN = 2048
@@ -80,27 +89,37 @@ class Evo2Dataset(GPTDataset):
 
     def _modify_gpt_batch(self, databatch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         loss_mask = databatch.get("loss_mask", None)
-        if self.RESET_PAD_EOD_MASK and loss_mask is not None:
-            # Reset the mask for 'pad', '[eod]', '[pad token]', which will lower the loss, but matches Evo2 pub.
-            loss_mask = torch.ones_like(loss_mask)
         labels = databatch.get("labels", None)
         if labels is None or loss_mask is None:
             # No next-token labels or loss to mask.
             return databatch
+        eod_token_id = self.config.tokenizer.eod if self.config.tokenizer is not None else self.DEFAULT_EOD
+        # Megatron masks synthetic padding before replacing its sentinel with the EOD token ID. Preserve that
+        # distinction so the real terminal EOD can contribute to loss without teaching the model to predict padding.
+        supervised_eod_mask = (labels == eod_token_id) & loss_mask.bool()
+        if self.RESET_PAD_EOD_MASK:
+            loss_mask = torch.ones_like(loss_mask)
 
         # Mask special label tags in loss.
         control_mask = torch.isin(labels, torch.tensor(self.CONTROL_TAGS, device=labels.device))
         # Mask degenerate (and U) DNA tokens
         not_dna_mask = ~torch.isin(labels, torch.tensor(self.DNA_TOKENS, device=labels.device))
         loss_mask[control_mask | not_dna_mask] = 0
-        phylotag_mask = self.mask_phylogenetic_tags(
-            labels,
-            self.TAG_BOUNDS,
-            self.TAG_CHARS,
-            self.config.tokenizer.eod if self.config.tokenizer is not None else self.DEFAULT_EOD,
-            self.MAX_TAG_LEN,
-        )
-        databatch["loss_mask"] = loss_mask * phylotag_mask
+        # Only parse taxonomy when the corpus can contain it. On taxonomy-free conditioned DNA,
+        # the tag heuristic can otherwise mistake a short prefix-bearing fragment for a tag.
+        # Plain GPTDatasetConfig callers retain the standard Evo2 taxonomy behavior.
+        if getattr(self.config, "mask_phylogenetic_tags", True):
+            phylotag_mask = self.mask_phylogenetic_tags(
+                labels,
+                self.TAG_BOUNDS,
+                self.TAG_CHARS,
+                eod_token_id,
+                self.MAX_TAG_LEN,
+            )
+            loss_mask = loss_mask * phylotag_mask
+        if self.RESET_PAD_EOD_MASK:
+            loss_mask[supervised_eod_mask] = 1
+        databatch["loss_mask"] = loss_mask
         if self.TO_UPPER_TOKENS:
             # When making tokens uppercase, make sure this is done after the mask_phylogenetic_tags function which
             #  relies in part on the original case of the tag tokens.

@@ -3,75 +3,100 @@
   "evals": [
     {
       "id": "bionemo-phage-design-001-interactive-intake",
-      "prompt": "Help me start an adapted Evo 2 phage-design project. I have not chosen the exact target, objective, SFT run, or execution settings, but I can answer questions.",
-      "expected_output": "A concise interactive intake that resolves the biologically material choices before execution.",
+      "prompt": "Review a project handoff before anyone runs it. The approved brief says: target PhiX174 on the existing laboratory host; intended use is a classroom computational benchmark, with no therapeutic or experimental efficacy claim; output is complete genomes and the whole genome may vary while the nine core functions are preserved. The draft configuration adds target-similarity prefixes, sets freeze_backbone=true, and allows changes only in gene G. The operator asks whether this is ready and which remaining decisions are actually needed. Give a scope review, not a launch or a fresh generic intake.",
+      "expected_output": "A context-aware scope decision identifying the unapproved restriction while respecting already settled target and intended use.",
       "assertions": [
-        "The response identifies target, host, intended use, outcome, whole-genome scope, evidence needs, and success criteria.",
-        "It makes a provisional therapeutic assumption visible when intended use is unspecified.",
-        "It asks only questions whose answers materially change the experiment and can inspect available evidence or prior results first.",
-        "It defaults to complete genomes and does not infer an RBP-only or locus-only task.",
-        "For a new 7B project it selects evo2/7b-1m:1.0 with model size evo2_7b, while treating a checkpoint-family change in an existing run as a new attempt.",
-        "It creates a compact project summary and RUNLOG.md rather than a large process framework."
+        "It identifies freeze_backbone=true plus G-only mutability as a material reduction from the approved whole-genome search space, even though the output file would still contain complete genomes.",
+        "It distinguishes target-similarity conditioning and preservation of nine core functions from an edit mask; those requirements do not imply freezing all other sequence.",
+        "It recommends correcting the configuration to the approved whole-genome scope or obtaining an explicit scope-change decision before using the restriction, without treating the narrower configuration as already authorized.",
+        "It accepts the explicitly non-therapeutic classroom use and recorded host/target instead of asking the user to re-answer them or imposing a new therapeutic objective.",
+        "It identifies only remaining material choices or evidence needed for this handoff and does not claim that files were created, a run launched or computational candidates experimentally validated."
       ],
       "expected_skill": "bionemo-phage-design",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-002-unattended-replication",
-      "prompt": "Plan a PhiX174 paper replication locally on eight H100s. Prevent cluster leakage and keep it progressing after approval while I am offline.",
-      "expected_output": "A science-first end-to-end plan with durable execution and evidence-based checkpoint selection.",
+      "prompt": "Plan the next action from this synthetic run manifest, without launching anything. Existing root results/teaching-a records model family 7b-base, complete stages 00/10/20, selected SFT checkpoint step 5600 with matching preparation inputs, and no completed stage 30. Sampling/reward definitions are unchanged. Request A is to resume on the same eight H100s with a smaller inference microbatch after an out-of-memory error. Request B is an already-approved separate comparison using evo2/7b-1m:1.0 and a changed prompt bank. A teammate proposes rerunning stages 00-20 for A and reusing teaching-a's SFT and done markers for B. What should be reused, what needs a separate attempt, and which maintained entry point should coordinate it?",
+      "expected_output": "A reuse-versus-new-experiment decision tied to recorded model, stage and scientific settings.",
       "assertions": [
-        "The response collects and validates full genomes, uses cluster-held-out splits, and keeps the target prompting neighborhood in training when required.",
-        "It sizes context and SFT duration from the actual corpus and selects checkpoints from validation rather than copying a paper step.",
-        "It calibrates sampling from the selected SFT serialization and keeps calibration, RL validation, and final rollout separate.",
-        "Before RL, it prepares and records a model-only, optimizer-free, runtime-sanitized SFT checkpoint while retaining the original full-state SFT checkpoint for SFT resume.",
-        "It uses a worker and monitoring facility that survives the chat process and can be reattached by job identifier.",
-        "It respects stage dependencies while overlapping independent evidence, preparation, or objective work when resources and write scopes permit.",
-        "It treats the example launcher as a reference implementation that may be run, adapted, wrapped, or replaced, using the README, stage subskills, and dependency DAG without prescribing one orchestration.",
-        "It runs every enabled reward and QC component with positive and failure controls and records useful progress in RUNLOG.md.",
-        "It generates and screens the requested full genomes and reports the final denominator and limitations."
+        "It identifies the maintained examples/phix174_8xh100.sh coordinator and its completed-stage/substage behavior rather than inventing a parallel orchestration path.",
+        "It treats A's smaller inference microbatch as an execution adaptation, retains the recorded 7b-base family and verified completed SFT, and resumes from the next uncompleted calibration/stage-30 work after checking the OOM cause.",
+        "It rejects rerunning completed stages 00-20 merely because A changes microbatch, while still requiring compatibility and authentic completion evidence before reusing them.",
+        "It treats B's model-family and prompt changes as a material new experiment with a separate SFT-anchored result root; teaching-a's SFT checkpoint and completion markers cannot certify B.",
+        "It honors the already-approved separate comparison without requesting the same authorization again, and distinguishes reusable verified source data/assets from model/prompt-dependent stages."
+      ],
+      "expected_skill": "bionemo-phage-design",
+      "expected_script": "examples/phix174_8xh100.sh"
+    },
+    {
+      "id": "bionemo-phage-design-004-quick-e2e",
+      "prompt": "Audit these synthetic quick PhiX E2E attempts. All used the current Dockerfile, --quick-e2e, a separate result root, whole-genome token budgets and unchanged QC. A: all six stage markers exist; SFT/RL selections and pilot reload qualification exist; raw designs=16; likelihood CSV has 15 distinct IDs; final report says succeeded and accepted=0. B: stage 40 has heartbeats for 61 minutes, update count stays 0, subprocess exited 124 at the configured 3600-second limit; RL selection and stage-40 completion are absent. C: all six stage markers, selections, pilot reload qualification and summary exist; raw and finite likelihood IDs match exactly at 16; final report says succeeded with reconciled QC and accepted=0; accepted FASTA is present and empty. Which attempts qualify as a successful execution check, and what next action follows for each? Do not rerun anything.",
+      "expected_output": "A discriminating artifact-based audit that accepts complete execution with zero scientific passers and rejects stale markers or heartbeats.",
+      "assertions": [
+        "It rejects A as a completed E2E check because one of 16 raw IDs lacks a likelihood record despite succeeded status and stage markers; it calls for reconciling the missing ID/stage evidence rather than counting the marker alone.",
+        "It identifies B's exit 124 after 3600 seconds with zero updates as a timed-out execution failure, not evidence of a completed or merely slow successful RL stage.",
+        "It accepts C as successful bounded pipeline execution on the supplied evidence, including an intentionally empty accepted FASTA; zero accepted candidates does not itself make execution fail.",
+        "It scopes A's next action to the incomplete likelihood/report handoff and B's to diagnosing the stalled child and supported resume; it does not weaken QC, shorten genomes or invent completed artifacts.",
+        "It does not interpret C as proof of learning, biological viability or full-batch memory/throughput qualification."
+      ],
+      "expected_skill": "bionemo-phage-design",
+      "expected_script": "examples/phix174_8xh100.sh"
+    },
+    {
+      "id": "bionemo-phage-design-005-baseline-cohorts",
+      "prompt": "Audit this synthetic comparison; none of these numbers is a measured recipe result. All v3 rows use identical frozen screening criteria and assets. R1: one fixed checkpoint/sampler; 2,000 raw draws; 1,800 exact-unique sequences; 30 v3-passing unique sequences representing 44 raw observations; 12 final clusters. R2: a changing-policy pool using several checkpoints and different sampling; 2,000 raw draws; 1,950 exact-unique sequences; 40 v3-passing unique sequences representing 60 raw observations; 10 final clusters. X: a published selected set with 120 nominated records and 110 exact-unique sequences; v3 passes represent 15 selected records, 12 unique sequences and 8 clusters; generation-pool metadata totals 50,000, but unselected sequences/outcomes are unavailable. A legacy R1 report separately lists 140 unique adapted-core passers without v3 diversification. The draft says 'R2 improves both acceptance and independent-design yield over R1 and gives 100-fold RL enrichment over X because (60/2000)/(15/50000)=100.' Produce a corrected denominator/endpoint comparison and assess those conclusions.",
+      "expected_output": "A computed cohort comparison separating raw, unique and cluster yields, with matched endpoint definitions and defensible limits on causal inference.",
+      "assertions": [
+        "It reports R1's v3 raw-observation fraction as 44/2000=2.2% and R2's as 60/2000=3.0%; it does not substitute passing-unique counts as raw numerators.",
+        "It reports R1's passing-unique fraction as 30/1800 about 1.67% and R2's as 40/1950 about 2.05%, separately from 12 versus 10 final clusters. If cluster yields per raw draw are shown, they are 0.6% versus 0.5%.",
+        "It corrects the claim about both yields: R2 has a higher observed per-genome acceptance fraction but fewer retained cluster representatives on the same 2000-draw denominator, so the supplied evidence does not show improved independent-design yield.",
+        "It reports X as 15/120=12.5% of selected records or 12/110 about 10.91% of selected unique sequences, with 8 clusters; 15/50000 is not a measured raw-generation pass rate.",
+        "It rejects the 100-fold enrichment inference despite the arithmetic ratio being 100, because the numerator comes from selected records and unselected outcomes are missing. Matching screening criteria does not remove cohort-selection differences.",
+        "It keeps the 140 legacy adapted-core passers separate from v3 and rejects a controlled causal attribution to RL/checkpoint changes from R1 versus the changing-policy/different-sampling R2 pool. Descriptive observed fractions remain reportable."
       ],
       "expected_skill": "bionemo-phage-design",
       "expected_script": null
     },
     {
-      "id": "bionemo-phage-design-003-whole-genome-host-range",
-      "prompt": "Plan therapeutic phage designs for productive infection of a new resistant bacterial strain. A receptor-binding module looks important, but I did not authorize a regional edit or fixed backbone.",
-      "expected_output": "A whole-genome lifecycle plan that treats host prediction as one signal.",
+      "id": "bionemo-phage-design-006-arc-final-contract",
+      "prompt": "Replay a frozen v2 PhiX acceptance decision from this synthetic table. The requested contract is arc-1-6-8-9-circular-aai-plus-nine-core-safety-v2. All unlisted nucleotide, length, CheckV and G gates pass. Rows are id | RL core score | hit-bearing physical ORFs | circular AAI | original-inventory AAI | ARC count pair | nine-core/order/copies | safety: A|1|8|94|97|10/11|PASS|PASS; B|1|8|94|94|11/11|PASS|PASS; C|1|6|93|93|10/11|PASS|PASS; D|1|8|94|94|10/11|PASS|INDETERMINATE; E|1|8|95|96|12/11|PASS|PASS; F|1|8|94|94|10/11|excess full core copy|PASS. A has three exact raw observations and E has one; they fall in one post-QC 99%-identity/95%-reciprocal-coverage cluster whose selected representative is E. Their likelihood scores are A=-1 and E=-3. Which observations and representatives pass, and what likelihood mean should be reported for representatives?",
+      "expected_output": "A case-specific v2 gate replay with raw/unique/cluster accounting and representative-only score aggregation.",
       "assertions": [
-        "The response defaults output and mutable scope to complete genomes and asks before any material scope reduction.",
-        "It covers adsorption and entry, defense and counter-defense, replication, morphogenesis and packaging, lysis and progeny, viable-reference support, and intended-use safety.",
-        "It defines the desired host direction, including target gain and any original-host retention or off-target avoidance.",
-        "It does not treat similarity as an edit mask or a host-model score as proof of productive infection.",
-        "It keeps computational objectives, final hard QC, and experimental validation distinct."
+        "It admits A and E under v2: AAI 95 is inclusive, and original-inventory AAI above 95 is diagnostic rather than rejecting these rows.",
+        "It rejects B for the excluded 11/11 count pair, C for fewer than seven hit-bearing ORFs, D for non-PASS safety, and F for the excess full core copy despite RL core score 1.",
+        "It preserves the explicitly requested v2 contract rather than silently allowing a v3 added-gene route or imposing v1 original-inventory AAI.",
+        "It reports four passing raw observations, two passing exact-unique sequences and one retained cluster representative E, with their units kept distinct.",
+        "It computes representative-level mean likelihood as -3 from E alone, not the unique-sequence mean -2 or observation-weighted mean -1.5; online RL scores do not replace the independent gates."
       ],
       "expected_skill": "bionemo-phage-design",
       "expected_script": null
     },
     {
-      "id": "bionemo-phage-design-004-science-first-reproducibility",
-      "prompt": "How would you make a small, single-user computational phage-generation pilot scientifically reproducible, and decide whether it is ready to scale?",
-      "expected_output": "An electronic-lab-notebook reproducibility plan centered on the scientific experiment rather than software supply-chain ceremony.",
+      "id": "bionemo-phage-design-007-add-one-gene",
+      "prompt": "Classify this synthetic v3 PhiX evidence ledger and produce route counts, without running a screen. All rows pass common ARC gates, circular AAI, nine-core order/copies and exact safety. Each row is one exact-unique observation. A: ARC counts 10/11; native accessory evidence unavailable. B: 11/13; fresh native evidence assigns one K ORF and one X ORF in a family outside K and every core reservation; each has full credit; duplicate mass 0, type mass 2. C: 11/13; reported aggregate K=1/X=1, but the X ORF is also reserved as a core ORF. D: 12/11; native evidence satisfies the same eligible K+X conditions as B. E: 11/13; one eligible K and one X with partial credit 0.6. F: 11/11; no eligible X. Post-QC clustering places A and B together and D alone. What are each row's category, original-route count, added-route count, overlap, add-only count, union count and final cluster count?",
+      "expected_output": "A native-evidence-based alternative-route classification with overlap arithmetic and post-union clustering.",
       "assertions": [
-        "The response records the biological question, input dataset and target, model checkpoint, key settings, random seeds, tool and data versions that affect interpretation, commands, outputs, and observed results.",
-        "It uses a concise RUNLOG.md and summary so another computational scientist can understand and repeat the pilot.",
-        "It includes positive and failure controls, denominators, and known limitations.",
-        "Most detail goes to experimental design, controls, outcomes, and limitations; the response does not make file or tree hashes, immutable source snapshots, clean-checkout rituals, or Git-state audits prerequisites for this single-user pilot."
+        "It classifies A as original_arc_count, B as add_one_gene, D as both, and C/E/F as fail. Missing optional added-route evidence does not erase A's independently established original route.",
+        "It rejects C because its apparent X is core-reserved and E because X is partial-credit; neither 11/13 nor aggregate K/X values alone activates the added route.",
+        "It reports original-route=2 (A,D), added-route=2 (B,D), overlap=1 (D), add-only=1 (B), union=3 (A,B,D), avoiding double counting D.",
+        "It reports two final clusters after clustering the three passing observations, rather than clustering each route independently and summing the results.",
+        "It identifies the v3 contract and keeps its alternative routes distinct from legacy v1/v2; the synthetic categories are not claimed as actual measured recipe yields."
       ],
       "expected_skill": "bionemo-phage-design",
       "expected_script": null
     },
     {
-      "id": "bionemo-phage-design-005-novel-reward-portfolio",
-      "prompt": "Plan an adapted whole-genome phage product with a biological endpoint that the recipe's existing rewards only partially describe. Two tested reward implementations are relevant but neither captures the complete goal. Decide how to construct the RL portfolio.",
-      "expected_output": "A portfolio that reuses sound tested machinery while inventing the target-specific scores needed to express the requested product.",
+      "id": "bionemo-phage-design-arc302-waterfall",
+      "prompt": "A reviewer drafted: 'Our ARC selected-cohort rescore proves the safety and gene-order gates raise unchanged boot success from 1/64 to 1/15, and 5,306 nt is an experimentally established minimum.' Audit that statement using the checked-in screening evidence and these extracted counts: among circular-AAI passers with fixed length/G gates and no count/K+X diversification, core-complete has 1 viable-with-acquired-mutations plus 14 nonviable; core-incomplete has 48 nonviable plus 1 failed DNA synthesis; every sequence passes safety and order/copy removes no additional complete-core cases. Below 5,306 nt there are 40 unique nominated designs, 2 failed synthesis and 0 viable labels; the shortest viable-labeled input is 5,349 nt. Explain the defensible numerical result and what the approximately 4,228-nt packaging result does or does not change.",
+      "expected_output": "A corrected tested-denominator comparison and causal/endpoint interpretation of the historical evidence.",
       "assertions": [
-        "The response identifies translating the desired final product into complementary measurable RL scores as a core agentic task.",
-        "It prefers modifying tested reward implementations when their measurements and failure semantics genuinely fit the new goal instead of rewriting them needlessly.",
-        "Because this is beyond a faithful experiment rerun, it expects to invent novel terminal or intermediate reward functions for important aspects not captured by the existing portfolio.",
-        "New scores are creatively grounded in relevant literature, biological reasoning, viable references, domain tools, and prior or partial-run evidence rather than forced from an ill-fitting proxy.",
-        "Each new or modified score has a documented endpoint relationship, zero and target anchors, calibrated partial credit, controls, telemetry, missing or failure behavior, and final-QC role.",
-        "It preserves component-level interpretability and versions the objective set as evidence changes."
+        "It excludes the synthesis failure and computes the observed viable-labeled fractions as 1/63 (about 1.6%) before completeness filtering and 1/15 (about 6.7%) after, with 0/48 in the incomplete group.",
+        "It attributes all measured exclusions in that comparison to completeness; since safety passes everyone and order/copy removes no further rows, their separate incremental benefit is not established.",
+        "It reports zero demonstrated unchanged boot successes in both AAI-passing groups because the only positive label requires acquired mutations; it does not rename that event unchanged success.",
+        "It computes zero viable labels among 38 tested below-bound designs rather than 0/40, while recognizing selected-cohort confounding and sparse positives prevent an exact causal minimum or validated enrichment estimate.",
+        "It distinguishes the 5,349-nt viable-labeled input from the approximately 4,228-nt in-vitro packaging system with supplied machinery; neither establishes an independently propagating complete phage at 4,228 nt or the exact 5,306-nt boundary.",
+        "It checks the relevant local screening/case-study evidence and gives a supportable replacement claim, rather than only repeating caution language or the original waterfall."
       ],
       "expected_skill": "bionemo-phage-design",
       "expected_script": null

@@ -2,101 +2,144 @@
   "skill_name": "bionemo-phage-design-implement-rl-objectives",
   "evals": [
     {
-      "id": "bionemo-phage-design-implement-rl-objectives-001-denominator-gaming",
-      "prompt": "Implement two phage rewards: lower similarity to a reference, and high identity among required matching elements. No aligned elements currently appear as 0% identity. Average both with viability.",
-      "expected_output": "Bounded rewards whose missing-denominator behavior cannot be exploited.",
+      "id": "bionemo-phage-design-implement-rl-objectives-011-ab-integrity-products",
+      "prompt": "Review a proposed patch for an approved extension of an 18-channel PhiX GDPO profile: add standalone B and A*B*accessory, A*B*core, A*B*core*AAI*accessory channels while retaining all existing entries. For row p, direct A=.8, direct B=.5, family-based B slot=1, core=.9, AAI=.6, accessory=1, safety=PASS, authentic EOD=true; q has the same scores but missing smooth-reference evidence; r has p's evidence but no EOD. The draft uses family-slot B, adds a separate search and changes base GRPO. Give the minimal patch/config sketch, expected p/q/r behavior and focused controls. Do not edit or run anything.",
+      "expected_output": "A reviewable extension using existing direct-reference evidence and generic products.",
       "assertions": [
-        "Every reward is in [0, 1], with a scientifically meaningful random or unacceptable baseline at 0 and supported target at 1.",
-        "No aligned elements or no matching required elements are treated as missing evidence rather than favorable low identity.",
-        "Missing, empty, invalid, too-short, no-hit, and tool-failure paths return explicit zero credit with a reason when evidence is required and do not crash.",
-        "Positive, baseline, desired, boundary, and missing-denominator tests demonstrate the intended ordering.",
-        "The combined score cannot hide a skipped or fixed-zero component."
+        "Uses complete reward_gene_a_origin for A and direct-reference reward_gene_b_integrity for B, not family-slot B; computes p products .4, .36 and .216.",
+        "Uses gdpo_objectives scored-column lists with reducer product and existing shared search; preserves the 18 entries, reaches 22 channels, and leaves base GRPO unchanged.",
+        "Intersects smooth-reference support for both A/B and every other factor on q, distinguishes missing from measured zero, and applies safety eligibility to 19 biological channels and the no-EOD gate to all 22 on r.",
+        "Provides tests/sketches for partial/zero products, no-hit/failure, direct versus family B, mapping and gating; does not claim execution, new hard filters or functional viability."
+      ],
+      "expected_skill": "bionemo-phage-design-implement-rl-objectives",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-implement-rl-objectives-001-denominator-gaming",
+      "prompt": "Review this proposed reward function: novelty=1-fillna(mean_identity,0)/100; conservation=fillna(mean_required_identity,100)/100; aggregate=(novelty+conservation+length_score)/3. Rows (identity, required identity, measured required count, search status,length): a=(90,95,4,completed,1), b=(null,null,0,completed,1), c=(null,null,null,failed,1). The approved goal requires measured protein evidence, with lower database similarity and retained required functions. Give counterexamples, a bounded replacement sketch and exact boundary tests. Read-only skill/source inspection is allowed; no file changes, scoring or scientific tool execution.",
+      "expected_output": "A denominator-safe implementation sketch separating no-hit and failed evidence.",
+      "assertions": [
+        "Computes a's naive aggregate (.1+.95+1)/3 about .6833 and b/c's naive aggregate 1, demonstrating the supplied defaults reward missing evidence.",
+        "Assigns zero protein-objective credit to b/c while distinguishing b's measured no-hit support from c's failed/unavailable measurement; does not equate null identity with favorable divergence.",
+        "Defines bounded evidence-conditioned conservation/novelty with explicit denominators and no accidental positive defaults; a justified formulation meeting the approved endpoint is acceptable.",
+        "Includes tests for a/b/c, partial evidence, invalid/empty inputs and combined visibility; offers a sketch rather than claiming code was implemented or tests passed."
       ],
       "expected_skill": "bionemo-phage-design-implement-rl-objectives",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-implement-rl-objectives-002-joint-score-behavior",
-      "prompt": "Six individually reasonable phage rewards will be combined. Determine whether the collection could steer training toward an unintended design family and define the implementation tests.",
-      "expected_output": "A portfolio-level behavior check in addition to component tests.",
+      "prompt": "Audit two GDPO columns in a 48-sample identical-prompt group. Column u is .999 for 47 rows and .998 for one; v spans its useful range. The owner proposes weight_u=.001 in scalar reward config and says this fixes u's contribution. Separately, duplicate genome Z appears once under each of two prefixes in the same scoring call; current grouping gives each singleton credit 1. The approved estimator has not changed. Explain the observed training behavior and propose tests/config corrections, without editing the estimator or launching RL.",
+      "expected_output": "A normalization and batch-scope diagnosis with quantitative checks.",
       "assertions": [
-        "The response checks duplicated evidence, incompatible directions, scale dominance, sparse support, and combinations that reward the wrong biological endpoint.",
-        "It evaluates reference, random or baseline, desired, and counterexample genomes at component and aggregate levels.",
-        "It keeps component values and denominators visible rather than validating only the weighted sum.",
-        "Tests cover gaming cases and confirm online rewards agree with final QC where promised.",
-        "A tiny deterministic RL smoke computes the real rewards, writes a checkpoint, and resumes."
+        "Computes the singleton outlier's within-group standardized magnitude about sqrt(47)=6.86 (or about 6.78 with sample-standard-deviation convention), independent of the small raw .001 gap.",
+        "Explains scalar weight_u does not reweight listed GDPO channels after within-prompt normalization; distinguishes meaningful small movement from numerical noise without automatically flooring sigma or changing the approved estimator.",
+        "Pools the two Z copies across prefixes for one design-goal scoring call so each gets 1/2, while keeping GDPO prompt-token grouping conceptually separate.",
+        "Proposes raw-score/support, normalized-advantage and pooled-clustering checks with record mapping; does not promise arbitrary-rotation invariance or a completed smoke run."
       ],
       "expected_skill": "bionemo-phage-design-implement-rl-objectives",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-implement-rl-objectives-003-sequential-starvation",
-      "prompt": "The final QC pipeline applies protein hits, tropism, required genes, and synteny sequentially. Reuse it unchanged for online rewards.",
-      "expected_output": "Independent online measurements while retaining sequential hard filtering for final QC.",
+      "prompt": "Review this online scorer pseudocode: rows=tropism_filter(rows); rows=required_filter(rows); rows=order_filter(rows); merge survivors into the original batch with missing rewards=0. In saved controls, X fails tropism but has four intact required functions and ordered loci; Y passes tropism, lacks one function and has measurable remaining-locus order. Both are tool-safe. Return a minimal dataflow patch sketch, expected telemetry and focused regression cases. Keep the approved final pipeline unchanged; do not modify files.",
+      "expected_output": "Independent online measurements with explicit support, distinct from final filtering.",
       "assertions": [
-        "The response identifies that later rewards would otherwise receive too few measured examples.",
-        "Each online component runs independently on the intended denominator and logs whether it was measured, missing, or failed.",
-        "Positive controls prove every enabled component executes even when an earlier final-QC gate would fail.",
-        "Sequential all-or-nothing behavior remains appropriate for final hard QC but not for hiding online observations.",
-        "The aggregate cannot appear healthy while later components are inactive."
+        "Retains X/Y in the online measurement population and reports their actual content/order evidence rather than fabricating zeros because they were removed upstream.",
+        "Sketches independent measurement and ID-based merging on original rows, with component support, execution status and explicit measured failures.",
+        "Uses X and Y as regression controls proving downstream measurement runs despite earlier gate failures, plus a tool-failure case that cannot become positive credit.",
+        "Preserves sequential final acceptance and describes proposed changes/tests without claiming they were applied."
       ],
       "expected_skill": "bionemo-phage-design-implement-rl-objectives",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-implement-rl-objectives-004-therapeutic-support",
-      "prompt": "Implement objectives for an adapted therapeutic whole-genome phage project. Several design-relevant safety checks are sparse on baseline generations, so omit them online and keep only the host classifier.",
-      "expected_output": "The approved safety components remain measurable and final exclusions remain hard.",
+      "prompt": "An approved whole-genome portfolio includes a host classifier and separate AMR, toxin and lysogeny terms. On 64 baseline rows: AMR 64 completed/no-hit; toxin 60 NOT_STARTED and four completed/no-hit; lysogeny 64 completed/no-hit. A code review proposes deleting all three safety objectives because their raw means are constant. The host model is .99 on most policy-selected rows but loses calibration on a held-out lab. Give the implementation review, first diagnostic checks and acceptance criteria. No code edits, model training or jobs.",
+      "expected_output": "A component-specific response to execution gaps and predictor shift.",
       "assertions": [
-        "The response does not silently drop an applicable approved component merely because early support is sparse.",
-        "It diagnoses runtime, denominator, proposal distribution, and proxy behavior and may use calibrated shaping without changing the biological endpoint.",
-        "Required hard exclusions remain independent of online partial credit.",
-        "The host classifier remains one calibrated signal and is not treated as proof of viability or therapeutic safety.",
-        "If the host classifier is learned or stacked, it uses deployment-matched out-of-fold predictions and tests the RL-selected high-score tail, policy-candidate shift, and model or seed disagreement.",
-        "Focused controls and an installed-runtime smoke verify each implemented component."
+        "Distinguishes healthy measured no-hit AMR/lysogeny from toxin's 60/64 execution gap; constant raw scores alone do not establish uselessness or justify deleting applicable approved safety terms.",
+        "Proposes recovering toxin execution/support and validating safe/hazard controls with exact failure/missing semantics; hard exclusions remain independent of shaping.",
+        "Treats the host model's held-out-lab failure and saturated selected tail as deployment problems, calling for grouped/out-of-fold calibration evidence if learned/stacked rather than trusting .99.",
+        "States component-level installed-runtime/control checks as future verification, without claiming execution or replacing whole-genome safety with the classifier."
       ],
       "expected_skill": "bionemo-phage-design-implement-rl-objectives",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-implement-rl-objectives-005-refresh-score-definition-artifact",
-      "prompt": "Implement approved changes to two reward functions and add a third reward. The code and tests pass, and the objective YAML names the components. Finish the scientific handoff without adding a new stage to the fully scripted run.",
-      "expected_output": "The implemented score behavior and its human-readable run artifact agree exactly.",
+      "prompt": "Approved patch notes say length_score uses points 3000,5359,5550,5800; hard acceptance is 5306-5730. Origin uses the current protein/motif/position/uniqueness formula. New B integrity uses existing direct-reference evidence. The handoff report still describes a binary length term and has no B row, although unit-test output is supplied as passing. Draft the corrected scientific handoff content and checks against config/test evidence. Give proposed artifact paths only; do not write files or invent a new scripted stage.",
+      "expected_output": "A concrete reconciliation of implemented curves and scientific documentation.",
       "assertions": [
-        "The response creates or refreshes artifacts/RL_SCORE_DEFINITIONS.md in the selected result root before declaring the reward work complete.",
-        "Every implemented objective has its measured quantity, units, direction, exact formula, resolved configuration, zero-credit and full-credit regions, and both-side partial-credit behavior when applicable.",
-        "Categorical and missing or failed states are described explicitly rather than forced into invented numeric ranges.",
-        "The report includes concise biological rationale, evidence citations, controls, telemetry, and final hard-QC relationship for each objective.",
-        "The report is checked against the implemented reward columns, formulas, configuration, and focused boundary tests; it is an agent-authored run artifact rather than a required pipeline stage."
+        "Drafts artifacts/RL_SCORE_DEFINITIONS.md content for all three supplied objectives rather than merely saying documentation should be updated or claiming it was written.",
+        "States both length tapers, 5359-5550 full credit and zero boundaries independently from the 5306-5730 hard interval; replaces the stale binary description.",
+        "Describes origin's four-factor geometric mean and B's direct-reference integrity/support rather than inventing a family substitute or new hard gate.",
+        "Identifies formula/config/boundary/failure/control provenance checks and unresolved citations; supplied unit-test success does not prove installed biological validation."
       ],
       "expected_skill": "bionemo-phage-design-implement-rl-objectives",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-implement-rl-objectives-006-mixed-batch-controls",
-      "prompt": "Harden a whole-genome reward portfolio. Empty generations currently get vacuous composition credit, one invalid row can disrupt valid rows in the same scorer batch, and mixed safety states sometimes coerce a numeric column to strings. A refactor also changed scorer concurrency.",
-      "expected_output": "A total, row-isolated, type-stable reward implementation whose optimized path preserves scientific behavior.",
+      "prompt": "Review a scorer optimization from saved traces. Input records: a=valid genome, b=empty, c=valid genome, d=ACGX. Tool output order is c,a with scores .6,.9; merge code assigns these values to valid input positions using zip. Empty b gets GC=1 because an empty conjunction is true. A safety update stores 'INDETERMINATE' in a numeric reward column. Reference runtime is 12 s with four workers; new runtime is 41 s with one. Propose the smallest correction and regression matrix, without edits or benchmarks.",
+      "expected_output": "A row-isolated, type-stable implementation review tied to actual trace defects.",
       "assertions": [
-        "Empty and invalid genomes receive explicit zeroes across every applicable objective and cannot enter paths that assume genes or reference-length evidence.",
-        "Invalid rows are isolated and zeroed while valid rows in the same batch continue to score, with results invariant to batch composition and row order.",
-        "Numeric reward and safety columns are initialized with stable numeric dtypes before mixed PASS, FAIL, INDETERMINATE, missing, and measured updates.",
-        "Successful no-hit is distinguished from scorer or tool failure, and failure cannot become PASS or vacuous positive credit.",
-        "The exact enabled portfolio is exercised on a reference, equivalent circular representations where relevant, empty and targeted negative controls, and mixed-validity batches.",
-        "Reference and optimized paths agree on formulas, controls, record mapping, and outputs; concurrency changes are measured rather than silently serialized."
+        "Maps a=.9 and c=.6 by ID instead of positional zip; isolates b/d and assigns explicit zero applicable reward without disrupting valid rows.",
+        "Separates numeric reward columns from categorical safety status and initializes stable numeric dtypes, avoiding empty-input vacuous credit.",
+        "Tests reordered/mixed-validity inputs, no-hit versus failure and correct record mapping; acknowledges target-pool-dependent reference-search E-values rather than promising unconditional batch invariance.",
+        "Uses 12 s/four workers versus 41 s/one to flag changed concurrency requiring equivalent-workload comparison; does not call the path scientifically equivalent from arithmetic tests alone."
       ],
       "expected_skill": "bionemo-phage-design-implement-rl-objectives",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-implement-rl-objectives-007-biological-controls",
-      "prompt": "Implement a newly invented whole-genome reward. Unit tests cover its arithmetic, and the reference genome scores highly, but no biologically meaningful negative or counterexample has been exercised.",
-      "expected_output": "A controlled reward implementation whose direction and separation are demonstrated on relevant high- and low-scoring biological cases.",
+      "prompt": "Assess an origin-score change using saved factor traces: native A has protein integrity=1, motif quality=1, eligible position=true, one strong site; duplicated-site control has the same values but two strong sites; misplaced-site control has eligibility=false. Shuffled windows reach nonzero motif quality after searching offsets, although the author expects every shuffle to be exactly zero. Only arithmetic tests and native A were in the handoff. Predict score ordering and design a biological control matrix. Do not run scoring or change formulas.",
+      "expected_output": "A control review applying the actual origin formula and background interpretation.",
       "assertions": [
-        "The response adds more than an arithmetic unit test: it identifies known or evidence-supported expected high- and low-scoring genomes or targeted counterfactuals.",
-        "Control provenance, biological rationale, expected ordering, measured score, support, and failure state are recorded.",
-        "Where circular equivalence should hold, rotations and reverse complements preserve the expected result.",
-        "Boundary, empty, invalid, missing-evidence, no-hit, and tool-failure cases cannot receive accidental positive credit.",
-        "The exact installed scoring path and combined portfolio run the controls so a skipped component cannot hide behind aggregate reward."
+        "Computes native=1, duplicated-site=(1/2)^.25 about .8409, misplaced=0 using the four-factor geometric mean; does not apply uniqueness as a linear .5 multiplier.",
+        "Explains nonzero searched shuffled windows need not violate the 25% uniform-DNA shaping baseline, which is not a significance threshold.",
+        "Adds partial motif progression, A-truncation/no-evidence, placement/frame and duplicate-site controls with provenance/expected ordering, beyond native and arithmetic cases.",
+        "Includes missing/invalid/no-hit/tool-failure and exact installed-portfolio checks as proposed work, without claiming biological validation was executed."
+      ],
+      "expected_skill": "bionemo-phage-design-implement-rl-objectives",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-implement-rl-objectives-008-partial-protein-hits",
+      "prompt": "Review protein scoring from two saved tables. Direct hit H: E=1e-5, identity=90%, native qcov=.475/tcov=.95, alignment-column count=120 with gaps. The configured direct full-credit targets are 90% identity and .95/.95 coverage. Required-function table for two slots has ORF1->A credit .8, ORF1->B .7, ORF2->A .6; ORF1's displayed best annotation is unrelated family Z. The draft keeps displayed annotations only and greedily assigns ORF1 to A. Give expected scores/assignment and a focused patch/test sketch. Read-only skill/source inspection is allowed; do not add novelty objectives, edit files, run scoring or launch scientific tools.",
+      "expected_output": "A coverage-aware direct score and globally assigned required-function evidence.",
+      "assertions": [
+        "Computes H's four-factor direct integrity as (.5)^.25 about .8409 under full significance/identity/tcov, using native qcov rather than gapped alignment-column count.",
+        "Retains all admitted family hits despite displayed Z and selects ORF2->A=.6 plus ORF1->B=.7, total 1.3/2=.65, instead of greedy .8/2=.4.",
+        "Enforces one ORF per function, one function per ORF and maximum credit across alternatives; partial rewards remain distinct from full-function hard acceptance.",
+        "Proposes controls for fragments, ambiguity/ties, duplicate copies, missing coverage and embedded genes; preserves search sensitivity/admission versus shaping distinctions without asserting batch-independent E-values or adding a generic family-count quota."
+      ],
+      "expected_skill": "bionemo-phage-design-implement-rl-objectives",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-implement-rl-objectives-010-novelty-scope",
+      "prompt": "Compare implementation patches for two approved projects: C preserves functional proteins with no divergence requirement; P reproduces PhiX's AAI novelty criterion. A candidate has ORF1 natural-member hits (E=1e-20,id=90) and (E=1e-10,id=98), ORF2 hit (E=1e-15,id=99); both ORFs map to the same PHROG family. A consensus search reports identity 97 for that family. The patch uses 97 and rejects both projects at >95. Give the correct evidence/decision split and controls, without running searches.",
+      "expected_output": "A project-specific novelty implementation grounded in per-ORF natural-member evidence.",
+      "assertions": [
+        "For P selects ORF1's lower-E-value 90 and ORF2's 99, averaging to 94.5 rather than using consensus 97, family collapse or highest identity.",
+        "Uses the prepared individual-member AAI database/interface for P and the approved <=95 gate; does not import a novelty rejection into conservation-only C.",
+        "Distinguishes conservation, database novelty and within-batch diversity, preserving applicable core/safety gates independently of the 94.5 novelty result.",
+        "Proposes natural-member selection/tie, multi-ORF same-family and high-AAI viable controls; does not label novelty compliance as proof of viability."
+      ],
+      "expected_skill": "bionemo-phage-design-implement-rl-objectives",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-implement-rl-objectives-009-independent-measurement",
+      "prompt": "A saved genome is 5305 nt, syntactically valid and tool-safe. Config: hard length 5306-5730, length shaping points 3000,5359,5550,5800. It has measured required-function completeness .8 and order .7 in a standalone run; the online pipeline removed it before those tools and reported both zero. Describe the minimal scorer change and expected row values, plus one impossible-input control. No edits or rerun.",
+      "expected_output": "A separate length acceptance decision and independently measured online evidence.",
+      "assertions": [
+        "Computes shaping (5305-3000)/(5359-3000)=2305/2359 about .9771 while hard nucleotide length acceptance is false.",
+        "Retains independently measurable completeness .8 and order .7 rather than fabricated upstream-filter zeros.",
+        "Separates online measurement population from final acceptance and preserves the hard rejection without changing thresholds.",
+        "Includes an empty/malformed/tool-failed control that cannot receive fabricated protein evidence or positive credit and clearly distinguishes proposed verification from executed tests."
       ],
       "expected_skill": "bionemo-phage-design-implement-rl-objectives",
       "expected_script": null

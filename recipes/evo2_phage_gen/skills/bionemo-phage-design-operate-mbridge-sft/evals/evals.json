@@ -3,128 +3,105 @@
   "evals": [
     {
       "id": "bionemo-phage-design-operate-mbridge-sft-001-paper-scale-launch",
-      "prompt": "Launch a leakage-controlled Evo 2 7B phage SFT run on the hardware available here. Use the publication as the optimization reference, but adapt batch topology safely and select the best validation checkpoint.",
-      "expected_output": "A preflighted Megatron Bridge launch decision that preserves the scientific workload, adapts resource configuration, and selects a comparable validation checkpoint.",
+      "prompt": "Review this proposed new 7B SFT launch. No job has started. split-A reports 11 train/validation cluster overlaps; split-B reports zero overlaps and contains 98,304 train records, with a verified taxonomy-free manifest. The tokenized upper bound, including conditioning and EOD, is 49,152. Available bases are NGC evo2/7b-1m:1.0 and an unrelated run's evo2_7b_base checkpoint. Approved global batch is 128 genomes. At full context on eight GPUs, DP8/microbatch1 completes save-and-reload at 69 GiB peak; TP2/DP4/microbatch1 takes 22% longer. The draft uses split-A, context 8,192, evo2_7b_base, 12,000 mandatory steps, save every 300, validate every 200, and most-recent-k=2. Return a corrected launch proposal and explain which evidence is still needed before declaring convergence.",
+      "expected_output": "A corrected SFT proposal justified by the split, lineage, full-context fit, exposure, and retention evidence.",
       "assertions": [
-        "The response rejects a failed leakage check and resolves current commands from the maintained entry points, help, source, configs, tests, and README.",
-        "Publication settings are historical evidence; the SFT context comes from an agreed upper bound of collected tokenized genome lengths with full-genome samples and masked padding.",
-        "The response benchmarks a DP-first target-length fit and adds TP, PP, or CP only when memory or measured throughput requires it while preserving the approved effective token batch.",
-        "Its real-record smoke test verifies that conditioning-prefix targets are loss-masked while the following biological targets remain active at document and packed-sample boundaries.",
-        "For a new 7B phage project the response uses public NGC checkpoint evo2/7b-1m:1.0 with model size evo2_7b, records provider, version, and format, and uses a public Arc conversion only as a tested fallback.",
-        "It does not switch an existing evo2_7b_base run to evo2_7b mid-run; that model-family change starts a new result root and attempt.",
-        "The response treats 12,000 steps as a historical starting hypothesis, recalibrates a ceiling from usable corpus and effective batch, schedules enough comparable validation and checkpoint events, and selects the lowest comparable validation-loss checkpoint.",
-        "The response treats local training and validation metrics as sufficient; optional remote reporting does not gate the scientific run or checkpoint decision.",
-        "The selected-checkpoint review includes verified training bytes or tokens, markers, orientation, tokenizer, BOS/EOS, wrappers, padding, and masking for RL sampling calibration.",
-        "Before NeMo-RL, it creates a separate model-only SFT checkpoint that retains serialized model object state, strips optimizer, scheduler, RNG, and training state, sanitizes runtime callbacks and timers, records provenance, and leaves the resumable SFT source unchanged."
+        "Chooses split-B and the new-project evo2/7b-1m:1.0 / evo2_7b lineage; rejects the 11-overlap split and does not repurpose the unrelated base-family attempt.",
+        "Preserves at least 49,152 tokens and selects the measured DP8 fit, with microbatch 1 and accumulation 16 giving global batch 128; justified alternatives must preserve these semantics.",
+        "Computes 768 optimizer updates per epoch and treats 12,000 as a ceiling to calibrate from exposure and comparable validation, not a mandatory publication target.",
+        "Uses --skip-taxonomy-loss-mask consistently for this verified taxonomy-free train/evaluation pair and identifies prefix masking, biological/EOD supervision, and padding as remaining real-record smoke evidence.",
+        "Corrects save/validation alignment and protects best-validation candidates plus a recent resume point; explains why most-recent-k=2 alone can delete the scientific best."
       ],
       "expected_skill": "bionemo-phage-design-operate-mbridge-sft",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-operate-mbridge-sft-002-overfit-with-rebound",
-      "prompt": "SFT validation loss reached a new minimum, then rose for two validations, improved for one, and rose again while training loss kept falling. Decide whether to stop and what checkpoint to retain.",
-      "expected_output": "A comparison-aware monitoring decision that retains the best checkpoint and requires sustained degradation beyond noise before stopping.",
+      "prompt": "Review the next SFT boundary. Ordinary validation noise is ±0.003 and the material-change band is 0.010. Rows are step:train_loss, val_loss, eval_contract: 800:.55, .740, A; 1000:.48, .758, A; 1200:.43, .766, A; 1400:.39, .742, A; 1600:.34, .760, A; 1800:.31, .785, B. Contract A uses the fixed bank and original mask; B accidentally enabled a different taxonomy mask. The supervisor counts all five post-best points as regressions and proposes stopping. What decision and checkpoint record should replace that proposal?",
+      "expected_output": "A boundary decision that resets the divergence candidate after recovery and excludes the changed loss contract.",
       "assertions": [
-        "The response distinguishes the selected best-validation checkpoint from the later stopping-evidence checkpoint and preserves best plus latest.",
-        "The response does not stop on a single blip or combine validations that differ in sample composition, loss definition, or other comparability semantics.",
-        "The response evaluates a declared window, uncertainty or data variance, practical minimum change, patience, and bounded rebound behavior before early stopping.",
-        "The response monitors train and validation loss, learning rate, gradient norm, throughput, GPU memory and utilization, disk, failures, and checkpoint integrity.",
-        "Monitoring intervals follow measured step timing and the early-stop decision horizon rather than an arbitrary fixed interval.",
-        "The response stops at the calibrated step ceiling if sustained comparable overfitting is not established."
+        "Identifies step 1400 at .742 as a recovery inside the .010 band, so the regressions at 1000/1200 do not form one uninterrupted stopping sequence with 1600.",
+        "Excludes step 1800 contract B from the A validation curve and proposes restoring A for a comparable evaluation before deciding from that point.",
+        "Selects step 800 (.740) as the lowest comparable checkpoint while retaining a recent usable resume point.",
+        "Proposes continue or a bounded diagnostic hold with a concrete next comparable validation; does not call the sequence three consecutive material regressions or silently resume training under mask B."
       ],
       "expected_skill": "bionemo-phage-design-operate-mbridge-sft",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-operate-mbridge-sft-003-long-context-oom",
-      "prompt": "A full-genome SFT preflight at 50 kb OOMs with microbatch 2. Reconfigure the run without training on shorter fragments or changing the intended effective token batch.",
-      "expected_output": "A measured OOM recovery sequence that preserves context and optimizer-step semantics.",
+      "prompt": "A synthetic SFT capacity report on eight 80-GiB GPUs has full context 51,200, DP8, microbatch 2, accumulation 8, global batch 128. It OOMs in backward at 79.6 GiB. The same full-context job with microbatch 1 peaks at 67 GiB during updates, 72 GiB during validation, and 74 GiB during save; save reload has not been tested. No competing GPU processes are present. A teammate proposes context 25,600 and accumulation 8. Give the next configuration and the remaining qualification gate.",
+      "expected_output": "A capacity correction that preserves full-genome coverage and the optimizer batch.",
       "assertions": [
-        "The response records the failing shape, hardware, topology, precision, and peak memory before changing configuration.",
-        "The response first reduces microbatch and raises gradient accumulation to preserve the approved effective token batch.",
-        "The response then considers TP plus DP within local GPUs, followed by supported CP, recomputation, and sharding, rather than silently truncating genomes.",
-        "The response maximizes the stable target-length microbatch and utilization with a safety margin and reruns checkpoint and resume preflight.",
-        "The response does not silently change biological workload or training semantics; any such change is treated as a separately evaluated attempt."
+        "Uses microbatch 1 and accumulation 16 at DP8 to retain128 genomes per optimizer update and context 51,200; computes the batch rather than merely recommending accumulation.",
+        "Rejects context 25,600 as a scientific workload change and explains that accumulation 8 would also halve the effective batch.",
+        "Uses the74-GiB save peak, not just the67-GiB training peak, when judging headroom; does not assert final qualification before fresh-process reload and continued updates.",
+        "Keeps the measured fitting DP configuration pending lifecycle qualification rather than requiring premature recomputation, parallelism, or offload changes. If a fallback is proposed, it is conditional on observed lifecycle failure and preserves context and effective batch; describing a fallback is not required."
       ],
       "expected_skill": "bionemo-phage-design-operate-mbridge-sft",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-operate-mbridge-sft-004-flat-with-outlier",
-      "prompt": "SFT validation loss has been flat within variance for many comparable checks, except for one abrupt bad evaluation that recovered immediately. Decide whether to stop.",
-      "expected_output": "Continue the plateau, retain the best checkpoint, and investigate the outlier separately.",
+      "prompt": "SFT is at step 2400 of an approved3600-update ceiling. Comparable validation losses at 800, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400 are .812, .810, .811, .809, .910, .810, .811, .809, .810. Train loss is finite and moves .64 to .60. The recorded ordinary-noise band is .004. Step1600 also logged a truncated validation read and has no completed-bank checksum; all other bank checksums agree. Decide what to do now and how to describe the .910 point.",
+      "expected_output": "A bounded continuation based on the stable comparable curve, with the incomplete evaluation treated as incident evidence.",
       "assertions": [
-        "The response does not early-stop for extended flatness within robust ordinary noise.",
-        "The response excludes the abrupt outlier from the ordinary-noise estimate and treats it as separate incident evidence.",
-        "The response stops only after sustained material degradation on comparable validations or an immediate hazard.",
-        "The response always preserves and selects the lowest comparable validation-loss checkpoint."
+        "Separates step 1600's incomplete read from completed comparable evaluations instead of inflating the noise estimate with .910.",
+        "Recognizes the remaining .809–.812 range as inside the .004 band and does not infer sustained overfitting from this plateau.",
+        "Recommends continuation to the next planned boundary within3600, with re-evaluation at that boundary rather than unbounded extension.",
+        "Retains one or both .809 best-validation candidates at steps 1400 and 2200 and preserves the incomplete-read evidence without selecting the latest by default. A single-checkpoint tie-break is not required because no storage constraint or final single-checkpoint selection is requested."
       ],
       "expected_skill": "bionemo-phage-design-operate-mbridge-sft",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-operate-mbridge-sft-005-fresh-held-out-evaluator",
-      "prompt": "Evaluate the selected SFT checkpoint on the sealed held-out split in a new process. The saved training config contains runtime callbacks created by the original distributed process.",
-      "expected_output": "A fresh evaluation-only runtime that proves itself on validation before one controlled sealed-test evaluation.",
+      "prompt": "A sealed-test evaluation failed after loading the selected checkpoint iter_0001600. The saved config contains a distributed callback holding process-group ID7 from the old process. The new process log ends before any test batch; the audit has test_records_read=0, metrics_written=0, optimizer_updates=0, and unchanged checkpoint/selection hashes. A second operator suggests choosing iter_0001800 because it is newer before retrying. Give an evaluation-only recovery proposal and state what would change if a held-out metric had already been written.",
+      "expected_output": "A fresh evaluator retry for the same selected checkpoint, conditional on the supplied no-consumption evidence.",
       "assertions": [
-        "The response reconstructs evaluation-only distributed callbacks instead of deserializing process-local training, optimizer, or communication callbacks from the saved config.",
-        "It proves the fresh evaluator on a validation sentinel before opening the sealed held-out split.",
-        "Evaluation performs no optimizer update and leaves the selected checkpoint and selection record unchanged.",
-        "A same-checkpoint retry is allowed only when the failed attempt produced no held-out metric or optimizer update and mutated neither the checkpoint nor its selection record."
+        "Uses the callback/process-group evidence to rebuild evaluation-only runtime callbacks and first exercise a validation sentinel.",
+        "Keeps iter_0001600 and its selection record fixed; rejects using the test failure to switch to 1800.",
+        "Allows one controlled sealed-test evaluation from this snapshot because no test records, metrics, updates, or mutations occurred, without claiming it has run.",
+        "If held-out metrics had already been exposed, does not treat another checkpoint selection/retest as the same harmless retry; preserves that evidence and discloses the test-use limitation."
       ],
       "expected_skill": "bionemo-phage-design-operate-mbridge-sft",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-operate-mbridge-sft-006-one-epoch-still-improving",
-      "prompt": "An SFT job used more nodes and a larger global batch, reached one epoch in 736 optimizer steps, and stopped. Its lowest comparable validation loss is at the final checkpoint, with no rebound. Decide whether training is complete and how to continue.",
-      "expected_output": "A continuation decision based on optimizer updates, data exposure, and the validation trajectory rather than epoch count alone.",
+      "prompt": "Two reports end at their lowest validation loss. Scientific run S has94,208 train records, global batch 128, and736 optimizer steps; its last four losses are .86, .83, .81, .79 on the same bank. It has a full-state checkpoint and unchanged data/model settings. Execution check Q was explicitly requested with --quick-e2e and its four-update budget ended at .97, .94, .92, .91. The supervisor calls both complete because each exhausted its configured budget. Review both conclusions and propose the next action for each.",
+      "expected_output": "Different decisions for an improving scientific run and a deliberately bounded execution check.",
       "assertions": [
-        "The response explains that a larger global batch produces fewer optimizer updates per epoch and does not treat completion of one epoch as evidence of convergence.",
-        "Because the final comparable validation is still best and has not rebounded, the response recommends resuming from the compatible checkpoint and extending the training ceiling rather than declaring the run complete.",
-        "The continuation is sized and monitored using optimizer updates plus examples or tokens seen, with enough comparable validation points to distinguish continued improvement from a plateau or rebound; several epochs may be appropriate, but no fixed epoch count is imposed.",
-        "Checkpoint selection remains based on the lowest credible comparable validation loss, and the held-out test split is not used to decide how long to train."
+        "Calculates 736 updates as one nominal epoch for S and explains that exhausting that exposure budget does not establish convergence while comparable validation loss is still falling.",
+        "Proposes a bounded extension for S with enough comparable validation points and full step/optimizer/scheduler/RNG restoration, rather than restarting from base weights.",
+        "Accepts Q's endpoint selection for the requested execution test and retains its smoke/quick label without extending it to establish scientific convergence.",
+        "Does not open the held-out test repeatedly to choose S's duration or transfer Q's completion claim to S."
       ],
       "expected_skill": "bionemo-phage-design-operate-mbridge-sft",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-operate-mbridge-sft-007-smooth-divergence",
-      "prompt": "An agent-operated SFT run has a 12,000-step maximum and validates every 400 steps. Validation loss was best at step 1,200 (0.7363), then rose at 1,600 (0.7921), 2,000 (0.8087), and 2,400 (0.9133), while training loss fell from 0.4188 at 1,600 to 0.3137 and 0.2181. Best-K retention still protects step 1,200, and the supervisor is ready to relaunch through step 12,000. Decide what happens at each boundary.",
-      "expected_output": "Stop SFT at step 2,400, preserve step 1,200 as the selected checkpoint, and prevent an unconditional relaunch.",
+      "prompt": "Review a supervisor record with max_steps 12000 and validation every400. Comparable rows step:train, val are1200:.47, .7363;1600:.4188, .7921;2000:.3137, .8087;2400:.2181, .9133. The recorded material band is .010. All banks and loss masks match. Best-K has retained1200; the supervisor has queued another segment because storage is safe. Return the boundary decisions and selected checkpoint.",
+      "expected_output": "Stop the materially deteriorating trajectory at 2400 while selecting1200 and suppressing the queued continuation.",
       "assertions": [
-        "The response treats 12,000 as a safety ceiling rather than a completion target and treats retention as separate from continuation.",
-        "It records step 1,600 as a warning and continuation, step 2,000 as a divergence candidate, and step 2,400 as stop evidence.",
-        "It recognizes three consecutive material post-best validation regressions while training continues strongly downward as clear overfitting evidence.",
-        "It stops within 1,000 optimizer steps of the first regression; uncertainty may justify no more than one additional validation interval.",
-        "It distinguishes the best scientific checkpoint at step 1,200 from the later stopping-evidence checkpoint and preserves both as needed.",
-        "The durable supervisor does not relaunch after the stop decision merely because best-K retention protects the earlier weights."
+        "Derives .0558, .0724, .1770 post-best increases, all beyond .010, together with falling train loss; identifies three consecutive material regressions.",
+        "Records1600 as a warning/continue, 2000 as a divergence candidate, and2400 as stop; does not require reaching12000.",
+        "Selects1200 and separately preserves2400 as stopping/resume evidence as storage allows.",
+        "Rejects the queued continuation on the scientific stop decision; checkpoint retention is not evidence that further training is useful."
       ],
       "expected_skill": "bionemo-phage-design-operate-mbridge-sft",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-operate-mbridge-sft-008-one-noisy-regression",
-      "prompt": "SFT training loss is still falling. The newest comparable validation is modestly worse than the best, but it is the first post-best regression and lies close to the observed validation-noise band. The supervisor needs a continuation decision.",
-      "expected_output": "Record a warning and continue to the next planned validation rather than stopping on one noisy regression.",
+      "prompt": "At SFT step 2200, comparable val_loss is .704 versus the best .700 at 2000. The recorded ordinary band is .006; train loss fell .43 to .41. All completed validations before 2000 were worse than .706, no prior post-best regression exists, and the next validation is at 2400 under a4000-update ceiling. Give the supervisor's current decision and what evidence at 2400 would change it.",
+      "expected_output": "A warning and bounded continuation for one within-noise regression.",
       "assertions": [
-        "The response compares the change with the declared ordinary-noise or minimum-material-change band.",
-        "It does not stop on one post-best regression while measurements remain comparable and healthy.",
-        "It records a durable continue decision and the evidence needed at the next validation boundary.",
-        "It preserves the current best-validation checkpoint independently of the continuation decision."
-      ],
-      "expected_skill": "bionemo-phage-design-operate-mbridge-sft",
-      "expected_script": null
-    },
-    {
-      "id": "bionemo-phage-design-operate-mbridge-sft-009-short-plateau",
-      "prompt": "Three recent comparable SFT validation losses form a short plateau inside the observed noise band while training remains finite and stable. The planned exposure ceiling has not been reached. Decide whether the agent should stop now.",
-      "expected_output": "Continue through the next decision boundary because a short plateau is not sustained overfitting.",
-      "assertions": [
-        "The response distinguishes a short plateau from material train-validation divergence.",
-        "It continues within the evidence-based safety ceiling and records the next validation decision boundary.",
-        "It does not use training loss alone or the latest checkpoint as the selection criterion.",
-        "It retains the lowest credible validation-loss checkpoint while gathering more evidence."
+        "Computes the .004 increase and compares it with the .006 band; does not classify it as a material overfitting confirmation.",
+        "Proposes continue to 2400 and retains2000 as the selected candidate independently of that decision.",
+        "Explains that recovery clears concern, while a later material regression begins or advances evidence gathering; one next point alone does not satisfy three consecutive material regressions.",
+        "Does not select2200 merely because it is latest or extend indefinitely beyond the stated ceiling."
       ],
       "expected_skill": "bionemo-phage-design-operate-mbridge-sft",
       "expected_script": null

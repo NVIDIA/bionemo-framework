@@ -18,17 +18,25 @@ from collections import UserList
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import bionemo.evo2_phage_gen.lovis4u_metrics as lovis4u_metrics
 from bionemo.evo2_phage_gen.lovis4u_metrics import _cluster_command_with_threads, _ThreadedSubprocess
 
 
-def test_cluster_command_applies_tunable_threads_only_to_cluster():
-    cluster = ["mmseqs", "cluster", "query", "result", "tmp"]
-    createdb = ["mmseqs", "createdb", "input", "query"]
+@pytest.mark.parametrize("verb", ["createdb", "cluster", "createtsv"])
+def test_cluster_commands_share_thread_budget(verb):
+    command = ["mmseqs", verb, "input", "output"]
 
-    assert _cluster_command_with_threads(cluster, 8) == [*cluster, "--threads", "8"]
-    assert _cluster_command_with_threads(createdb, 8) == createdb
-    assert _cluster_command_with_threads(cluster, None) == cluster
+    assert _cluster_command_with_threads(command, 8) == [*command, "--threads", "8"]
+    assert _cluster_command_with_threads(command, None) == command
+    assert command == ["mmseqs", verb, "input", "output"]
+
+
+def test_cluster_command_leaves_other_subcommands_alone():
+    command = ["mmseqs", "version"]
+
+    assert _cluster_command_with_threads(command, 8) == command
 
 
 def test_cluster_command_preserves_explicit_threads():

@@ -19,13 +19,20 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
-from bionemo.evo2_phage_gen.generation import PHIX174_REFERENCE_START
+from bionemo.evo2_phage_gen.generation import (
+    PHIX174_REFERENCE_START,
+    PromptAnchor,
+    circular_prompt,
+    load_reference_sequence,
+    parse_prompt_anchor,
+)
 
 
 def _format_temperature(value: float) -> str:
@@ -39,14 +46,20 @@ class SweepCell:
 
     prefix_length: int
     temperature: float
+    prompt_anchor: PromptAnchor | None = None
 
     @property
     def key(self) -> str:
         """Return the stable identifier for this calibration cell."""
-        return f"prefix{self.prefix_length}_temp{_format_temperature(self.temperature)}"
+        anchor_prefix = f"{self.prompt_anchor.name}_" if self.prompt_anchor else ""
+        return f"{anchor_prefix}prefix{self.prefix_length}_temp{_format_temperature(self.temperature)}"
 
 
-def build_sweep_cells(prefix_lengths: Sequence[int], temperatures: Sequence[float]) -> list[SweepCell]:
+def build_sweep_cells(
+    prefix_lengths: Sequence[int],
+    temperatures: Sequence[float],
+    prompt_anchors: Sequence[PromptAnchor] | None = None,
+) -> list[SweepCell]:
     """Return the deterministic temperature-major calibration grid."""
     if not prefix_lengths or not temperatures:
         raise ValueError("prefix_lengths and temperatures must be non-empty")
@@ -54,10 +67,18 @@ def build_sweep_cells(prefix_lengths: Sequence[int], temperatures: Sequence[floa
         raise ValueError("prefix lengths must be non-negative")
     if any(temperature <= 0 for temperature in temperatures):
         raise ValueError("temperatures must be positive")
+    anchors: Sequence[PromptAnchor | None] = prompt_anchors or [None]
+    if prompt_anchors is not None and len({anchor.name for anchor in prompt_anchors}) != len(prompt_anchors):
+        raise ValueError("prompt anchor names must be unique")
     return [
-        SweepCell(prefix_length=int(prefix_length), temperature=float(temperature))
+        SweepCell(
+            prefix_length=int(prefix_length),
+            temperature=float(temperature),
+            prompt_anchor=prompt_anchor,
+        )
         for temperature in temperatures
         for prefix_length in prefix_lengths
+        for prompt_anchor in anchors
     ]
 
 
@@ -87,7 +108,10 @@ def write_cell_prompts(
         raise ValueError("num_prompts must be positive")
     if cell.prefix_length > len(reference_start):
         raise ValueError("prefix length exceeds reference_start")
-    prompt = f"{marker}{reference_start[: cell.prefix_length]}"
+    if cell.prompt_anchor is None:
+        prompt = f"{marker}{reference_start[: cell.prefix_length]}"
+    else:
+        prompt = circular_prompt(reference_start, cell.prompt_anchor, cell.prefix_length, marker)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "".join(json.dumps({"id": f"{cell.key}_{index:04d}", "prompt": prompt}) + "\n" for index in range(num_prompts))
@@ -111,8 +135,9 @@ def build_inference_command(
     top_k: int,
     top_p: float,
     hopper_fp8: bool = False,
+    stop_on_eos: bool = False,
 ) -> list[str]:
-    """Build one strict target-total-length Evo2 inference command."""
+    """Build inference with a total DNA cap, optionally allowing an earlier sampled EOD."""
     max_new_tokens = target_length - cell.prefix_length
     if max_new_tokens <= 0:
         raise ValueError("target_length must exceed prefix length")
@@ -156,9 +181,10 @@ def build_inference_command(
                 "--fp8-all-layers",
             ]
         )
+    if not stop_on_eos:
+        command.append("--ignore-eos")
     command.extend(
         [
-            "--ignore-eos",
             "--strict-generation",
             "--stream-output",
             "--output-file",
@@ -197,6 +223,8 @@ def materialize_sweep(
     temperatures: Sequence[float],
     num_prompts: int,
     reference_start: str,
+    reference_sequence: str | None = None,
+    prompt_anchors: Sequence[PromptAnchor] | None = None,
     marker: str,
     gpu_ids: Sequence[int],
     tensor_parallel_size: int,
@@ -207,9 +235,15 @@ def materialize_sweep(
     prompt_batch_size: int,
     max_seq_length: int,
     hopper_fp8: bool = False,
+    stop_on_eos: bool = False,
 ) -> dict:
     """Materialize the sweep configuration and all cell prompt banks."""
-    cells = build_sweep_cells(prefix_lengths, temperatures)
+    if prompt_anchors and reference_sequence is None:
+        raise ValueError("reference_sequence is required with prompt_anchors")
+    if reference_sequence is not None and not prompt_anchors:
+        raise ValueError("prompt_anchors are required with reference_sequence")
+    prompt_source = reference_sequence if reference_sequence is not None else reference_start
+    cells = build_sweep_cells(prefix_lengths, temperatures, prompt_anchors)
     groups = partition_gpu_groups(gpu_ids, tensor_parallel_size)
     prompts_dir = run_root / "prompts"
     jsonl_dir = run_root / "jsonl"
@@ -227,20 +261,27 @@ def materialize_sweep(
                 "temperature": _format_temperature(cell.temperature),
                 "prompt_file": str(prompt_file.resolve()),
                 "output_file": str(output_file.resolve()),
+                "prompt_anchor": cell.prompt_anchor.name if cell.prompt_anchor else "",
+                "prompt_anchor_start_1_based": cell.prompt_anchor.start_1_based if cell.prompt_anchor else "",
             }
         )
 
     cells_path = run_root / "cells.tsv"
     sweep_config = {
-        "schema_version": 2,
+        "schema_version": 3,
         "state": "planned",
         "checkpoint": str(checkpoint.resolve()),
         "reference_start": reference_start,
+        "prompt_anchors": [
+            {"name": anchor.name, "start_1_based": anchor.start_1_based} for anchor in (prompt_anchors or [])
+        ],
+        "reference_sequence_sha256": (hashlib.sha256(prompt_source.encode()).hexdigest() if prompt_anchors else None),
         "marker": marker,
         "prefix_lengths": [int(value) for value in prefix_lengths],
         "temperatures": [float(value) for value in temperatures],
         "num_prompts_per_cell": int(num_prompts),
         "target_length": int(target_length),
+        "stop_on_eos": bool(stop_on_eos),
         "top_k": int(top_k),
         "top_p": float(top_p),
         "seed": int(seed),
@@ -266,7 +307,7 @@ def materialize_sweep(
         write_cell_prompts(
             prompts_dir / f"{cell.key}_{num_prompts}.jsonl",
             cell=cell,
-            reference_start=reference_start,
+            reference_start=prompt_source,
             marker=marker,
             num_prompts=num_prompts,
         )
@@ -311,16 +352,20 @@ def _parse_args() -> argparse.Namespace:
     materialize.add_argument("--temperatures", type=float, nargs="+", required=True)
     materialize.add_argument("--num-prompts", type=int, required=True)
     materialize.add_argument("--reference-start", default=PHIX174_REFERENCE_START)
+    materialize.add_argument("--reference-fasta", type=Path)
+    materialize.add_argument("--prompt-anchor", type=parse_prompt_anchor, action="append", dest="prompt_anchors")
     materialize.add_argument("--marker", default="+~")
     materialize.add_argument("--gpu-ids", type=int, nargs="+", required=True)
     materialize.add_argument("--tensor-parallel-size", type=int, required=True)
+    # Total biological length, not generated tokens: keep caps beyond the PhiX reward zero.
     materialize.add_argument("--target-length", type=int, default=6000)
     materialize.add_argument("--top-k", type=int, required=True)
     materialize.add_argument("--top-p", type=float, required=True)
     materialize.add_argument("--seed", type=int, default=7)
     materialize.add_argument("--prompt-batch-size", type=int, default=16)
-    materialize.add_argument("--max-seq-length", type=int, default=10240)
+    materialize.add_argument("--max-seq-length", type=int, default=6144)
     materialize.add_argument("--hopper-fp8", action="store_true")
+    materialize.add_argument("--stop-on-eos", action="store_true", help="Allow sampled EOD before the total DNA cap")
 
     print_command = subparsers.add_parser("print-command")
     print_command.add_argument("--infer-script", type=Path, required=True)
@@ -338,6 +383,7 @@ def _parse_args() -> argparse.Namespace:
     print_command.add_argument("--top-k", type=int, required=True)
     print_command.add_argument("--top-p", type=float, required=True)
     print_command.add_argument("--hopper-fp8", action="store_true")
+    print_command.add_argument("--stop-on-eos", action="store_true", help="Allow sampled EOD before the total DNA cap")
 
     validate = subparsers.add_parser("validate-cell")
     validate.add_argument("--output", type=Path, required=True)
@@ -360,6 +406,8 @@ def main() -> None:
             temperatures=args.temperatures,
             num_prompts=args.num_prompts,
             reference_start=args.reference_start,
+            reference_sequence=load_reference_sequence(args.reference_fasta) if args.reference_fasta else None,
+            prompt_anchors=args.prompt_anchors,
             marker=args.marker,
             gpu_ids=args.gpu_ids,
             tensor_parallel_size=args.tensor_parallel_size,
@@ -370,6 +418,7 @@ def main() -> None:
             prompt_batch_size=args.prompt_batch_size,
             max_seq_length=args.max_seq_length,
             hopper_fp8=args.hopper_fp8,
+            stop_on_eos=args.stop_on_eos,
         )
         print(json.dumps(sweep_config, sort_keys=True))
     elif args.command == "print-command":
@@ -388,6 +437,7 @@ def main() -> None:
             top_k=args.top_k,
             top_p=args.top_p,
             hopper_fp8=args.hopper_fp8,
+            stop_on_eos=args.stop_on_eos,
         )
         sys.stdout.buffer.write(b"\0".join(item.encode() for item in command) + b"\0")
     elif args.command == "validate-cell":

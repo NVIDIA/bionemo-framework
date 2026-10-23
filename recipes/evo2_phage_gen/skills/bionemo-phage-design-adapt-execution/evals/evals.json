@@ -3,101 +3,117 @@
   "evals": [
     {
       "id": "bionemo-phage-design-adapt-execution-001-local-preflight",
-      "prompt": "Adapt an Evo 2 phage SFT and RL workflow to the GPU node this agent is running on. Data, checkpoints, temporary files, logs, and results may use different mounts. Do not change the biological workload.",
-      "expected_output": "A measured local execution plan with a full-shape smoke test and sensible storage choices.",
+      "prompt": "Review this local execution proposal for full-genome SFT followed by RL; provide corrected paths and sizing without launching. Eight80-GiB GPUs are visible, but an existing job owns GPUs0–3 until18:00. /repo is read-only; /scratch is writable with 1.5 TB free and is erased at job exit; /results is durable/writable with 620 GB free; /cache is durable/writable with 110 GB free. Estimated footprint: downloaded assets180 GB, retained checkpoints240 GB, logs/final outputs20 GB, disposable scorer work300 GB. The draft stores everything in /scratch and requests all eight GPUs now. Full-shape measurements exist only for eight GPUs. The approved context and global batch must remain fixed.",
+      "expected_output": "A feasible storage and execution decision that accounts for occupancy, durability, and missing four-GPU measurements.",
       "assertions": [
-        "The response inspects current commands, environment, storage, CPUs, accelerators, memory, occupancy, and existing jobs before sizing work.",
-        "It checks that selected paths are writable and have enough space without assuming all artifacts share one mount.",
-        "It uses a bounded full-context smoke to choose topology and effective batch.",
-        "It responds to measured memory pressure without truncating genomes, dropping loss-bearing tokens, weakening QC, or reducing the requested output count.",
-        "It records resolved settings, commands, paths, and results in RUNLOG.md without dumping credentials or the entire environment."
+        "Places the180 GB assets, 240 GB retained checkpoints, and20 GB durable outputs within available durable capacity, for example /results; does not fit180 GB assets into110 GB /cache.",
+        "Limits /scratch to the300 GB discardable work and identifies a writable checkout/build location because /repo is read-only.",
+        "Does not claim eight GPUs are available now or assume the eight-GPU capacity evidence validates a four-GPU run.",
+        "Proposes waiting for the allocation or a bounded full-shape four-GPU qualification that preserves context/global batch through supported topology and accumulation, with durable job/log paths."
       ],
       "expected_skill": "bionemo-phage-design-adapt-execution",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-adapt-execution-002-sandbox-gpu-visibility",
-      "prompt": "The operator says this node has eight working GPUs and prior jobs used them, but nvidia-smi, /dev/nvidia inspection, and CUDA visibility all fail through the agent sandbox. Decide how to proceed.",
-      "expected_output": "A host-visible verification step rather than a false conclusion that the node has no GPUs.",
+      "prompt": "Review these two inventory records. The agent container reports nvidia-smi: command not found, no /dev/nvidia entries, torch.cuda.is_available=false. A scheduler inventory from ten minutes ago lists node cedar with 8 H100s, state IDLE, and an authorized host-side read-only probe is available; no host probe has yet run. The operator asks whether to install a driver or schedule a CPU fallback. Give the next diagnostic command and the conclusions justified now.",
+      "expected_output": "A host-visible diagnostic proposal that separates container visibility from actual hardware status.",
       "assertions": [
-        "The response recognizes that the sandbox or container can hide host devices and drivers.",
-        "With permission, it repeats the probe in a host-visible context or gives the operator a concise host-side check.",
-        "It does not install drivers, switch to CPU, or shrink the intended workload based only on sandbox-visible failure.",
-        "If host visibility cannot be checked, it reports the uncertainty and leaves hardware sizing unresolved."
+        "Treats the container failures as a visibility limit, not proof of missing GPUs or broken host drivers; also does not treat scheduler inventory alone as a live functional probe.",
+        "Proposes a host-context nvidia-smi/device/CUDA check using the already-authorized facility without seeking redundant approval.",
+        "Defers driver installation and CPU/topology changes until the host evidence resolves the conflict.",
+        "If the proposed probe cannot be performed, explicitly leaves current hardware readiness unknown and provides an operator-executable check."
       ],
       "expected_skill": "bionemo-phage-design-adapt-execution",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-adapt-execution-003-durable-remote-run",
-      "prompt": "Prepare a long-running phage training job on the remote, scheduler, or cloud facility actually available here. It must keep running if this chat session ends and be recoverable in a later session.",
-      "expected_output": "An environment-appropriate durable launch and monitoring handoff.",
+      "prompt": "A reconnect finds Slurm job48172 owned by this project, state RUNNING, stdout /results/R/logs/48172.out. The log advanced from optimizer80 to 88 in40 minutes; validation/save occurs every20 steps. /results/R/decision.json says step 80, decision=stop, reason='comparable validation divergence'. The submission wrapper has an unconditional requeue loop. The chat's old SSH shell is gone, and W&B has not updated for an hour. Give a recovery and handoff proposal using this snapshot, without submitting or cancelling anything.",
+      "expected_output": "A durable-job handoff that detects continued work past a recorded stop and avoids duplicate launches.",
       "assertions": [
-        "The response discovers the available facility and its current command interface instead of assuming a particular backend.",
-        "The worker, status, and logs survive the chat or agent process; shell backgrounding inside the current session is not presented as durable.",
-        "It retains a stable job identifier and provides launch, status, log, cancel, and resume information using the chosen environment.",
-        "It observes startup and later meaningful progress and does not call submission completion.",
-        "It chooses monitoring intervals from expected progress and decision timing rather than continuously polling a stable job.",
-        "For segmented training, it persists the stage operator's scientific continuation decision and does not relaunch unconditionally through the configured ceiling.",
-        "A later session can reattach and determine terminal success or failure without launching a duplicate."
+        "Recognizes job48172 as still running from scheduler and trainer evidence despite stale W&B; does not launch a replacement on reconnect.",
+        "Flags updates81–88 after the step 80 stop as a supervisor-control failure and proposes stopping the existing trainer through the scheduler's scoped cancellation path plus disabling unconditional continuation.",
+        "Provides concrete status/log/cancel references tied to 48172 and /results/R, preserving the best and latest useful checkpoints and original stop evidence.",
+        "Uses the observed five minutes per update and next decision horizon to justify a useful monitoring cadence, rather than rapid liveness polling or declaring submission/completion synonymous."
       ],
       "expected_skill": "bionemo-phage-design-adapt-execution",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-adapt-execution-004-tool-contention",
-      "prompt": "One whole-genome filter became faster with more threads in isolation but slower when many containers ran concurrently. Other required filters have not been measured. Choose concurrency for SFT filtering, RL scoring, and final screening.",
-      "expected_output": "A tool-specific benchmark and resource plan based on realistic full-genome workloads.",
+      "prompt": "Choose a screening resource proposal from this synthetic benchmark. The job has32 scheduler CPUs although the host exposes192. OMP_NUM_THREADS=2 is inherited. For one whole-genome safety tool, 8 workers×8 threads gives14 records/min and28 GiB RSS;4×6 gives21/min and20 GiB;2×12 gives18/min and18 GiB. A separate ORF caller has no benchmark. One design goal's384 eligible genomes span two prompt lengths; whole-pool MMseqs takes70 s at 24 threads. Shared-filesystem temp cleanup takes160 s/batch versus9 s on node-local scratch. Durable output size is small. A teammate proposes splitting MMseqs by GPU and using192 workers. Review it.",
+      "expected_output": "A measured CPU, pool, and scratch allocation proposal that preserves scoring semantics.",
       "assertions": [
-        "The response does not generalize one filter's threading result to every tool or stage.",
-        "It benchmarks realistic records and measures throughput, memory, I/O, and contention for each important path.",
-        "It checks that optimized and reference paths agree on controls and record mapping.",
-        "It selects concurrency from the shared bottleneck and leaves enough resources for monitoring and checkpointing.",
-        "Missing or failed required filters remain visible and cannot become PASS."
+        "Uses32 scheduler CPUs, not192 host CPUs or inherited OMP=2, as the allocation ceiling; favors the measured4×6 option with headroom over8×8 oversubscription.",
+        "Budgets MMseqs24 threads against concurrent work, either scheduling it separately or bounding other work to the remaining CPUs.",
+        "Keeps all 384 eligible genomes for this goal in one diversity pool; rejects GPU/prompt sharding because it changes cluster sizes and rewards.",
+        "Uses local scratch for disposable cleanup-heavy work while keeping logs, failures, and final results durable; identifies the ORF caller as requiring its own bounded benchmark rather than inheriting safety-tool tuning."
       ],
       "expected_skill": "bionemo-phage-design-adapt-execution",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-adapt-execution-005-workstation-container",
-      "prompt": "A workstation has working NVIDIA GPUs and Docker with the NVIDIA container runtime, but the BioNeMo recipe is checked out on the host and its dependencies are not installed there. Establish a supported environment without modifying the host Python installation.",
-      "expected_output": "A GPU-enabled NVIDIA PyTorch container workflow using the mounted checkout and recipe build scripts.",
+      "prompt": "Review a container setup draft. Host GPUs pass nvidia-smi and Docker's NVIDIA runtime test; host Python lacks the recipe dependencies and may not be changed. Checkout is /work/recipes, data /datasets (read-only), results /runs (writable), cache /cache (writable). The draft builds dependencies from the image's baked /opt/recipes, then mounts /work/recipes at /workspace and runs that newer checkout with host Python through docker exec. The recipe Dockerfile is available. Give a corrected build/activation/mount sketch; no image build is requested.",
+      "expected_output": "A container proposal whose installed code matches the mounted checkout and leaves host Python untouched.",
       "assertions": [
-        "The response uses a GPU-enabled container because the recipe build scripts are tested against the NVIDIA PyTorch container environment.",
-        "It identifies the recipe Dockerfile or repository .devcontainer as an appropriate starting point.",
-        "It exposes the workstation GPUs and bind-mounts the checkout plus the selected data, cache, and result locations.",
-        "It runs ./.ci_build.sh inside the mounted checkout and sources .ci_test_env.sh before recipe commands.",
-        "It keeps the mounted source and installed editable code aligned and records the resolved image and mount layout."
+        "Uses a GPU-enabled recipe Dockerfile or supported NVIDIA PyTorch environment with explicit mounts for the given checkout/data/results/cache paths.",
+        "Builds with ./.ci_build.sh inside the mounted checkout and activates that checkout's .ci_test_env.sh before recipe commands.",
+        "Identifies baked /opt/recipes versus mounted /workspace as a code/dependency alignment risk and removes the host-Python execution path.",
+        "Records image identity and mount/activation details sufficient for the same runtime to be reconstructed, without claiming a successful build from this draft."
       ],
       "expected_skill": "bionemo-phage-design-adapt-execution",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-adapt-execution-006-non-x86-assets",
-      "prompt": "An ARM64 GPU workstation can run an NVIDIA PyTorch container. Determine whether the current Evo 2 phage external-asset setup can run unchanged.",
-      "expected_output": "An architecture-aware ARM setup using the maintained native downloads and the documented Python packaging fallback.",
+      "prompt": "An aarch64 GPU container starts correctly. The asset manifest points MMseqs to /cache/x86_64/mmseqs/bin/mmseqs; file reports ELF64 x86-64 and executing it gives Exec format error. A separate dependency install under --no-build-isolation fails resolving Biotite/Biotraj distributions, then says ModuleNotFoundError: hatchling during a source attempt. Other packages have compatible wheels. Propose the smallest supported environment repair and its validation.",
+      "expected_output": "An architecture-correct asset setup and conditional source-build fallback.",
       "assertions": [
-        "The response uses the installer's architecture-selected aarch64 downloads for MMseqs2-GPU, DIAMOND, HMMER, and AMRFinderPlus rather than reusing x86_64 tool caches.",
-        "It enables the dated biotite 0.41.2 and pinned biotraj 1.2.2 source-build fallback documented beside pyproject.toml when the ARM Python resolver encounters the known wheel and sdist metadata gap.",
-        "It includes the documented Hatchling, hatch-vcs, and hatch-cython build helpers needed by that no-build-isolation fallback.",
-        "It validates native architecture and executable versions before scientific stages use the tools.",
-        "It records the image, architecture, dependency fallback if used, and resolved tool paths in RUNLOG.md."
+        "Rejects reuse of the x86_64 cache and uses the maintained aarch64-selected downloads/architecture-qualified paths for affected native assets.",
+        "Uses the documented biotite0.41.2/biotraj1.2.2 fallback for the observed packaging failure, not an unconditional pin for every platform.",
+        "Includes the active Hatchling, hatch-vcs, and hatch-cython build prerequisites for --no-build-isolation, instead of treating the Python error as a GPU-driver problem.",
+        "Requires native executable architecture/version checks and import tests in the actual runtime; preserves working wheel paths where no fallback is needed."
       ],
       "expected_skill": "bionemo-phage-design-adapt-execution",
       "expected_script": null
     },
     {
       "id": "bionemo-phage-design-adapt-execution-007-coherent-memory-node",
-      "prompt": "Adapt training to an ARM64 coherent-memory NVIDIA node. The model fits before checkpointing, but HBM fills after saves even though CUDA process allocation is modest. The non-root runtime also tries to compile a dataset helper into the root-owned environment, and nested tools oversubscribe CPUs.",
-      "expected_output": "An architecture-correct image and memory-placement plan validated across repeated checkpoint and restart boundaries.",
+      "prompt": "Review a coherent-memory ARM node failure. numactl reports node0: CPUs0–71, DRAM; node1: no CPUs, HBM. CUDA allocated/reserved stays54/58 GiB across save1, but node1 Cached grows from 4 to 39 GiB and the next allocation fails. A pre-save two-update test passed. The non-root job also gets Permission denied compiling a dataset helper under /opt/env. Docker build context is900 GB because it includes results/. The runtime must stay non-root. Give a diagnosis and qualification proposal.",
+      "expected_output": "A memory-placement and build proposal tested across checkpoint lifecycle boundaries.",
       "assertions": [
-        "The response inspects CPU, HBM, and NUMA topology and recognizes that clean checkpoint page cache on a memory-only HBM node may not appear in CUDA process allocation.",
-        "It keeps device-required memory nodes visible, deliberately places CPU, offload, and cache allocations on CPU-attached memory with supported controls, and verifies actual residency.",
-        "The full-shape smoke crosses a first save, following step, second save, and exact restart; a pre-save fit is not accepted as sufficient.",
-        "Architecture-specific compiled helpers are built while the image is writable and import-tested as the actual non-root runtime user.",
-        "Large generated artifacts stay outside the image build context and are mounted at runtime.",
-        "Concurrency accounts for outer workers, nested subprocesses, and explicit tool thread limits so defaults cannot consume all visible CPUs.",
-        "If checkpoint headroom remains poor, supported optimizer offload and nonpersistent checkpoint workers are benchmarked before reducing scientific context or effective batch."
+        "Connects the post-save HBM Cached growth with CPU/page-cache placement on the memory-only node as a supported hypothesis, while noting CUDA allocation alone cannot explain total residency.",
+        "Proposes supported CPU/offload/cache placement on node0 while retaining device-required memory-node visibility, with actual residency measurements to confirm the cause.",
+        "Requires a lifecycle crossing save1, following update, save2, and fresh-process restart before claiming capacity; pre-save fit is insufficient.",
+        "Builds architecture-specific dataset helpers while the image is writable and import-tests as the runtime UID; excludes generated900 GB results from the build context and mounts them at runtime."
+      ],
+      "expected_skill": "bionemo-phage-design-adapt-execution",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-adapt-execution-008-dirty-gpu-capacity",
+      "prompt": "Assess a policy-training microbatch failure for an RL deployment that alternates full-genome rollouts and optimizer updates, runs periodic validation, and saves resumable checkpoints. Before launch: GPU0 used 31 GiB/free 49 GiB, compute PID list empty; identical GPU1 used 0.6 GiB/free 79.4 GiB. During the first optimizer update of a full-shape run on GPU0, the job reports allocated 42 GiB/reserved 45 GiB and an OOM on a 6 GiB request. After exit GPU0 returns to 31 GiB. No authority to kill external processes is granted. The proposed record says 'microbatch 2 exceeds 80 GiB; retry microbatch 1.' What should the capacity record and next test say?",
+      "expected_output": "A confounded capacity diagnosis and a clean-device comparison without unauthorized cleanup.",
+      "assertions": [
+        "Accounts for the31 GiB baseline external/platform occupancy separately from the job's42/45 GiB allocator footprint; does not conclude microbatch 2 intrinsically needs more than80 GiB.",
+        "Proposes the same full-shape microbatch 2 test on the available clean GPU or an appropriately authorized clean allocation, rather than unapproved process killing.",
+        "Does not infer ownership or reclaimability from the empty compute-PID list and leaves external allocations untouched. A clean-device comparison may proceed without resolving the external owner's identity; host/device inspection is needed if the proposal depends on reclaiming that memory.",
+        "Requires the eventual test to include optimizer, validation, save/reload transitions and records baseline plus job allocation before choosing a smaller microbatch."
+      ],
+      "expected_skill": "bionemo-phage-design-adapt-execution",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-adapt-execution-009-container-driver-cudnn",
+      "prompt": "Review this runtime matrix; these are measured local results, not a general compatibility claim. Host driver R550 cannot be changed. ImageA/CUDA13.3 fails CUDA initialization; ImageB/CUDA13.1 passes. ImageB bundles cuDNN9.19, required kernel probe needs at least9.24, and recipe .venv contains9.27. After setting LD_LIBRARY_PATH, rank0 reports9.27 but ranks1–7 report9.19 and fail the kernel probe. Propose a reproducible distributed startup fix and the evidence needed to accept it.",
+      "expected_output": "A locally driver-compatible image and consistent process-start library selection across all workers.",
+      "assertions": [
+        "Selects measured-working ImageB and preserves the required kernel instead of changing the fixed host driver or retrying ImageA.",
+        "Diagnoses inconsistent worker activation/library loading from the rank split and proposes recipe environment propagation plus an explicit startup selection such as LD_PRELOAD for its libcudnn.so.9 where needed.",
+        "Requires effective Torch CUDA/cuDNN versions and the required kernel probe on all eight workers; rank0 success alone does not qualify the runtime.",
+        "Includes the chosen image and library/activation contract in proposed resume configuration without asserting all R550 hosts universally support the listed CUDA version."
       ],
       "expected_skill": "bionemo-phage-design-adapt-execution",
       "expected_script": null

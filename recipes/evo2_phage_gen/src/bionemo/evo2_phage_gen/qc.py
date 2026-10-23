@@ -22,6 +22,7 @@ use online as an RL reward component.
 
 import argparse
 import csv
+import math
 import re
 import subprocess
 import tempfile
@@ -45,23 +46,43 @@ class NucleotideQCConfig:
 
     genome_length_min: int = 4000
     genome_length_max: int = 6000
+    genome_length_reward_lower_zero: float = 2000.0
+    genome_length_reward_lower_full: float = 4000.0
+    genome_length_reward_upper_full: float = 6000.0
+    genome_length_reward_upper_zero: float = 8000.0
     gc_content_min: float = 30.0
     gc_content_max: float = 65.0
     homopolymer_min: int = 0
     homopolymer_max: int = 10
     dustmask_filter: bool = False
     dustmasker_bin: str = "dustmasker"
-    dustmask_use_external: bool = True
     dustmasker_timeout_s: float = 300.0
     dustmask_window: int = 64
     dustmask_level: float = 20.0
     dustmask_end_window: int = 200
     dustmask_max_end_fraction: float = 0.9
 
+    def __post_init__(self) -> None:
+        """Require a finite four-point reward envelope independent of hard QC."""
+        bounds = (
+            self.genome_length_reward_lower_zero,
+            self.genome_length_reward_lower_full,
+            self.genome_length_reward_upper_full,
+            self.genome_length_reward_upper_zero,
+        )
+        if not (
+            all(bound is not None and math.isfinite(bound) for bound in bounds)
+            and bounds[0] < bounds[1] <= bounds[2] < bounds[3]
+        ):
+            raise ValueError(
+                "genome length reward bounds must be finite and satisfy "
+                "lower_zero < lower_full <= upper_full < upper_zero"
+            )
+
 
 @dataclass(frozen=True)
 class DustmaskMetrics:
-    """Summary of DUST-style low-complexity masking for one sequence."""
+    """Summary of NCBI DustMasker low-complexity masking for one sequence."""
 
     masked_bases: int
     masked_fraction: float
@@ -126,93 +147,6 @@ def calculate_gc_content(sequence: str) -> float:
         return 0.0
     seq = sequence.upper()
     return 100.0 * (seq.count("G") + seq.count("C")) / len(seq)
-
-
-def _dust_window_score(window: str) -> float:
-    """Return a DUST-style triplet repetition score for one window."""
-    triplet_count = len(window) - 2
-    if triplet_count <= 0:
-        return 0.0
-    counts: dict[str, int] = {}
-    for idx in range(triplet_count):
-        triplet = window[idx : idx + 3]
-        if any(char not in DNA_ALPHABET for char in triplet):
-            return 0.0
-        counts[triplet.upper()] = counts.get(triplet.upper(), 0) + 1
-    pair_sum = sum(count * (count - 1) // 2 for count in counts.values())
-    return 10.0 * pair_sum / triplet_count
-
-
-def dustmask_low_complexity_mask(
-    sequence: str,
-    *,
-    window: int = 64,
-    level: float = 20.0,
-) -> list[bool]:
-    """Return a DUST-style low-complexity mask using triplet repetition scores."""
-    seq = str(sequence).upper()
-    seq_len = len(seq)
-    if seq_len < 3:
-        return [False] * seq_len
-    window = max(3, min(int(window), seq_len))
-    mask = [False] * seq_len
-    triplet_count = window - 2
-    counts: dict[str, int] = {}
-    pair_sum = 0
-    invalid_bases = sum(char not in DNA_ALPHABET for char in seq[:window])
-
-    def add_triplet(triplet: str) -> None:
-        nonlocal pair_sum
-        if any(char not in DNA_ALPHABET for char in triplet):
-            return
-        count = counts.get(triplet, 0)
-        pair_sum += count
-        counts[triplet] = count + 1
-
-    def remove_triplet(triplet: str) -> None:
-        nonlocal pair_sum
-        if any(char not in DNA_ALPHABET for char in triplet):
-            return
-        count = counts[triplet]
-        pair_sum -= count - 1
-        if count == 1:
-            del counts[triplet]
-        else:
-            counts[triplet] = count - 1
-
-    for triplet_start in range(triplet_count):
-        add_triplet(seq[triplet_start : triplet_start + 3])
-
-    threshold = float(level)
-    for start in range(0, seq_len - window + 1):
-        if start:
-            outgoing_base = seq[start - 1]
-            incoming_base = seq[start + window - 1]
-            invalid_bases -= outgoing_base not in DNA_ALPHABET
-            invalid_bases += incoming_base not in DNA_ALPHABET
-            remove_triplet(seq[start - 1 : start + 2])
-            add_triplet(seq[start + window - 3 : start + window])
-        score = 0.0 if invalid_bases else 10.0 * pair_sum / triplet_count
-        if score >= threshold:
-            mask[start : start + window] = [True] * window
-    return mask
-
-
-def calculate_dustmask_metrics(
-    sequence: str,
-    *,
-    window: int = 64,
-    level: float = 20.0,
-    end_window: int = 200,
-    max_end_fraction: float = 0.9,
-) -> DustmaskMetrics:
-    """Calculate DUST-style low-complexity metrics, emphasizing sequence ends."""
-    mask = dustmask_low_complexity_mask(sequence, window=window, level=level)
-    return _dustmask_metrics_from_mask(
-        mask,
-        end_window=end_window,
-        max_end_fraction=max_end_fraction,
-    )
 
 
 def _dustmask_metrics_from_mask(
@@ -390,19 +324,8 @@ def add_nucleotide_metrics(
     df["max_nt_homopolymer_length"] = df["sequence"].map(calculate_nt_homopolymer_len)
     if not config.dustmask_filter:
         dust_metrics = [DustmaskMetrics(0, 0.0, 0, 0.0, 0, 0.0, 0.0, True) for _ in df["sequence"]]
-    elif config.dustmask_use_external:
-        dust_metrics = calculate_dustmasker_metrics(df, config)
     else:
-        dust_metrics = [
-            calculate_dustmask_metrics(
-                sequence,
-                window=config.dustmask_window,
-                level=config.dustmask_level,
-                end_window=config.dustmask_end_window,
-                max_end_fraction=config.dustmask_max_end_fraction,
-            )
-            for sequence in df["sequence"]
-        ]
+        dust_metrics = calculate_dustmasker_metrics(df, config)
     df["dustmask_masked_bases"] = [metrics.masked_bases for metrics in dust_metrics]
     df["dustmask_masked_fraction"] = [metrics.masked_fraction for metrics in dust_metrics]
     df["dustmask_left_end_masked_bases"] = [metrics.left_end_masked_bases for metrics in dust_metrics]
@@ -414,23 +337,34 @@ def add_nucleotide_metrics(
     return df
 
 
+def _nucleotide_stage_masks(metrics: pd.DataFrame, config: NucleotideQCConfig) -> dict[str, pd.Series]:
+    """Build the ordered hard filters shared by screening and the optional pass reward."""
+    stage_masks = {
+        "qc1_initial": pd.Series(True, index=metrics.index),
+        "valid_nt_chars": metrics["valid_nt_chars"],
+        "genome_length": metrics["genome_length"].between(config.genome_length_min, config.genome_length_max),
+        "gc_content": metrics["gc_content"].between(config.gc_content_min, config.gc_content_max),
+        "nt_homopolymer": metrics["max_nt_homopolymer_length"].between(config.homopolymer_min, config.homopolymer_max),
+    }
+    if config.dustmask_filter:
+        stage_masks["dustmask_end"] = metrics["dustmask_end_pass"]
+
+    return stage_masks
+
+
+def nucleotide_pass_mask(metrics: pd.DataFrame, config: NucleotideQCConfig = NucleotideQCConfig()) -> pd.Series:
+    """Return hard nucleotide acceptance from measured columns, without rerunning tools."""
+    masks = _nucleotide_stage_masks(metrics, config)
+    return pd.DataFrame(masks, index=metrics.index).all(axis=1)
+
+
 def apply_nucleotide_qc(
     sequences_df: pd.DataFrame,
     config: NucleotideQCConfig = NucleotideQCConfig(),
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Apply staged nucleotide QC and return ``(metrics_df, counts_df)``."""
+    """Apply staged nucleotide QC and return ``(accepted_rows, counts_df)``."""
     metrics_df = add_nucleotide_metrics(sequences_df, config=config)
-    stage_masks = {
-        "qc1_initial": pd.Series(True, index=metrics_df.index),
-        "valid_nt_chars": metrics_df["valid_nt_chars"],
-        "genome_length": metrics_df["genome_length"].between(config.genome_length_min, config.genome_length_max),
-        "gc_content": metrics_df["gc_content"].between(config.gc_content_min, config.gc_content_max),
-        "nt_homopolymer": metrics_df["max_nt_homopolymer_length"].between(
-            config.homopolymer_min, config.homopolymer_max
-        ),
-    }
-    if config.dustmask_filter:
-        stage_masks["dustmask_end"] = metrics_df["dustmask_end_pass"]
+    stage_masks = _nucleotide_stage_masks(metrics_df, config)
 
     current = pd.Series(True, index=metrics_df.index)
     count_rows = []
@@ -495,11 +429,6 @@ def main() -> None:
     parser.add_argument("--homopolymer-max", type=int, default=10)
     parser.add_argument("--dustmask-filter", action="store_true")
     parser.add_argument("--dustmasker-bin", default="dustmasker")
-    parser.add_argument(
-        "--dustmask-use-fallback",
-        action="store_true",
-        help="Use the internal DUST-style scorer instead of the NCBI dustmasker binary.",
-    )
     parser.add_argument("--dustmask-window", type=int, default=64)
     parser.add_argument("--dustmask-level", type=float, default=20.0)
     parser.add_argument("--dustmask-end-window", type=int, default=200)
@@ -518,7 +447,6 @@ def main() -> None:
             homopolymer_max=args.homopolymer_max,
             dustmask_filter=args.dustmask_filter,
             dustmasker_bin=args.dustmasker_bin,
-            dustmask_use_external=not args.dustmask_use_fallback,
             dustmask_window=args.dustmask_window,
             dustmask_level=args.dustmask_level,
             dustmask_end_window=args.dustmask_end_window,

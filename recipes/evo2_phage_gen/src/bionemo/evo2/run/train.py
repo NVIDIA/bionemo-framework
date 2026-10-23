@@ -43,6 +43,7 @@ from megatron.bridge.training.mixed_precision import MIXED_PRECISION_RECIPES
 from megatron.bridge.training.post_training.checkpointing import has_modelopt_state
 from megatron.bridge.training.pretrain import pretrain
 from megatron.bridge.utils.common_utils import get_local_rank_preinit, get_rank_safe
+from megatron.core.transformer.enums import AttnBackend
 
 from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
 from bionemo.evo2.models.evo2_provider import MODEL_OPTIONS, hyena_forward_step, infer_model_type
@@ -422,6 +423,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Do not predict EOD/Pad tokens (typical default, but not default in original evo2).",
     )  # DONE
     parser.add_argument(
+        "--skip-taxonomy-loss-mask",
+        action="store_true",
+        help="Skip phylogenetic-tag parsing for indexed datasets known to contain no taxonomy text. "
+        "Non-DNA targets stay masked; EOD and padding behavior is unchanged.",
+    )
+    parser.add_argument(
         "--cross-entropy-loss-fusion",
         action="store_true",
         default=False,
@@ -593,6 +600,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=0.0,
         help="Dropout probability for the attention layers.",
     )  # DONE
+    parser.add_argument(
+        "--attention-backend",
+        choices=("auto", "flash", "fused", "unfused"),
+        default=None,
+        help="Override the model's attention implementation; otherwise retain its provider default.",
+    )
     parser.add_argument(
         "--use-subquadratic-ops",
         action="store_true",
@@ -836,6 +849,7 @@ def train(args: argparse.Namespace) -> None:
         recipe_kwargs["dataset_config_path"] = args.dataset_config
 
     recipe_kwargs["pad_eod_loss_mask"] = args.eod_pad_in_loss_mask
+    recipe_kwargs["mask_phylogenetic_tags"] = not args.skip_taxonomy_loss_mask
 
     # Parallelism
     recipe_kwargs["tensor_model_parallel_size"] = args.tensor_model_parallel_size
@@ -925,6 +939,8 @@ def train(args: argparse.Namespace) -> None:
         cfg.model.hidden_dropout = args.hidden_dropout
     if args.attention_dropout is not None:
         cfg.model.attention_dropout = args.attention_dropout
+    if args.attention_backend is not None:
+        cfg.model.attention_backend = AttnBackend[args.attention_backend]
     if args.ffn_hidden_size is not None:
         cfg.model.ffn_hidden_size = args.ffn_hidden_size
 
@@ -1075,7 +1091,8 @@ def train(args: argparse.Namespace) -> None:
 
     if args.finetune_ckpt_dir:
         validated_ckpt_dir = _validate_finetune_ckpt_dir(args.finetune_ckpt_dir)
-        cfg.checkpoint.finetune = True
+        # Leave resume mode intact when cfg.checkpoint.load already contains a run checkpoint.
+        # MBridge switches to finetune mode itself only when it falls back to this pretrained checkpoint.
         cfg.checkpoint.pretrained_checkpoint = str(validated_ckpt_dir)
         cfg.checkpoint.dist_ckpt_strictness = "ignore_all"  # necessary unfortunately to avoid extra_state issues.
     if args.nvidia_fault_tolerance:

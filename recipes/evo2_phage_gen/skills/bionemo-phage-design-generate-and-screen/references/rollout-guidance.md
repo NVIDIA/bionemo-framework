@@ -2,20 +2,51 @@
 
 Use prompts and seeds independent of calibration and RL validation. Generate the requested number of completed candidates, accounting for failed or duplicate attempts without silently shrinking the denominator.
 
-Use packed dynamic inference for medium/long generation with either uniform or mixed prompt lengths; use static-Flash only when a target-length benchmark shows it wins for an equal-length batch. Require `--ignore-eos --strict-generation` for exact target lengths. Dynamic generation ignores `--use-subquadratic-ops` and keeps CUDA-graphed decode; reserve that legacy switch for static-Flash generation or rectangular prediction/training. Use packed prediction for ragged likelihood batches and preserve record mappings. For uniform medium/long scoring, benchmark `--no-sequence-packing`; the rectangular path also enables CP, while TP supports both layouts.
+Use packed dynamic inference for medium/long generation with either uniform or mixed prompt lengths; use static-Flash only when a target-length benchmark shows it wins for an equal-length batch. Require `--ignore-eos --strict-generation` only for exact fixed-length generation; when termination is learned, keep EOD eligible and retain its sampled action and log-probability. Dynamic generation ignores `--use-subquadratic-ops` and keeps CUDA-graphed decode; reserve that legacy switch for static-Flash generation or rectangular prediction/training. Use packed prediction for ragged likelihood batches and preserve record mappings. For uniform medium/long scoring, benchmark `--no-sequence-packing`; the rectangular path also enables CP, while TP supports both layouts.
 
-The recipe's GDPO adapter uses this packed dynamic path directly on every data-parallel rollout shard and suppresses EOS for exact-length whole genomes. EOD stopping is logical, so a shard retains a fixed physical row count through decode: capture only the full and optional remainder request shapes actually used. For heterogeneous prompts, qualify multi-page packed parity, preserve both request IDs and `request_to_mamba_state_idx` across staggered KV-page rollovers, and compare generated selected-action log probabilities with a prediction forward plus reconstructed target-preserving top-k/top-p support, including page-boundary phase checks. Reuse requires stable registered parameter and buffer addresses. Before capture, ordinary offload is allowed; after capture, the adapter preserves parameter storage, while any unexpected registered-storage rebind on a TP/PP/CP rank invalidates the graphs and forces every rank in that DP replica to recapture before replay. Quantized graphs also recapture after each refit because derived quantization state can change without an address rebind. Its `policy.sequence_packing` setting is intentionally separate and disabled: that setting changes gradient-bearing policy and loss execution and must not be enabled solely from inference benchmarks.
+The recipe's GDPO adapter uses this packed dynamic path directly on every mixed-length data-parallel rollout shard and retains sampled terminal EOD. EOD stopping is logical, so a shard retains a fixed physical row count through decode: capture only the full and optional remainder request shapes actually used. For heterogeneous prompts, qualify multi-page packed parity, preserve both request IDs and `request_to_mamba_state_idx` across staggered KV-page rollovers, and compare generated selected-action log probabilities with a prediction forward plus reconstructed target-preserving top-k/top-p support, including page-boundary phase checks. Reuse requires stable registered parameter and buffer addresses. Before capture, ordinary offload is allowed; after capture, the adapter preserves parameter storage, while any unexpected registered-storage rebind on a TP/PP/CP rank invalidates the graphs and forces every rank in that DP replica to recapture before replay. Quantized graphs also recapture after each refit because derived quantization state can change without an address rebind. Its `policy.sequence_packing` setting is intentionally separate and disabled: that setting changes gradient-bearing policy and loss execution and must not be enabled solely from inference benchmarks.
 
 Distinguish cold end-to-end throughput from model-generation and steady-decode throughput. The `evo2_end_to_end_completion_tokens_per_s` metric includes native engine/context setup and graph capture; `evo2_generation_completion_tokens_per_s` excludes setup/capture; `evo2_decode_completion_tokens_per_s` excludes prefill too. Ordinary phase timings are low-overhead wall measurements. Set `EVO2_EXACT_PHASE_EVIDENCE=1` only for a diagnostic run that needs synchronized phase timings and phase-local allocator peaks, and verify at least two complete rollout/offload-refit cycles when qualifying persistence.
 
 Treat precision as a qualified deployment choice, not a portable checkpoint property. Hopper supports regular native FP8 for all compatible Transformer Engine linears (appropriate for the 7B model) through `--mixed-precision-recipe bf16_with_fp8_current_scaling_mixed --fp8-all-layers`. The MBridge current-scaling recipe otherwise retains BF16 first/last blocks. In native dynamic inference, global FP8/FP4 automatically resolves requested block CUDA graphs to layer graphs because Transformer Engine's quantization state is not block-graph compatible. For globally quantized packed prediction, `--sequence-parallel-policy auto` retains TP but disables SP with current MCore because its padding shim double-reduces row outputs; BF16 TP keeps SP. Use `on` only to requalify a future pad-aware single-reduction implementation with aligned/ragged TP parity and performance A/B tests. After qualification, the case-study's `--hopper-fp8-inference` option forwards that pair to calibration, final rollout, and packed likelihood scoring while leaving GDPO training precision alone. Keep decode capacity at a multiple of eight requests when practical so regular FP8 can use its native aligned-row path instead of per-layer pad/unpad; packed dynamic prefill may mix prompt lengths within that batch. Use Vortex delayed scaling only for checkpoints whose Hopper behavior requires it. Record the exact precision recipe and effective graph scope.
 
-Validate the raw denominator, retain raw-model scores when requested, deduplicate exact/circular/
-reverse-complement biological equivalents, run required safety and hard QC on representatives, and
-only then cluster passers in a deterministic candidate order. Representative batching is
+Validate the raw denominator, retain raw-model scores when requested, deduplicate exact sequence
+copies, run required safety and hard QC on representatives, and only then cluster passers in a
+deterministic candidate order. Exact deduplication ignores letter case but preserves the supplied
+start and strand. MMseqs also receives the supplied sequences; the PhiX defaults share coordinate 1.
+Arbitrarily rotated near-clones are not guaranteed to meet the alignment coverage threshold. Representative batching is
 acceptable only when record mapping remains complete and the representative result agrees with
 controls.
 
-Report raw, biological-representative, hard-QC, and post-QC-cluster counts,
+An enabled CheckV gate retains only qualities listed in `checkv_quality_range`.
+The PhiX final-screening profile accepts Low-quality, Medium-quality, High-quality,
+and Complete; Not-determined, unclassified, or missing results do not pass. Match
+the first FASTA header token exactly, preserving candidate IDs and row order;
+substring matching can transfer a classification between names such as `umi1`
+and `umi10`. A failed CheckV execution or malformed output remains an error.
+CheckV does not run in online RL scoring.
+
+Report raw, exact-sequence-representative, hard-QC, and post-QC-cluster counts,
 PASS/FAIL/INDETERMINATE denominators, uncertainty when comparing yields, and whether generation or
 filtering saturated before forecasting a larger experiment.
+Final-design reports use schema 3, `counts.exact_sequence_representatives`, and
+`counts.post_qc_99pct_clusters`. Read coverage
+from the embedded clustering evidence: current runs use 95%, while historical runs
+may use different coverage at the same 99% identity.
+
+- Apply biological gates as a cheap-to-expensive waterfall, qualify safety PASS, then apply diversification. For the PhiX profile, required functions and hard synteny precede safety; optional filter-7 architecture removal follows safety, with AAI last and clustering afterward. The architecture keep gate remains upstream QC. Retain each stage's input, PASS, FAIL, INDETERMINATE, survivor counts, and per-candidate reasons; a final conjunction alone is not diagnostic.
+- Use intrinsic properties for per-candidate PASS gates. Express rollout-relative diversity as a diagnostic or explicit set-level portfolio rule, not an intrinsic genome property; use saturated model maxima or narrow bands as gates only when controls validate a separating boundary.
+- Trace dataflow, then define and replay candidate gates on saved measurements first. A gate that fed an online reward shaped the historical policy, but only adopting its change in-loop requires a new RL attempt; a genuinely post-hoc gate may be versioned and reapplied without retraining.
+
+The final launcher passes `sequence_safety_manifest` and `sequence_safety_input_fasta`
+to Arc. Arc reconciles the saved scan against the original representatives, joins
+by exact sequence despite renamed Arc IDs, and excludes FAIL/INDETERMINATE and
+pre-safety-excluded inputs before novelty. No extra safety search is required.
+The retained `qc5`/`qc6` artifact names do not specify execution order; read the
+recorded count-column order, including for older runs. Standalone screening without
+a safety manifest is not safety-qualified.
+
+The example refreshes the derived Arc pipeline before new final screening, including
+a direct stage-50 entry. This applies current patches such as the CheckV quality gate;
+it does not rerun completed scientific artifacts or invalidate their stage markers.
+Use a new result root when changing scoring definitions.

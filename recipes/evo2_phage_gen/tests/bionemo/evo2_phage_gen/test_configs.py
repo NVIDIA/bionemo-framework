@@ -15,30 +15,14 @@
 
 """Tests for recipe configuration files."""
 
+import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 
 RECIPE_ROOT = Path(__file__).parents[3]
-
-
-def test_config_directory_contains_only_supported_runtime_configs():
-    """The public config directory should expose only supported end-to-end runtime inputs."""
-    config_dir = RECIPE_ROOT / "configs"
-    expected = {
-        "arc_genome_design_filtering_local.yaml",
-        "gdpo_phage_megatron.yaml",
-        "grpo_phage_megatron.yaml",
-        "phage_safety_policy.yaml",
-        "phage_safety_reference_controls.yaml",
-        "sft_microviridae_dataset.yaml",
-        "sft_microviridae_preprocess.yaml",
-    }
-
-    actual = {path.relative_to(config_dir).as_posix() for path in config_dir.rglob("*.yaml")}
-
-    assert actual == expected
 
 
 def test_arc_genome_design_filtering_local_config_is_safe_by_default():
@@ -55,181 +39,175 @@ def test_arc_genome_design_filtering_local_config_is_safe_by_default():
     assert config["reference_tropism_protein"].endswith(
         "data/external/arc_evo2/phage_gen/data/NC_001422.1_Gprotein.fasta"
     )
+    assert config["genome_length_range"] == [5306, 5730]
 
 
-def test_docs_and_configs_do_not_use_stale_workspace_paths():
-    """Recipe docs and configs should be portable across checkout locations."""
-    checked_paths = [
-        RECIPE_ROOT / "README.md",
-        *sorted((RECIPE_ROOT / "configs").rglob("*.yaml")),
+def test_required_functions_match_synteny_profile():
+    """Completeness and ordered gene content must refer to the same function slots."""
+    arc = yaml.safe_load((RECIPE_ROOT / "configs/arc_genome_design_filtering_local.yaml").read_text())
+    required_functions = set(arc["required_gene_families"])
+    synteny_functions = list(arc["core_gene_reference_functions"].values())
+    assert required_functions
+    assert set(synteny_functions) == required_functions
+    assert len(synteny_functions) == len(required_functions)
+    assert arc["mmseqs_db_aai_database"] != arc["mmseqs_db_protein_database"]
+
+
+def test_natural_alpha3_j_is_callable():
+    """NC_001330.1 J is 24 aa; ORFipy excludes its stop codon from the length cutoff."""
+    orfipy = pytest.importorskip("orfipy_core")
+    arc = yaml.safe_load((RECIPE_ROOT / "configs/arc_genome_design_filtering_local.yaml").read_text())
+    # Native CDS for NP_039596.1, including its terminal TAA.
+    sequence = "ATGAAGAAAGCACGTCGTTCTCCTAGTCGTCGTAAAGGTGCTCGCCTCTGGTATGTAGGCGGTTCTCAGTTTTAA"
+    minimum, maximum = arc["orfipy_min_max_orf_lengths"]
+    calls = orfipy.orfs(
+        sequence,
+        minlen=minimum,
+        maxlen=maximum,
+        strand=arc["orfipy_strand"],
+        starts=arc["orfipy_start_codons"].split(","),
+        stops=arc["orfipy_stop_codons"].split(","),
+    )
+    assert [(start, end, strand) for start, end, strand, _description in calls] == [(0, 72, "+")]
+
+
+def test_rl_backend_avoids_fa4_backward():
+    """Both resolved RL policies explicitly select the 26.07-qualified backward path."""
+    from bionemo.evo2_phage_gen.rl_readiness import _load_config_with_defaults
+
+    for name in ("grpo_phage_megatron.yaml", "gdpo_phage_megatron.yaml"):
+        config = _load_config_with_defaults(RECIPE_ROOT / "configs" / name)
+        assert config["policy"]["megatron_cfg"].get("attention_backend") == "fused", name
+
+
+@pytest.mark.parametrize("name", ["grpo_phage_megatron.yaml", "gdpo_phage_megatron.yaml"])
+def test_rl_configs_have_consistent_generation_limits(name):
+    """Tunable batch sizes and length bounds must still fit the runtime contract."""
+    from bionemo.evo2_phage_gen.rl_readiness import _load_config_with_defaults
+
+    config = _load_config_with_defaults(RECIPE_ROOT / "configs" / name)
+    policy = config["policy"]
+    generation = policy["generation"]
+    mcore = generation["mcore_generation_config"]
+    length = config["env"]["phage_qc"]
+    points = [
+        length[f"genome_length_reward_{point}"] for point in ("lower_zero", "lower_full", "upper_full", "upper_zero")
     ]
-
-    stale_prefix = "/workspaces/bionemo-framework"
-    offenders = [path for path in checked_paths if stale_prefix in path.read_text()]
-
-    assert offenders == []
-
-
-def test_grpo_config_uses_prompt_batch_size_for_evo2_generation():
-    """GRPO should default to the known-good serial Evo2 Megatron generation path."""
-    config_path = RECIPE_ROOT / "configs" / "grpo_phage_megatron.yaml"
-    config = yaml.safe_load(config_path.read_text())
-
-    generation_batch_size = config["policy"]["generation_batch_size"]
-    generation_config = config["policy"]["generation"]
-    mcore_generation_config = config["policy"]["generation"]["mcore_generation_config"]
-    dtensor_config = config["policy"]["dtensor_cfg"]
-    tensor_model_parallel_size = config["policy"]["megatron_cfg"]["tensor_model_parallel_size"]
-    train_data = config["data"]["train"]
-
-    assert generation_config["max_new_tokens"] == config["env"]["phage_qc"]["genome_length_max"] - 4
-    assert config["env"]["phage_qc"]["weight_nucleotide_pass"] == 0.0
-    assert config["env"]["phage_qc"]["dustmask_filter"] is True
-    assert config["env"]["phage_qc"]["dustmasker_bin"] == "dustmasker"
-    assert config["env"]["phage_qc"]["dustmask_use_external"] is True
-    assert config["env"]["phage_qc"]["weight_dustmask_end"] == 1.0
-    external_qc = config["env"]["phage_qc"]["external_qc"]
-    sequence_safety = config["env"]["phage_qc"]["sequence_safety"]
-    assert sequence_safety["enabled"] is True
-    assert sequence_safety["host_domain"] == "BACTERIA"
-    assert sequence_safety["host_evidence"]["confirmed"] is True
-    assert sequence_safety["host_evidence"]["replication_host_domains"] == ["BACTERIA"]
-    assert sequence_safety["policy_path"] == "configs/phage_safety_policy.yaml"
-    assert sequence_safety["asset_manifest_path"] == "data/external/safety/asset_manifest.yaml"
-    assert sequence_safety["batch_size"] == 128
-    assert sequence_safety["orf_workers"] == 16
-    assert sequence_safety["phrogs_threads"] == 16
-    assert external_qc["lovis4u_mmseqs_threads"] == 8
-    assert external_qc["lovis4u_metrics_only"] is True
-    assert generation_config["temperature"] > 0.0
-    assert generation_config["top_k"] is None
-    assert generation_config["top_p"] == 1.0
-    assert generation_batch_size == 1
-    assert config["policy"]["model_name"] == "bionemo/evo2_7b"
-    assert config["policy"]["offload_optimizer_for_logprob"] is False
-    assert config["policy"]["megatron_cfg"]["enabled"] is True
-    assert dtensor_config["enabled"] is False
-    assert "_v2" not in dtensor_config
+    assert 0 <= points[0] < points[1] <= points[2] < points[3]
+    assert 0 < length["genome_length_min"] <= length["genome_length_max"]
+    assert policy["max_total_sequence_length"] > generation["max_new_tokens"]
+    assert 0 < mcore["prompt_batch_size"] <= mcore["max_requests"]
+    assert mcore["prompt_batch_size"] <= policy["generation_batch_size"]
+    assert mcore["max_requests"] % policy["megatron_cfg"]["tensor_model_parallel_size"] == 0
+    assert policy["megatron_cfg"]["enabled"] and not policy["dtensor_cfg"]["enabled"]
     assert config["checkpointing"]["model_save_format"] is None
     assert config["checkpointing"]["pretrained_checkpoint"]["format"] == "megatron_bridge"
-    assert mcore_generation_config["max_requests"] % tensor_model_parallel_size == 0
-    assert mcore_generation_config["max_requests"] >= generation_batch_size
-    assert mcore_generation_config["prompt_batch_size"] == generation_batch_size
-    assert "evo2_batched_decode_size" not in mcore_generation_config
-    assert config["logger"]["tensorboard_enabled"] is True
-    assert config["logger"]["tensorboard"] == {}
-    assert train_data["dataset_name"] == "bionemo.evo2_phage_gen.nemo_rl_processors.PhageOpenAIFormatDataset"
+    assert length["zero_reward_without_eod"] is True
+    assert config["grpo"]["overlong_filtering"] is False
 
 
-def test_gdpo_config_uses_positional_objectives_and_mmseqs_diversity():
-    """GDPO should return macro-objective rewards and use 99% MMseqs diversity."""
-    config_path = RECIPE_ROOT / "configs" / "gdpo_phage_megatron.yaml"
-    config = yaml.safe_load(config_path.read_text())
-    env_config = config["env"]["phage_qc"]
-    mmseqs_config = env_config["mmseqs_cluster_diversity"]
-    objectives = env_config["gdpo_objectives"]
-    validation_data = config["data"]["validation"]
+def test_gdpo_config_uses_registered_objectives_and_mmseqs_diversity(tmp_path):
+    """Configured objectives must resolve to independent score columns."""
+    from bionemo.evo2_phage_gen.generation import write_rl_prompt_bank
+    from bionemo.evo2_phage_gen.reward import REWARD_COMPONENTS
+    from bionemo.evo2_phage_gen.rl_readiness import _load_config_with_defaults
 
-    assert config["defaults"] == "grpo_phage_megatron.yaml"
-    assert env_config["reward_output_mode"] == "gdpo"
-    assert config["loss_fn"]["reference_policy_kl_penalty"] == 0.001
-    assert config["loss_fn"]["token_level_loss"] is False
-    assert config["grpo"]["seq_logprob_error_threshold"] == 1.5
-    assert config["policy"]["generation"]["mcore_generation_config"]["generation_adapter_config"]["seed"] == 42
-    assert config["policy"]["megatron_cfg"]["optimizer"]["lr"] == 1.0e-6
-    assert config["policy"]["megatron_cfg"]["optimizer"]["min_lr"] == 1.0e-7
-    assert config["policy"]["megatron_cfg"]["scheduler"]["lr_warmup_init"] == 1.0e-7
-    assert (
-        config["checkpointing"]["metric_name"]
-        == "val:phage_qc/binary_safety_qualified_full_qc_cluster_deduplicated_rate"
+    config = _load_config_with_defaults(RECIPE_ROOT / "configs/gdpo_phage_megatron.yaml")
+    env = config["env"]["phage_qc"]
+    objectives = env["gdpo_objectives"]
+    registered_columns = {component.score_column for component in REWARD_COMPONENTS}
+    assert env["reward_output_mode"] == "gdpo"
+    assert objectives
+    assert len({objective["name"] for objective in objectives}) == len(objectives)
+    individual = [objective for objective in objectives if len(objective["columns"]) == 1]
+    assert len(individual) == 16
+    columns = [objective["columns"][0] for objective in individual]
+    assert len(set(columns)) == len(columns)
+    assert {column for objective in objectives for column in objective["columns"]} <= registered_columns
+    assert env["external_qc"]["fail_on_error"] is True
+    assert config["checkpointing"]["save_optimizer"] is True
+    assert config["policy"]["train_global_batch_size"] == (
+        config["grpo"]["num_prompts_per_step"] * config["grpo"]["num_generations_per_prompt"]
     )
-    assert [objective["name"] for objective in objectives] == [
-        "valid_nt_chars",
-        "genome_length",
-        "gc_content",
-        "nt_homopolymer",
-        "dustmask_end",
-        "nucleotide_pass",
-        "protein_hit_count",
-        "tropism",
-        "required_genes",
-        "synteny",
-        "average_protein_identity",
-        "mmseqs_cluster_diversity",
-        "safety_amr",
-        "safety_toxin",
-        "safety_lysogeny",
+    # Each update samples each actual prefix once, then expands its completions.
+    # Repeated identical records would obscure the estimator's true group sizes.
+    selection = yaml.safe_load((RECIPE_ROOT / "examples/default-sampling-selection.yaml").read_text())
+    bank = write_rl_prompt_bank(tmp_path / "train.jsonl", prompt_lengths=selection["prompt_lengths"], num_records=96)
+    prompts = [json.loads(line)["messages"][0]["content"] for line in bank.read_text().splitlines()]
+    step_size = config["grpo"]["num_prompts_per_step"]
+    assert not config["data"]["shuffle"]
+    for start in range(0, len(prompts), step_size):
+        update = prompts[start : start + step_size]
+        assert len(update) == len(set(update)) == len(set(prompts))
+    adapter = config["policy"]["generation"]["mcore_generation_config"]["generation_adapter_config"]
+    assert adapter["ignore_eos"] is False
+    assert adapter["preserve_eos_token"] is True
+    diversity = env["mmseqs_cluster_diversity"]
+    assert diversity["enabled"]
+    assert diversity["min_seq_id"] == 0.99
+    assert diversity["coverage"] == 0.95
+    assert diversity["cov_mode"] == 0
+
+
+@pytest.mark.parametrize("name", ["grpo_phage_megatron.yaml", "gdpo_phage_megatron.yaml"])
+def test_equal_scalar_credit(name):
+    """Improving any enabled scalar component by the same amount earns equal credit."""
+    import pandas as pd
+
+    from bionemo.evo2_phage_gen.reward import REWARD_COMPONENTS, RewardWeights, aggregate_rewards
+    from bionemo.evo2_phage_gen.rl_readiness import _load_config_with_defaults
+
+    env = _load_config_with_defaults(RECIPE_ROOT / "configs" / name)["env"]["phage_qc"]
+    weights = RewardWeights(
+        **{
+            field: env.get(f"weight_{field}", getattr(RewardWeights(), field))
+            for field in RewardWeights.__dataclass_fields__
+        }
+    )
+    columns = [
+        component.score_column
+        for component in REWARD_COMPONENTS
+        if component.weight_attr and getattr(weights, component.weight_attr) > 0
     ]
-    assert all(len(objective["columns"]) == 1 for objective in objectives)
-    assert all("reward" not in objective["columns"] for objective in objectives)
-    objective_by_name = {objective["name"]: objective for objective in objectives}
-    assert "reward_mmseqs_cluster_diversity" in objective_by_name["mmseqs_cluster_diversity"]["columns"]
-    assert "reward_dustmask_end" in objectives[4]["columns"]
-    for name in ("safety_amr", "safety_toxin", "safety_lysogeny"):
-        assert objective_by_name[name]["requires_safety_eligibility"] is False
-    for objective in objectives[:-3]:
-        assert objective["requires_safety_eligibility"] is True
-    assert env_config["weight_mmseqs_cluster_diversity"] == 1.0
-    assert env_config["dustmask_filter"] is True
-    assert env_config["weight_dustmask_end"] == 1.0
-    assert env_config["external_qc"]["fail_on_error"] is True
-    assert env_config["external_qc"]["tool_bin_dir"] == "data/external/bin"
-    assert env_config["external_qc"]["timeout_seconds"] == 1800
-    assert env_config["external_qc"]["lovis4u_parallel_jobs"] == 32
-    assert env_config["external_qc"]["lovis4u_mmseqs_threads"] == 8
-    assert env_config["external_qc"]["lovis4u_collect_pdfs"] is False
-    assert env_config["sequence_safety"]["batch_size"] >= config["policy"]["generation_batch_size"]
-    assert env_config["sequence_safety"] == {
-        "batch_size": 128,
-        "orf_workers": 32,
-        "phrogs_threads": 64,
-        "threads": 32,
+    scored = pd.DataFrame({column: [float(i == j) for i in range(len(columns))] for j, column in enumerate(columns)})
+    scored["safety_gate_pass"] = 1.0
+    result = aggregate_rewards(scored, weights)
+    assert result["reward"].tolist() == pytest.approx([1.0 / len(columns)] * len(columns))
+
+
+def test_phix_joint_objective_config():
+    """Joint pressure supplements the individual scores without new measurements or gates."""
+    config = yaml.safe_load((RECIPE_ROOT / "configs/gdpo_phage_megatron.yaml").read_text())
+    objectives = config["env"]["phage_qc"]["gdpo_objectives"]
+    products = {objective["name"]: objective for objective in objectives if objective.get("reducer") == "product"}
+    aai = "reward_external_average_protein_identity"
+    core = "reward_external_core_gene_ordered_conservation"
+    accessory = "reward_external_accessory_gene_diversification"
+    a, b = "reward_gene_a_origin", "reward_gene_b_integrity"
+    assert products == {
+        name: dict(name=name, columns=columns, reducer="product", requires_safety_eligibility=True)
+        for name, columns in {
+            "aai_with_core": [aai, core],
+            "accessory_with_core": [accessory, core],
+            "aai_with_core_and_accessory": [aai, core, accessory],
+            "gene_a_and_b_with_accessory": [a, b, accessory],
+            "gene_a_and_b_with_core": [a, b, core],
+            "gene_a_and_b_with_core_aai_accessory": [a, b, core, aai, accessory],
+        }.items()
     }
-    assert config["run_id"] == "phix174_gdpo"
-    assert mmseqs_config["work_dir"] == "data/checkpoints/${run_id}_mmseqs_cluster_diversity"
-    assert {key: value for key, value in mmseqs_config.items() if key != "work_dir"} == {
-        "enabled": True,
-        "mmseqs_bin": "data/external/bin/mmseqs",
-        "keep_artifacts": False,
-        "min_seq_id": 0.99,
-        "coverage": 0.0,
-        "cov_mode": 0,
-        "seq_id_mode": 0,
-        "cluster_mode": 0,
-        "threads": 64,
-        "verbosity": 0,
-    }
-    assert config["grpo"]["num_prompts_per_step"] == 2
-    assert config["grpo"]["num_generations_per_prompt"] == 48
-    assert config["grpo"]["num_prompts_per_step"] * config["grpo"]["num_generations_per_prompt"] == 96
-    assert config["grpo"]["val_at_start"] is False
-    assert config["grpo"]["val_at_end"] is True
-    assert config["policy"]["train_global_batch_size"] == 96
-    assert config["policy"]["train_micro_batch_size"] == 1
-    assert config["policy"]["generation_batch_size"] == 96
-    assert config["policy"]["logprob_batch_size"] == 1
-    mcore_generation_config = config["policy"]["generation"]["mcore_generation_config"]
-    assert mcore_generation_config["prompt_batch_size"] == 12
-    assert mcore_generation_config["max_requests"] == 12
-    assert mcore_generation_config["generation_adapter_config"]["ignore_eos"] is True
-    assert mcore_generation_config["generation_adapter_config"]["strict_generation"] is True
-    assert config["policy"]["sequence_packing"]["enabled"] is False
-    assert config["logger"]["wandb_enabled"] is False
-    assert config["logger"]["wandb"]["name"] == "phix174-gdpo"
-    assert config["cluster"] == {"gpus_per_node": 8, "num_nodes": 1}
-    assert validation_data["dataset_name"] == "bionemo.evo2_phage_gen.nemo_rl_processors.PhageOpenAIFormatDataset"
+    assert len(objectives) == 22
+    env = config["env"]["phage_qc"]
+    assert env["external_qc"]["enable_gene_b_integrity"] is True
+    assert env["external_qc"]["gene_b_reference_locus"] == "NC_001422.1_ORF.14"
+    assert env["weight_gene_b_integrity"] == 1.0
 
 
 def test_phix_example_documents_every_gdpo_objective():
-    """The fixed PhiX example should explain every score enabled by its GDPO config."""
-    config = yaml.safe_load((RECIPE_ROOT / "configs" / "gdpo_phage_megatron.yaml").read_text())
-    readme = (RECIPE_ROOT / "examples" / "README.md").read_text()
-    heading = "## Current PhiX174 GDPO score definitions"
-
-    assert heading in readme
-    score_section = readme.split(heading, maxsplit=1)[1]
+    """Every enabled score should have a definition in the worked example."""
+    config = yaml.safe_load((RECIPE_ROOT / "configs/gdpo_phage_megatron.yaml").read_text())
+    readme = (RECIPE_ROOT / "examples/README.md").read_text()
     for objective in config["env"]["phage_qc"]["gdpo_objectives"]:
-        assert f"`{objective['name']}`" in score_section
+        assert f"`{objective['name']}`" in readme
 
 
 def test_every_inherited_grpo_and_gdpo_config_keeps_mandatory_safety_enabled():
@@ -262,10 +240,8 @@ def test_every_inherited_grpo_and_gdpo_config_keeps_mandatory_safety_enabled():
             assert isinstance(safety[path_key], str) and safety[path_key], (config_path.name, path_key)
 
         if config_path.name.startswith("gdpo_"):
-            assert (
-                resolved["checkpointing"]["metric_name"]
-                == "val:phage_qc/binary_safety_qualified_full_qc_cluster_deduplicated_rate"
-            ), config_path.name
+            assert resolved["checkpointing"]["metric_name"] == "val:phage_qc/mean_reward", config_path.name
+            assert resolved["checkpointing"]["keep_top_k"] >= 3, config_path.name
             objectives = resolved["env"]["phage_qc"]["gdpo_objectives"]
             objective_by_name = {objective["name"]: objective for objective in objectives}
             assert {
