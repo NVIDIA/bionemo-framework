@@ -78,7 +78,7 @@ httpx==0.27.2
 huggingface-hub==1.29.0
 hydra-colorlog==1.2.0
 hydra-core==1.3.4
-hydra-optuna-sweeper==1.2.0
+hydra-optuna-sweeper==1.3.0
 hyperframe==6.1.0
 hypothesis==6.130.8
 identify==2.6.14
